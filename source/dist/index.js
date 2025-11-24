@@ -2,23 +2,29 @@
 // Do not edit manually
 
 module.exports = function({ types: t }) {
+  const builder = {
+    _output: [],
+    _indentLevel: 0,
+    append(s) { this._output.push(s); },
+    newline() { this._output.push('\n'); },
+    indent() { this._indentLevel++; },
+    dedent() { this._indentLevel--; },
+    toString() { return this._output.join(''); }
+  };
   
-  let state = {};
+  
+  function is_valid(name) {
+    return !(name.length === 0);
+  }
   
   return {
     visitor: {
-      VariableDeclarator(path) {
+      Identifier(path) {
         const node = path.node;
-        const __iflet_0 = node.init;
-        if (__iflet_0 !== null && __iflet_0 !== undefined) {
-          const init = __iflet_0;
-          const __iflet_1 = init;
-          if (__iflet_1 !== null) {
-            const arr = __iflet_1;
-            const size = arr.elements.length;
-          }
+        if (is_valid(node.name)) {
+          this.output.writeFileSync("valid");
         }
-      }
+      },
     }
   };
 };

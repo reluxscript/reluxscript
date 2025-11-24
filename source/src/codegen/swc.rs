@@ -401,10 +401,24 @@ impl SwcGenerator {
             }
         }
 
+        // Check if there's a State struct defined and get its fields
+        let state_struct = plugin.body.iter().find_map(|item| {
+            if let PluginItem::Struct(s) = item {
+                if s.name == "State" {
+                    return Some(s);
+                }
+            }
+            None
+        });
+
         // Generate the main plugin struct
         self.emit_line(&format!("pub struct {} {{", plugin.name));
         self.indent += 1;
-        self.emit_line("// Plugin state");
+        if state_struct.is_some() {
+            self.emit_line("pub state: State,");
+        } else {
+            self.emit_line("// Plugin state");
+        }
         self.indent -= 1;
         self.emit_line("}");
         self.emit_line("");
@@ -415,7 +429,23 @@ impl SwcGenerator {
 
         self.emit_line("pub fn new() -> Self {");
         self.indent += 1;
-        self.emit_line("Self {}");
+        if let Some(state) = state_struct {
+            self.emit_line("Self {");
+            self.indent += 1;
+            self.emit_line("state: State {");
+            self.indent += 1;
+            // Initialize state fields with default values
+            for field in &state.fields {
+                let default_value = self.get_default_value_for_type(&field.ty);
+                self.emit_line(&format!("{}: {},", field.name, default_value));
+            }
+            self.indent -= 1;
+            self.emit_line("},");
+            self.indent -= 1;
+            self.emit_line("}");
+        } else {
+            self.emit_line("Self {}");
+        }
         self.indent -= 1;
         self.emit_line("}");
 

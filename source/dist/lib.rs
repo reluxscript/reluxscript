@@ -11,12 +11,16 @@ pub struct State {
 }
 
 pub struct TestStateField {
-    // Plugin state
+    pub state: State,
 }
 
 impl TestStateField {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            state: State {
+                count: 0,
+            },
+        }
     }
 }
 

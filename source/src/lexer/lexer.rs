@@ -531,6 +531,33 @@ impl<'a> Lexer<'a> {
             return TokenKind::Matches;
         }
 
+        // Check for Self:: prefix - strip it and return just the following identifier
+        if ident == "Self" && self.peek_char() == Some(':') {
+            // Look ahead to check for ::
+            let chars: Vec<char> = self.source[self.current_pos..].chars().collect();
+            if chars.len() >= 2 && chars[0] == ':' && chars[1] == ':' {
+                // Skip the ::
+                self.advance(); // first :
+                self.advance(); // second :
+                // Read the identifier after Self::
+                if let Some(c) = self.peek_char() {
+                    if c.is_alphabetic() || c == '_' {
+                        let mut new_ident = String::new();
+                        while let Some(ch) = self.peek_char() {
+                            if ch.is_alphanumeric() || ch == '_' {
+                                new_ident.push(ch);
+                                self.advance();
+                            } else {
+                                break;
+                            }
+                        }
+                        // Return the identifier after Self::, not Self
+                        return TokenKind::Ident(new_ident);
+                    }
+                }
+            }
+        }
+
         // Check for keywords
         match ident.as_str() {
             "fn" => TokenKind::Fn,
