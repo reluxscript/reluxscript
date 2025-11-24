@@ -1,0 +1,218 @@
+/// Kitchen Sink Writer - Tests major ReluxScript writer features
+/// This is a comprehensive test for code generation/transpilation
+
+writer KitchenSinkWriter {
+
+    // === Type Definitions ===
+
+    struct ComponentMetadata {
+        name: Str,
+        has_state: bool,
+        has_effects: bool,
+    }
+
+    // === Writer State ===
+
+    struct State {
+        builder: CodeBuilder,
+        components: Vec<ComponentMetadata>,
+        current_component: Option<Str>,
+    }
+
+    // === Init Hook ===
+
+    fn init() -> State {
+        State {
+            builder: CodeBuilder::new(),
+            components: vec![],
+            current_component: None,
+        }
+    }
+
+    // === Helper Functions ===
+
+    fn is_component(name: &Str) -> bool {
+        if name.is_empty() {
+            return false;
+        }
+        let first = name.chars().next().unwrap();
+        first.is_uppercase()
+    }
+
+    fn sanitize_name(name: &Str) -> Str {
+        // Convert camelCase to PascalCase for C#
+        if name.is_empty() {
+            return name.clone();
+        }
+        let first = name.chars().next().unwrap();
+        format!("{}{}", first.to_uppercase(), &name[1..])
+    }
+
+    fn get_callee_name(callee: &Expression) -> Option<Str> {
+        if let Expression::Identifier(id) = callee {
+            Some(id.name.clone())
+        } else {
+            None
+        }
+    }
+
+    // === Read-Only Visitor Methods ===
+
+    pub fn visit_function_declaration(node: &FunctionDeclaration) {
+        let name = node.id.name.clone();
+
+        // Check if this is a React component
+        if Self::is_component(&name) {
+            let sanitized = Self::sanitize_name(&name);
+            self.state.current_component = Some(name.clone());
+
+            // Initialize metadata
+            let metadata = ComponentMetadata {
+                name: sanitized.clone(),
+                has_state: false,
+                has_effects: false,
+            };
+
+            // Generate class header
+            self.state.builder.append("public class ");
+            self.state.builder.append(&sanitized);
+            self.state.builder.newline();
+            self.state.builder.append("{");
+            self.state.builder.newline();
+
+            // Visit children to collect hooks
+            node.visit_children(self);
+
+            // Close class
+            self.state.builder.append("}");
+            self.state.builder.newline();
+            self.state.builder.newline();
+
+            // Save metadata
+            self.state.components.push(metadata);
+            self.state.current_component = None;
+        }
+    }
+
+    pub fn visit_call_expression(node: &CallExpression) {
+        // Extract useState hooks
+        if let Some(callee_name) = Self::get_callee_name(&node.callee) {
+            if callee_name == "useState" {
+                self.extract_state_var();
+            } else if callee_name == "useEffect" {
+                self.extract_effect();
+            }
+        }
+
+        node.visit_children(self);
+    }
+
+    pub fn visit_identifier(node: &Identifier) {
+        // Track identifier usage
+        let _name = node.name.clone();
+    }
+
+    pub fn visit_jsx_element(node: &JSXElement) {
+        // Generate UI markup
+        self.state.builder.append("    // JSX element");
+        self.state.builder.newline();
+
+        node.visit_children(self);
+    }
+
+    // === Writer-Specific Helpers ===
+
+    fn extract_state_var(&mut self) {
+        // Mark component as having state
+        if let Some(component_name) = &self.state.current_component {
+            for component in &mut self.state.components {
+                if component.name == Self::sanitize_name(component_name) {
+                    component.has_state = true;
+                    break;
+                }
+            }
+        }
+
+        // Emit private field
+        self.state.builder.append("    private object _state;");
+        self.state.builder.newline();
+    }
+
+    fn extract_effect(&mut self) {
+        // Mark component as having effects
+        if let Some(component_name) = &self.state.current_component {
+            for component in &mut self.state.components {
+                if component.name == Self::sanitize_name(component_name) {
+                    component.has_effects = true;
+                    break;
+                }
+            }
+        }
+
+        // Emit lifecycle method
+        self.state.builder.append("    public void OnInitialized() { }");
+        self.state.builder.newline();
+    }
+
+    // === Finish Hook ===
+
+    pub fn finish(&self) -> Str {
+        // Generate final output
+        let mut final_output = String::new();
+
+        // Add using statements
+        final_output.push_str("using System;\n");
+        final_output.push_str("using System.Collections.Generic;\n");
+        final_output.push_str("\n");
+        final_output.push_str("namespace Generated\n");
+        final_output.push_str("{\n");
+
+        // Add builder content
+        final_output.push_str(&self.state.builder.to_string());
+
+        // Close namespace
+        final_output.push_str("}\n");
+
+        // Add summary comment
+        let component_count = self.state.components.len();
+        final_output.push_str(&format!("\n// Generated {} components\n", component_count));
+
+        final_output.into()
+    }
+
+    // === Collection Operations ===
+
+    fn count_components_with_state(components: &Vec<ComponentMetadata>) -> i32 {
+        let mut count = 0;
+        for component in components {
+            if component.has_state {
+                count += 1;
+            }
+        }
+        count
+    }
+
+    fn get_component_names(components: &Vec<ComponentMetadata>) -> Vec<Str> {
+        components.iter().map(|c| c.name.clone()).collect()
+    }
+
+    // === Option Handling ===
+
+    fn find_component(components: &Vec<ComponentMetadata>, name: &Str) -> Option<&ComponentMetadata> {
+        components.iter().find(|c| c.name == *name)
+    }
+
+    // === String Utilities ===
+
+    fn to_camel_case(s: &Str) -> Str {
+        if s.is_empty() {
+            return s.clone();
+        }
+        let first = s.chars().next().unwrap();
+        format!("{}{}", first.to_lowercase(), &s[1..])
+    }
+
+    fn to_snake_case(s: &Str) -> Str {
+        s.to_lowercase().replace(" ", "_")
+    }
+}

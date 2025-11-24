@@ -1,0 +1,244 @@
+/// Kitchen Sink Plugin - Tests major ReluxScript plugin features
+/// This is a comprehensive test of the language for AST transformation plugins
+
+plugin KitchenSinkPlugin {
+
+    // === Type Definitions ===
+
+    struct HookInfo {
+        name: Str,
+        hook_type: Str,
+        args_count: i32,
+    }
+
+    struct ComponentStats {
+        name: Str,
+        hooks: Vec<HookInfo>,
+        has_jsx: bool,
+    }
+
+    struct MemberInfo {
+        object: Str,
+        property: Str,
+    }
+
+    // === Plugin State ===
+
+    struct State {
+        components: Vec<ComponentStats>,
+        current_component: Option<Str>,
+        removed_count: i32,
+        visited_nodes: HashSet<Str>,
+    }
+
+    // === Helper Functions ===
+
+    fn is_component_name(name: &Str) -> bool {
+        if name.is_empty() {
+            return false;
+        }
+        let first_char = name.chars().next().unwrap();
+        first_char.is_uppercase()
+    }
+
+    fn is_hook_call(name: &Str) -> bool {
+        name.starts_with("use") && name.len() > 3
+    }
+
+    fn categorize_hook(name: &Str) -> Str {
+        if name == "useState" || name == "useReducer" {
+            return "state".into();
+        }
+        if name == "useEffect" || name == "useLayoutEffect" {
+            return "effect".into();
+        }
+        if name == "useRef" {
+            return "ref".into();
+        }
+        if name == "useMemo" || name == "useCallback" {
+            return "memo".into();
+        }
+        return format!("custom:{}", name);
+    }
+
+    fn should_remove_console(method: &Str) -> bool {
+        method == "log" || method == "warn" || method == "debug"
+    }
+
+    pub fn format_stats(stats: &ComponentStats) -> Str {
+        format!("{} has {} hooks", stats.name, stats.hooks.len())
+    }
+
+    fn get_callee_name(callee: &Expression) -> Option<Str> {
+        if let Expression::Identifier(id) = callee {
+            Some(id.name.clone())
+        } else if let Expression::MemberExpression(member) = callee {
+            Some(member.property.clone())
+        } else {
+            None
+        }
+    }
+
+    fn extract_member_call(call: &CallExpression) -> Option<MemberInfo> {
+        if let Expression::MemberExpression(member) = &call.callee {
+            if let Expression::Identifier(obj) = &member.object {
+                return Some(MemberInfo {
+                    object: obj.name.clone(),
+                    property: member.property.clone(),
+                });
+            }
+        }
+        None
+    }
+
+    // === Visitor Methods ===
+
+    fn visit_function_declaration(node: &mut FunctionDeclaration, ctx: &Context) {
+        let name = node.id.name.clone();
+
+        // Check if this is a React component
+        if Self::is_component_name(&name) {
+            self.state.current_component = Some(name.clone());
+
+            // Initialize component stats
+            let stats = ComponentStats {
+                name: name.clone(),
+                hooks: vec![],
+                has_jsx: false,
+            };
+            self.state.components.push(stats);
+        }
+
+        // Visit children
+        node.visit_children(self);
+
+        // Clear component context
+        self.state.current_component = None;
+    }
+
+    fn visit_call_expression(node: &mut CallExpression, ctx: &Context) {
+        // Track hooks in components
+        if let Some(component_name) = &self.state.current_component {
+            if let Some(callee_name) = Self::get_callee_name(&node.callee) {
+                if Self::is_hook_call(&callee_name) {
+                    let hook_info = HookInfo {
+                        name: callee_name.clone(),
+                        hook_type: Self::categorize_hook(&callee_name),
+                        args_count: node.arguments.len() as i32,
+                    };
+
+                    // Find current component and add hook
+                    for component in &mut self.state.components {
+                        if component.name == *component_name {
+                            component.hooks.push(hook_info);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Remove console calls
+        if let Some(member) = Self::extract_member_call(node) {
+            if member.object == "console" && Self::should_remove_console(&member.property) {
+                self.state.removed_count += 1;
+            }
+        }
+
+        node.visit_children(self);
+    }
+
+    fn visit_identifier(node: &mut Identifier, ctx: &Context) {
+        let name = node.name.clone();
+
+        // Track visited nodes
+        self.state.visited_nodes.insert(name.clone());
+
+        // Rename specific identifiers
+        if name == "oldName" {
+            *node = Identifier {
+                name: "newName",
+            };
+        }
+
+        // Pattern matching with matches! macro
+        if matches!(node.name.as_str(), "foo" | "bar" | "baz") {
+            let new_name = format!("renamed_{}", node.name);
+            *node = Identifier {
+                name: new_name,
+            };
+        }
+    }
+
+    fn visit_jsx_element(node: &mut JSXElement, ctx: &Context) {
+        // Track JSX usage in components
+        if let Some(component_name) = &self.state.current_component {
+            for component in &mut self.state.components {
+                if component.name == *component_name {
+                    component.has_jsx = true;
+                    break;
+                }
+            }
+        }
+
+        node.visit_children(self);
+    }
+
+    fn visit_variable_declarator(node: &mut VariableDeclarator, ctx: &Context) {
+        // Pattern matching with if-let
+        if let Some(init) = &node.init {
+            if let Expression::ArrayExpression(arr) = init {
+                // Destructuring pattern
+                let _size = arr.elements.len();
+            }
+        }
+
+        node.visit_children(self);
+    }
+
+    // === Collection Operations ===
+
+    fn collect_hook_names(component: &ComponentStats) -> Vec<Str> {
+        component.hooks.iter()
+            .map(|h| h.name.clone())
+            .collect()
+    }
+
+    fn has_hooks(component: &ComponentStats) -> bool {
+        component.hooks.len() > 0
+    }
+
+    fn count_by_type(component: &ComponentStats, target: &Str) -> i32 {
+        let mut count = 0;
+        for hook in &component.hooks {
+            if hook.hook_type == *target {
+                count += 1;
+            }
+        }
+        count
+    }
+
+    // === Option and Result Handling ===
+
+    fn get_first_hook(stats: &ComponentStats) -> Option<Str> {
+        if stats.hooks.is_empty() {
+            None
+        } else {
+            Some(stats.hooks[0].name.clone())
+        }
+    }
+
+    fn safe_get_name(stats: &ComponentStats) -> Result<Str, Str> {
+        if stats.name.is_empty() {
+            Err("No name")
+        } else {
+            Ok(stats.name.clone())
+        }
+    }
+
+    fn process_component(stats: &ComponentStats) -> Result<(), Str> {
+        let _name = Self::safe_get_name(stats)?;
+        let _first_hook = Self::get_first_hook(stats).unwrap_or("none".into());
+        Ok(())
+    }
+}
