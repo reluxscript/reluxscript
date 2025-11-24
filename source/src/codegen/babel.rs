@@ -231,8 +231,8 @@ impl BabelGenerator {
         let is_file_module = use_stmt.path.starts_with("./") || use_stmt.path.starts_with("../");
 
         if is_file_module {
-            // File module: convert .rsc to .js
-            let js_path = use_stmt.path.replace(".rsc", ".js");
+            // File module: convert .lux to .js
+            let js_path = use_stmt.path.replace(".lux", ".js");
 
             // Determine the variable name
             let var_name = if let Some(alias) = &use_stmt.alias {
@@ -241,7 +241,7 @@ impl BabelGenerator {
                 // If we have specific imports, we'll use destructuring
                 String::new() // Will be handled below
             } else {
-                // Extract module name from path (e.g., "./helpers.rsc" -> "helpers")
+                // Extract module name from path (e.g., "./helpers.lux" -> "helpers")
                 self.extract_module_name_from_path(&use_stmt.path)
             };
 
@@ -396,12 +396,12 @@ impl BabelGenerator {
     }
 
     /// Extract module name from file path
-    /// "./helpers.rsc" -> "helpers"
-    /// "./utils/types.rsc" -> "types"
-    /// "../foo/bar.rsc" -> "bar"
+    /// "./helpers.lux" -> "helpers"
+    /// "./utils/types.lux" -> "types"
+    /// "../foo/bar.lux" -> "bar"
     fn extract_module_name_from_path(&self, path: &str) -> String {
-        // Remove .rsc extension
-        let without_ext = path.trim_end_matches(".rsc");
+        // Remove .lux extension
+        let without_ext = path.trim_end_matches(".lux");
 
         // Get the last component after '/'
         let name = without_ext.split('/').last().unwrap_or(without_ext);

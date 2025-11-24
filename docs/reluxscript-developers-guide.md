@@ -69,7 +69,7 @@ export PATH="$PATH:/path/to/reluxscript/target/release"
 
 ### Your First Plugin
 
-Create a file `hello.rsc`:
+Create a file `hello.lux`:
 
 ```reluxscript
 /// A simple plugin that logs function names
@@ -86,14 +86,14 @@ plugin HelloPlugin {
 
 ```bash
 # Build for both targets
-reluxscript build hello.rsc
+reluxscript build hello.lux
 
 # Build for specific target
-reluxscript build hello.rsc --target babel
-reluxscript build hello.rsc --target swc
+reluxscript build hello.lux --target babel
+reluxscript build hello.lux --target swc
 
 # Specify output directory
-reluxscript build hello.rsc -o dist
+reluxscript build hello.lux -o dist
 ```
 
 ### Output Structure
@@ -962,7 +962,7 @@ Build and use:
 
 ```bash
 # Build the plugin
-reluxscript build console-to-logger.rsc -o dist
+reluxscript build console-to-logger.lux -o dist
 
 # Use with Babel
 npx babel src --plugins ./dist/index.js

@@ -296,11 +296,11 @@ fn visit_function_declaration(node: &FunctionDeclaration, ctx: &Context) {
    ```
    minimact-transpiler/
    ├── src/
-   │   └── main.rsc          # Main writer
+   │   └── main.lux          # Main writer
    ├── lib/
-   │   ├── extractors.rsc    # Hook/prop extraction
-   │   ├── generators.rsc    # C# code generation
-   │   └── types.rsc         # Type conversion
+   │   ├── extractors.lux    # Hook/prop extraction
+   │   ├── generators.lux    # C# code generation
+   │   └── types.lux         # Type conversion
    └── tests/
    ```
 
@@ -588,7 +588,7 @@ fn generate_csharp_class(component: &ComponentInfo) {
 
 1. **Review this plan** with stakeholders
 2. **Prioritize ReluxScript enhancements** needed
-3. **Set up minimact-transpiler.rsc** project
+3. **Set up minimact-transpiler.lux** project
 4. **Port simplest component test** as proof of concept
 5. **Iterate** through features
 

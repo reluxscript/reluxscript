@@ -134,7 +134,7 @@ Update `get_typed_field_mapping` to include result types for fields that return 
 Create test ReluxScript files that exercise each pattern:
 
 ```reluxscript
-// test_patterns.rsc
+// test_patterns.lux
 plugin PatternTests {
     fn test_literal_matching(expr: &Expr) {
         if matches!(expr, Literal) {
@@ -383,7 +383,7 @@ if let MemberProp::Ident(__property) = &member.prop {
 ### Testing
 
 ```reluxscript
-// test_auto_unwrap.rsc
+// test_auto_unwrap.lux
 plugin AutoUnwrapTests {
     fn test_simple_unwrap(member: &MemberExpr) {
         // Should auto-unwrap MemberProp::Ident
@@ -472,7 +472,7 @@ Improve error messages and add recovery for common mistakes.
 1. **Type mismatch errors with suggestions**
    ```
    error[RS004]: Cannot access .name on MemberProp
-     --> src/plugin.rsc:15:20
+     --> src/plugin.lux:15:20
       |
    15 |     let name = member.property.name;
       |                       ^^^^^^^^ MemberProp is a wrapper enum
@@ -484,7 +484,7 @@ Improve error messages and add recovery for common mistakes.
 2. **Missing field suggestions**
    ```
    error[RS005]: Unknown field 'object' on MemberExpr
-     --> src/plugin.rsc:10:25
+     --> src/plugin.lux:10:25
       |
    10 |     let obj = member.object;
       |                      ^^^^^^

@@ -65,14 +65,14 @@ impl Parser {
         })
     }
 
-    /// Parse use statement: `use fs;` or `use "./helpers.rsc";` or `use "./helpers.rsc" as h { foo, bar };`
+    /// Parse use statement: `use fs;` or `use "./helpers.lux";` or `use "./helpers.lux" as h { foo, bar };`
     fn parse_use_stmt(&mut self) -> ParseResult<UseStmt> {
         let start_span = self.current_span();
         self.expect(TokenKind::Use)?;
 
         // Parse module path (string literal for files, identifier for built-ins)
         let path = if self.check(TokenKind::StringLit(String::new())) {
-            // File path: use "./helpers.rsc";
+            // File path: use "./helpers.lux";
             if let Some(Token { kind: TokenKind::StringLit(s), .. }) = self.peek() {
                 let path = s.clone();
                 self.advance();

@@ -491,25 +491,25 @@ y = 10;           // OK
 
 ### Compile to Babel
 ```bash
-reluxscript build my-plugin.rsc --target babel -o dist/
+reluxscript build my-plugin.lux --target babel -o dist/
 # Output: dist/index.js
 ```
 
 ### Compile to SWC
 ```bash
-reluxscript build my-plugin.rsc --target swc -o dist/
+reluxscript build my-plugin.lux --target swc -o dist/
 # Output: dist/lib.rs
 ```
 
 ### Compile to Both
 ```bash
-reluxscript build my-plugin.rsc --target both -o dist/
+reluxscript build my-plugin.lux --target both -o dist/
 # Output: dist/index.js and dist/lib.rs
 ```
 
 ### Check for Errors
 ```bash
-reluxscript check my-plugin.rsc
+reluxscript check my-plugin.lux
 ```
 
 ## Example: Complete Plugin

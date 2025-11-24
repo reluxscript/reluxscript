@@ -374,7 +374,7 @@ if let MemberProp::Ident(prop_ident) = &member.prop {
 
 ### Phase 5: Complete Example Transform (Day 9-10)
 
-#### Input: build_member_path.rsc
+#### Input: build_member_path.lux
 ```reluxscript
 pub fn build_member_path(expr: &Expr) -> Str {
     let mut parts = vec![];
@@ -500,7 +500,7 @@ pub fn classify_swc_type(type_name: &str) -> SwcTypeKind {
 4. Pattern rewriting for `while` and `if`
 
 ### Integration Tests
-1. Compile `build_member_path.rsc` and verify SWC output compiles
+1. Compile `build_member_path.lux` and verify SWC output compiles
 2. Run generated code against sample AST
 3. Compare results with hand-written implementation
 
@@ -529,7 +529,7 @@ rustc --edition 2021 lib.rs --extern swc_ecma_ast=... 2>&1
 
 ## Success Criteria
 
-1. `build_member_path.rsc` compiles to valid Rust code
+1. `build_member_path.lux` compiles to valid Rust code
 2. Generated SWC plugin compiles without errors
 3. Generated code correctly handles:
    - Enum unwrapping (Expr → MemberExpr)

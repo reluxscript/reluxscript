@@ -6,40 +6,31 @@ use swc_ecma_ast::*;
 use swc_ecma_visit::{VisitMut, VisitMutWith};
 
 #[derive(Debug, Clone)]
-pub struct Stats {
-    pub removed_count: i32,
+pub struct State {
+    pub count: i32,
+    pub name: String,
 }
 
-pub struct ConsoleRemover {
+pub struct SimplePlugin {
     // Plugin state
 }
 
-impl ConsoleRemover {
+impl SimplePlugin {
     pub fn new() -> Self {
         Self {}
     }
     
-    fn is_console_method(name: &String) -> bool {
-        return (((name == "log") || (name == "warn")) || (name == "error"));
+    fn is_hook_name(name: &String) -> bool {
+        return (name.starts_with("use") && (name.len() > 3));
     }
 }
 
-impl VisitMut for ConsoleRemover {
-    
-    fn visit_mut_call_expr(&mut self, n: &mut CallExpr) {
-        let callee = n.callee.clone();
-        let args_count = n.args.len();
-        if (args_count > 0) {
-            for arg in n.args.clone() {
-                let _temp = arg;
-            }
-        }
-    }
+impl VisitMut for SimplePlugin {
     
     fn visit_mut_ident(&mut self, n: &mut Ident) {
         let name = n.sym.clone();
-        if (name == "oldName") {
-            *n = Ident::new("newName".into(), DUMMY_SP, SyntaxContext::empty());
+        if (name == "foo") {
+            *n = Ident::new("bar".into(), DUMMY_SP, SyntaxContext::empty());
         }
     }
 }

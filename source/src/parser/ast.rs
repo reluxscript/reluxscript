@@ -11,16 +11,16 @@ pub struct Program {
     pub span: Span,
 }
 
-/// Use statement: `use fs;` or `use "./helpers.rsc";` or `use "./helpers.rsc" { foo, bar };`
+/// Use statement: `use fs;` or `use "./helpers.lux";` or `use "./helpers.lux" { foo, bar };`
 #[derive(Debug, Clone)]
 pub struct UseStmt {
-    /// Module path (e.g., "fs", "./helpers.rsc", "../utils/types.rsc")
+    /// Module path (e.g., "fs", "./helpers.lux", "../utils/types.lux")
     pub path: String,
 
-    /// Optional alias: `use "./helpers.rsc" as h;`
+    /// Optional alias: `use "./helpers.lux" as h;`
     pub alias: Option<String>,
 
-    /// Specific imports: `use "./helpers.rsc" { foo, bar };`
+    /// Specific imports: `use "./helpers.lux" { foo, bar };`
     pub imports: Vec<String>,
 
     pub span: Span,

@@ -9,7 +9,7 @@
 ## Current State
 
 The ReluxScript compiler successfully:
-- Parses `.rsc` files
+- Parses `.lux` files
 - Performs semantic analysis (name resolution, type checking, ownership validation)
 - Generates both Babel (JavaScript) and SWC (Rust) output
 - Has comprehensive AST mapping tables
@@ -207,7 +207,7 @@ Currently generates empty visitor blocks. Need to:
 - Compare generated output to expected output
 
 ### Integration Tests
-1. Compile `build_member_path.rsc`
+1. Compile `build_member_path.lux`
 2. Run Babel output against `@babel/core`
 3. Compile SWC output with `cargo build`
 4. Run both against sample AST and compare results
@@ -221,7 +221,7 @@ Convert a complete helper from minimact and validate both outputs produce identi
 
 The enhancement is complete when:
 
-1. `reluxscript build examples/build_member_path.rsc` generates:
+1. `reluxscript build examples/build_member_path.lux` generates:
    - Babel output that runs without errors
    - SWC output that compiles without errors
 

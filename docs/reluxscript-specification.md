@@ -408,7 +408,7 @@ pub enum HookType {
 For multi-file projects, create standalone modules without `plugin` or `writer` declarations:
 
 ```reluxscript
-// File: utils/helpers.rsc
+// File: utils/helpers.lux
 
 // Public function (exported)
 pub fn get_component_name(node: &FunctionDeclaration) -> Str {
@@ -478,13 +478,13 @@ Import functionality from other modules:
 
 ```reluxscript
 // Import from file module
-use "./utils/helpers.rsc";
+use "./utils/helpers.lux";
 
 // Import specific items
-use "./utils/helpers.rsc" { get_component_name, ComponentInfo };
+use "./utils/helpers.lux" { get_component_name, ComponentInfo };
 
 // Import with alias
-use "./utils/helpers.rsc" as helpers;
+use "./utils/helpers.lux" as helpers;
 
 // Import built-in modules
 use fs;
@@ -495,7 +495,7 @@ use path;
 **Module Resolution:**
 - **Relative paths** (starting with `./` or `../`): File-based modules
 - **Built-in names** (no path): Standard library modules (`fs`, `json`, `path`)
-- **Extensions**: `.rsc` extension is optional
+- **Extensions**: `.lux` extension is optional
 
 **Compiles to:**
 
@@ -726,13 +726,13 @@ ReluxScript supports organizing code across multiple files:
 
 ```
 my-plugin/
-  main.rsc              # Entry point (plugin declaration)
+  main.lux              # Entry point (plugin declaration)
   utils/
-    helpers.rsc         # Helper functions
-    types.rsc           # Type definitions
+    helpers.lux         # Helper functions
+    types.lux           # Type definitions
   extractors/
-    props.rsc           # Prop extraction
-    hooks.rsc           # Hook extraction
+    props.lux           # Prop extraction
+    hooks.lux           # Hook extraction
 ```
 
 ### 6.2 Module Types
@@ -767,15 +767,15 @@ enum PrivateEnum { }
 
 ```reluxscript
 // Import all exports (use with module prefix)
-use "./helpers.rsc" as h;
+use "./helpers.lux" as h;
 let name = h::get_name(node);
 
 // Import specific items (use directly)
-use "./helpers.rsc" { get_name };
+use "./helpers.lux" { get_name };
 let name = get_name(node);
 
 // Import multiple items
-use "./helpers.rsc" { get_name, escape_string, ComponentInfo };
+use "./helpers.lux" { get_name, escape_string, ComponentInfo };
 ```
 
 ### 6.5 Built-in Modules
@@ -858,36 +858,36 @@ let data = serde_json::from_str(&json_str)?;
 use path;
 
 // Join paths
-let full_path = path::join(vec!["src", "utils", "helpers.rsc"]);
+let full_path = path::join(vec!["src", "utils", "helpers.lux"]);
 
 // Get directory name
-let dir = path::dirname("/src/utils/helpers.rsc");
+let dir = path::dirname("/src/utils/helpers.lux");
 
 // Get filename
-let name = path::basename("/src/utils/helpers.rsc");
+let name = path::basename("/src/utils/helpers.lux");
 
 // Get extension
-let ext = path::extname("/src/utils/helpers.rsc");
+let ext = path::extname("/src/utils/helpers.lux");
 ```
 
 **Babel Compilation:**
 ```javascript
 const path = require('path');
 
-const fullPath = path.join("src", "utils", "helpers.rsc");
-const dir = path.dirname("/src/utils/helpers.rsc");
-const name = path.basename("/src/utils/helpers.rsc");
-const ext = path.extname("/src/utils/helpers.rsc");
+const fullPath = path.join("src", "utils", "helpers.lux");
+const dir = path.dirname("/src/utils/helpers.lux");
+const name = path.basename("/src/utils/helpers.lux");
+const ext = path.extname("/src/utils/helpers.lux");
 ```
 
 **SWC Compilation:**
 ```rust
 use std::path::{Path, PathBuf};
 
-let full_path = PathBuf::from("src").join("utils").join("helpers.rsc");
-let dir = Path::new("/src/utils/helpers.rsc").parent();
-let name = Path::new("/src/utils/helpers.rsc").file_name();
-let ext = Path::new("/src/utils/helpers.rsc").extension();
+let full_path = PathBuf::from("src").join("utils").join("helpers.lux");
+let dir = Path::new("/src/utils/helpers.lux").parent();
+let name = Path::new("/src/utils/helpers.lux").file_name();
+let ext = Path::new("/src/utils/helpers.lux").extension();
 ```
 
 #### parser Module (Runtime AST Parsing)
@@ -1175,10 +1175,10 @@ fn expressions_equal(a: &Expr, b: &Expr) -> bool {
 
 ### 6.6 Example: Multi-File Plugin
 
-**main.rsc** (Entry point):
+**main.lux** (Entry point):
 ```reluxscript
-use "./utils/helpers.rsc" { get_component_name };
-use "./extractors/props.rsc" { extract_props };
+use "./utils/helpers.lux" { get_component_name };
+use "./extractors/props.lux" { extract_props };
 use fs;
 use json;
 
@@ -1212,7 +1212,7 @@ plugin ReactAnalyzer {
 }
 ```
 
-**utils/helpers.rsc**:
+**utils/helpers.lux**:
 ```reluxscript
 pub fn get_component_name(node: &FunctionDeclaration) -> Str {
     node.id.name.clone()
@@ -1228,7 +1228,7 @@ pub fn is_component(name: &Str) -> bool {
 }
 ```
 
-**extractors/props.rsc**:
+**extractors/props.lux**:
 ```reluxscript
 pub struct PropInfo {
     pub name: Str,

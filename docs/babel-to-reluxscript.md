@@ -32,7 +32,7 @@ ReluxScript has three types of files, each serving a different purpose:
 
 **Example:**
 ```reluxscript
-// transform-hooks.rsc
+// transform-hooks.lux
 plugin HookTransformer {
     fn visit_call_expression(node: &mut CallExpression, ctx: &Context) {
         // Modify the AST - transform useState to useCustomState
@@ -63,7 +63,7 @@ plugin HookTransformer {
 
 **Example:**
 ```reluxscript
-// react-to-csharp.rsc
+// react-to-csharp.lux
 writer ReactToCSharp {
     struct State {
         output: String,
@@ -119,7 +119,7 @@ writer ReactToCSharp {
 
 **Example:**
 ```reluxscript
-// helpers.rsc
+// helpers.lux
 pub struct ComponentInfo {
     pub name: Str,
     pub props: Vec<PropInfo>,
@@ -193,24 +193,24 @@ A typical project combines all three:
 
 ```
 minimact-transpiler/
-├── main.rsc              # writer - main transpiler
+├── main.lux              # writer - main transpiler
 ├── extractors/
-│   ├── hooks.rsc         # module - extract hook info
-│   ├── props.rsc         # module - extract props
-│   └── jsx.rsc           # module - extract JSX
+│   ├── hooks.lux         # module - extract hook info
+│   ├── props.lux         # module - extract props
+│   └── jsx.lux           # module - extract JSX
 ├── generators/
-│   ├── csharp.rsc        # module - generate C# code
-│   └── templates.rsc     # module - generate templates
+│   ├── csharp.lux        # module - generate C# code
+│   └── templates.lux     # module - generate templates
 └── utils/
-    ├── helpers.rsc       # module - utility functions
-    └── types.rsc         # module - shared type definitions
+    ├── helpers.lux       # module - utility functions
+    └── types.lux         # module - shared type definitions
 ```
 
-**main.rsc (writer):**
+**main.lux (writer):**
 ```reluxscript
-use "./extractors/hooks.rsc" { extractHooks };
-use "./generators/csharp.rsc" { generateCSharpClass };
-use "./utils/helpers.rsc" { getComponentName };
+use "./extractors/hooks.lux" { extractHooks };
+use "./generators/csharp.lux" { generateCSharpClass };
+use "./utils/helpers.lux" { getComponentName };
 
 writer MinimactTranspiler {
     fn visit_function_declaration(node: &FunctionDeclaration, ctx: &Context) {
@@ -691,7 +691,7 @@ module.exports = {
 
 **ReluxScript:**
 ```reluxscript
-// helpers.rsc
+// helpers.lux
 
 // You can use snake_case (Rust style)
 pub fn escape_csharp_string(s: &Str) -> Str {
@@ -736,8 +736,8 @@ const csharpType = tsTypeToCSharpType(typeAnnotation);
 
 **ReluxScript:**
 ```reluxscript
-use "./utils/helpers.rsc" { get_component_name };
-use "./types/conversion.rsc" { ts_type_to_csharp_type };
+use "./utils/helpers.lux" { get_component_name };
+use "./types/conversion.lux" { ts_type_to_csharp_type };
 
 // Use them
 let name = get_component_name(node);
@@ -747,7 +747,7 @@ let csharp_type = ts_type_to_csharp_type(type_annotation);
 **Key Changes:**
 - `require()` → `use` statement
 - Destructuring imports work the same way
-- Path must include `.rsc` extension
+- Path must include `.lux` extension
 
 ---
 
@@ -2030,17 +2030,17 @@ Organize your ReluxScript project with a clear module hierarchy:
 
 ```
 minimact-transform/
-├── main.rsc              // Plugin entry point
+├── main.lux              // Plugin entry point
 ├── extractors/
-│   ├── components.rsc    // Component extraction
-│   ├── hooks.rsc         // Hook extraction
-│   └── props.rsc         // Props extraction
+│   ├── components.lux    // Component extraction
+│   ├── hooks.lux         // Hook extraction
+│   └── props.lux         // Props extraction
 ├── generators/
-│   ├── csharp.rsc        // C# code generation
-│   └── templates.rsc     // Template extraction
+│   ├── csharp.lux        // C# code generation
+│   └── templates.lux     // Template extraction
 └── utils/
-    ├── validation.rsc    // Validation helpers
-    └── ast_helpers.rsc   // AST utilities
+    ├── validation.lux    // Validation helpers
+    └── ast_helpers.lux   // AST utilities
 ```
 
 ---

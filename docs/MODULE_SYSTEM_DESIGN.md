@@ -22,16 +22,16 @@ Support multi-file ReluxScript projects with explicit imports/exports.
 
 ```reluxscript
 // Import all public exports from a module
-use "./utils/helpers.rsc";
+use "./utils/helpers.lux";
 
 // Import specific functions/types
-use "./utils/helpers.rsc" { get_component_name, escape_string };
+use "./utils/helpers.lux" { get_component_name, escape_string };
 
 // Import with alias
-use "./extractors/hooks.rsc" as hooks;
+use "./extractors/hooks.lux" as hooks;
 
 // Import specific items with module alias
-use "./extractors/hooks.rsc" as hooks { extract_useState };
+use "./extractors/hooks.lux" as hooks { extract_useState };
 
 // Built-in modules (no path)
 use fs;
@@ -43,7 +43,7 @@ use json;
 Use `pub` keyword to export:
 
 ```reluxscript
-// File: utils/helpers.rsc
+// File: utils/helpers.lux
 
 // Exported function (available for import)
 pub fn get_component_name(node: &FunctionDeclaration) -> Str {
@@ -73,10 +73,10 @@ pub enum HookType {
 
 #### 2.1 File Modules
 
-Regular `.rsc` files containing functions, structs, enums:
+Regular `.lux` files containing functions, structs, enums:
 
 ```reluxscript
-// File: utils/helpers.rsc
+// File: utils/helpers.lux
 pub fn get_component_name(node: &FunctionDeclaration) -> Str {
     node.id.name.clone()
 }
@@ -91,8 +91,8 @@ pub fn escape_string(s: &Str) -> Str {
 Files with `plugin` or `writer` declarations:
 
 ```reluxscript
-// File: main.rsc
-use "./utils/helpers.rsc" { get_component_name };
+// File: main.lux
+use "./utils/helpers.lux" { get_component_name };
 
 plugin MinimactPlugin {
     fn visit_function_declaration(node: &mut FunctionDeclaration, ctx: &Context) {
@@ -114,11 +114,11 @@ Special modules provided by ReluxScript:
 
 1. **Relative paths** (`./ ` or `../`): Resolve relative to current file
 2. **Built-in names** (no `.` or `/`): Use built-in module
-3. **Extensions**: `.rsc` extension can be omitted
+3. **Extensions**: `.lux` extension can be omitted
 
 ```reluxscript
-use "./helpers.rsc";    // OK
-use "./helpers";         // OK - adds .rsc automatically
+use "./helpers.lux";    // OK
+use "./helpers";         // OK - adds .lux automatically
 use "fs";                // Built-in module
 use "../utils/foo";      // OK - relative to parent
 ```
@@ -130,8 +130,8 @@ resolve_module(current_file_path, import_path):
     if import_path starts with "." or "/":
         // File-based module
         abs_path = resolve_relative(current_file_path, import_path)
-        if not ends_with(".rsc"):
-            abs_path += ".rsc"
+        if not ends_with(".lux"):
+            abs_path += ".lux"
         return abs_path
     else:
         // Built-in module
@@ -144,12 +144,12 @@ resolve_module(current_file_path, import_path):
 
 ```
 Input:
-  main.rsc
-  utils/helpers.rsc
-  extractors/hooks.rsc
+  main.lux
+  utils/helpers.lux
+  extractors/hooks.lux
 
 Compilation Steps:
-  1. Parse all .rsc files → ASTs
+  1. Parse all .lux files → ASTs
   2. Build dependency graph
   3. Topological sort (detect cycles)
   4. Type-check in dependency order
@@ -227,7 +227,7 @@ impl VisitMut for MinimactPlugin {
 ```rust
 #[derive(Debug, Clone)]
 pub struct UseStmt {
-    /// Module path (e.g., "./helpers.rsc" or "fs")
+    /// Module path (e.g., "./helpers.lux" or "fs")
     pub path: String,
 
     /// Optional alias (as name)
@@ -242,17 +242,17 @@ pub struct UseStmt {
 
 **Examples**:
 ```reluxscript
-use "./helpers.rsc";
-// path = "./helpers.rsc", alias = None, imports = []
+use "./helpers.lux";
+// path = "./helpers.lux", alias = None, imports = []
 
-use "./helpers.rsc" as h;
-// path = "./helpers.rsc", alias = Some("h"), imports = []
+use "./helpers.lux" as h;
+// path = "./helpers.lux", alias = Some("h"), imports = []
 
-use "./helpers.rsc" { get_name, escape };
-// path = "./helpers.rsc", alias = None, imports = ["get_name", "escape"]
+use "./helpers.lux" { get_name, escape };
+// path = "./helpers.lux", alias = None, imports = ["get_name", "escape"]
 
-use "./helpers.rsc" as h { get_name };
-// path = "./helpers.rsc", alias = Some("h"), imports = ["get_name"]
+use "./helpers.lux" as h { get_name };
+// path = "./helpers.lux", alias = Some("h"), imports = ["get_name"]
 ```
 
 #### 5.2 Module-Level Items
@@ -471,21 +471,21 @@ path::extname(p: Str) -> Str
 
 ```
 minimact/
-  main.rsc                  # Entry point (plugin declaration)
+  main.lux                  # Entry point (plugin declaration)
   utils/
-    helpers.rsc             # Helper functions
-    types.rsc               # Type conversion
+    helpers.lux             # Helper functions
+    types.lux               # Type conversion
   extractors/
-    props.rsc               # Prop extraction
-    hooks.rsc               # Hook extraction
+    props.lux               # Prop extraction
+    hooks.lux               # Hook extraction
 ```
 
-#### main.rsc
+#### main.lux
 ```reluxscript
-use "./utils/helpers.rsc" { get_component_name, escape_string };
-use "./utils/types.rsc" { ts_to_csharp_type };
-use "./extractors/props.rsc" { extract_props };
-use "./extractors/hooks.rsc" { extract_hooks };
+use "./utils/helpers.lux" { get_component_name, escape_string };
+use "./utils/types.lux" { ts_to_csharp_type };
+use "./extractors/props.lux" { extract_props };
+use "./extractors/hooks.lux" { extract_hooks };
 use fs;
 use json;
 
@@ -542,7 +542,7 @@ fn generate_csharp(info: &ComponentInfo) -> Str {
 }
 ```
 
-#### utils/helpers.rsc
+#### utils/helpers.lux
 ```reluxscript
 pub fn get_component_name(node: &FunctionDeclaration) -> Str {
     node.id.name.clone()
@@ -555,9 +555,9 @@ pub fn escape_string(s: &Str) -> Str {
 }
 ```
 
-#### extractors/props.rsc
+#### extractors/props.lux
 ```reluxscript
-use "../utils/helpers.rsc" { escape_string };
+use "../utils/helpers.lux" { escape_string };
 
 pub struct PropInfo {
     pub name: Str,
@@ -621,30 +621,30 @@ pub fn extract_props(node: &FunctionDeclaration) -> Vec<PropInfo> {
 #### Test 1: Simple two-file project
 ```
 test1/
-  main.rsc      - imports helpers
-  helpers.rsc   - exports functions
+  main.lux      - imports helpers
+  helpers.lux   - exports functions
 ```
 
 #### Test 2: Multi-level imports
 ```
 test2/
-  main.rsc      - imports utils
+  main.lux      - imports utils
   utils/
-    index.rsc   - imports helpers
-    helpers.rsc - exports functions
+    index.lux   - imports helpers
+    helpers.lux - exports functions
 ```
 
 #### Test 3: Circular dependency detection
 ```
 test3/
-  a.rsc         - imports b
-  b.rsc         - imports a (ERROR!)
+  a.lux         - imports b
+  b.lux         - imports a (ERROR!)
 ```
 
 #### Test 4: Built-in modules
 ```
 test4/
-  main.rsc      - uses fs, json, path
+  main.lux      - uses fs, json, path
 ```
 
 ---

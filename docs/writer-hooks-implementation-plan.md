@@ -392,7 +392,7 @@ fn gen_writer(&mut self, writer: &WriterDecl) {
 
 #### Example 1: TSX to C# Writer
 
-**File:** `examples/tsx-to-csharp.rsc`
+**File:** `examples/tsx-to-csharp.lux`
 
 ```reluxscript
 writer TsxToCSharp {
@@ -518,7 +518,7 @@ impl Visit for TsxToCSharp {
 
 #### Test Case
 
-**File:** `tests/codegen/test_writer_hooks.rsc`
+**File:** `tests/codegen/test_writer_hooks.lux`
 
 ```reluxscript
 writer TestWriterHooks {
@@ -862,4 +862,4 @@ writer MyWriter {
 - `reluxscript/src/codegen/swc.rs` - SWC writer codegen
 - `reluxscript/src/semantic/resolver.rs` - Hook validation
 - `docs/reluxscript-specification.md` - Section 19
-- `tests/codegen/test_writer_hooks.rsc` - Test cases
+- `tests/codegen/test_writer_hooks.lux` - Test cases
