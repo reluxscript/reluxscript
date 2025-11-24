@@ -1,0 +1,15 @@
+/// Minimal test for string method calls in Babel
+/// Issue: .chars().next().unwrap() and is_uppercase() don't translate to JS
+
+plugin TestStringMethods {
+    fn visit_identifier(node: &mut Identifier, ctx: &Context) {
+        let name = node.name.clone();
+        if name.is_empty() {
+            return;
+        }
+        let first_char = name.chars().next().unwrap();
+        if first_char.is_uppercase() {
+            // do something
+        }
+    }
+}

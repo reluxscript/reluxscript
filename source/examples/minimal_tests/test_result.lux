@@ -1,0 +1,28 @@
+/// Minimal test for Result Ok/Err translation to JavaScript
+/// Issue: Ok() and Err() generate as-is instead of { ok: true/false, value/error }
+
+plugin TestResult {
+    struct ComponentStats {
+        name: Str,
+    }
+
+    fn safe_get_name(stats: &ComponentStats) -> Result<Str, Str> {
+        if stats.name.is_empty() {
+            Err("No name")
+        } else {
+            Ok(stats.name.clone())
+        }
+    }
+
+    fn process_component(stats: &ComponentStats) -> Result<(), Str> {
+        let name = safe_get_name(stats)?;
+        Ok(())
+    }
+
+    fn visit_identifier(node: &mut Identifier, ctx: &Context) {
+        let stats = ComponentStats {
+            name: "test".into(),
+        };
+        let result = process_component(&stats);
+    }
+}

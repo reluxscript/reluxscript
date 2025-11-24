@@ -1,0 +1,14 @@
+/// Minimal test for matches! macro codegen
+/// Issue: matches! generates wrong pattern matching code (String("foo") instead of comparison)
+
+plugin TestMatches {
+    fn visit_identifier(node: &mut Identifier, ctx: &Context) {
+        // Test matches! macro with multiple patterns
+        if matches!(node.name.as_str(), "foo" | "bar" | "baz") {
+            let new_name = format!("renamed_{}", node.name);
+            *node = Identifier {
+                name: new_name,
+            };
+        }
+    }
+}

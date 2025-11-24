@@ -1,0 +1,17 @@
+/// Minimal test for Vec.push() generating += instead of .push()
+/// Issue: vec.push(item) generates vec += item instead of vec.push(item)
+
+plugin TestVecPush {
+    struct Item {
+        name: Str,
+    }
+
+    struct State {
+        items: Vec<Item>,
+    }
+
+    fn visit_identifier(node: &mut Identifier, ctx: &Context) {
+        let item = Item { name: "test".into() };
+        self.state.items.push(item);
+    }
+}

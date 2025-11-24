@@ -1,0 +1,14 @@
+/// Minimal test for if-let pattern variable binding
+/// Issue: Variables bound in if-let patterns are undefined in the generated code
+
+plugin TestIfLetBinding {
+    fn visit_variable_declarator(node: &mut VariableDeclarator, ctx: &Context) {
+        // Test if-let with pattern binding
+        if let Some(init) = &node.init {
+            if let Expression::ArrayExpression(arr) = init {
+                // arr should be bound here, not undefined
+                let size = arr.elements.len();
+            }
+        }
+    }
+}

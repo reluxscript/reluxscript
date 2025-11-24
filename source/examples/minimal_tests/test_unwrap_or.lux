@@ -1,0 +1,11 @@
+/// Minimal test for .unwrap_or() codegen issue in Babel
+/// Issue: Generates .??() instead of proper JavaScript
+
+plugin TestUnwrapOr {
+
+    fn visit_identifier(node: &mut Identifier, ctx: &Context) {
+        // Test unwrap_or on Option type
+        let maybe_name: Option<Str> = Some("test".into());
+        let name = maybe_name.unwrap_or("default".into());
+    }
+}

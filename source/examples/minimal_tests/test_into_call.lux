@@ -1,0 +1,12 @@
+/// Minimal test for .into() appearing in Babel output
+/// Issue: String literals like "foo".into() generate .into() call in JS
+
+plugin TestIntoCall {
+    fn helper() -> Str {
+        return "state".into();
+    }
+
+    fn visit_identifier(node: &mut Identifier, ctx: &Context) {
+        let result = helper();
+    }
+}

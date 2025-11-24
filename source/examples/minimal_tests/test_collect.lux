@@ -1,0 +1,25 @@
+/// Minimal test for .collect() appearing in JS output
+/// Issue: Iterator .collect() appears as-is in JavaScript
+
+plugin TestCollect {
+    struct HookInfo {
+        name: Str,
+    }
+
+    struct ComponentStats {
+        hooks: Vec<HookInfo>,
+    }
+
+    fn get_hook_names(component: &ComponentStats) -> Vec<Str> {
+        component.hooks.iter()
+            .map(|h| h.name.clone())
+            .collect()
+    }
+
+    fn visit_identifier(node: &mut Identifier, ctx: &Context) {
+        let stats = ComponentStats {
+            hooks: vec![],
+        };
+        let names = get_hook_names(&stats);
+    }
+}

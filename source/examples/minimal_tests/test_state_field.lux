@@ -1,0 +1,14 @@
+/// Minimal test for state field access in SWC codegen
+/// Issue: self.state.field generates code but struct doesn't have state field
+
+plugin TestStateField {
+
+    struct State {
+        count: i32,
+    }
+
+    fn visit_identifier(node: &mut Identifier, ctx: &Context) {
+        // Access state field
+        self.state.count += 1;
+    }
+}

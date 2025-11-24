@@ -1,0 +1,16 @@
+/// Minimal test for Self:: function call parse error
+/// Issue: Parser fails with "Expected LBrace" when calling Self::method()
+
+writer TestSelfCall {
+
+    fn is_valid(name: &Str) -> bool {
+        !name.is_empty()
+    }
+
+    fn visit_identifier(node: &Identifier) {
+        // Test Self:: function call
+        if Self::is_valid(&node.name) {
+            self.output.write("valid");
+        }
+    }
+}

@@ -1,0 +1,20 @@
+/// Minimal test for if-let expressions missing return statements
+/// Issue: if-let chains in functions don't generate return statements
+
+plugin TestIfLetReturn {
+    fn get_name(expr: &Expression) -> Option<Str> {
+        if let Expression::Identifier(id) = expr {
+            Some(id.name.clone())
+        } else if let Expression::MemberExpression(member) = expr {
+            Some(member.property.clone())
+        } else {
+            None
+        }
+    }
+
+    fn visit_identifier(node: &mut Identifier, ctx: &Context) {
+        // Use the function
+        let expr = Expression::Identifier(node.clone());
+        let result = get_name(&expr);
+    }
+}

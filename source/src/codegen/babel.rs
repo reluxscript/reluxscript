@@ -1488,9 +1488,23 @@ impl BabelGenerator {
                         }
                     }
                     _ => {
-                        // Generic variant check
+                        // Generic variant check for AST node types
+                        // Extract variant name from qualified path (e.g., "Expression::ArrayExpression" -> "ArrayExpression")
+                        let variant_name = if name.contains("::") {
+                            name.split("::").last().unwrap_or(name)
+                        } else {
+                            name.as_str()
+                        };
                         self.emit(&format!("if ({} !== null) {{\n", temp_var));
                         self.indent += 1;
+
+                        // Bind inner pattern if present
+                        if let Some(inner_pat) = inner {
+                            if let Pattern::Ident(binding) = inner_pat.as_ref() {
+                                self.emit_indent();
+                                self.emit(&format!("const {} = {};\n", binding, temp_var));
+                            }
+                        }
                     }
                 }
             }
@@ -1885,6 +1899,28 @@ impl BabelGenerator {
                         self.gen_expr(&call.args[0]);
                         return;
                     }
+                    // Check for Ok(x) -> { ok: true, value: x }
+                    if ident.name == "Ok" {
+                        self.emit("{ ok: true, value: ");
+                        if let Some(arg) = call.args.first() {
+                            self.gen_expr(arg);
+                        } else {
+                            self.emit("undefined");
+                        }
+                        self.emit(" }");
+                        return;
+                    }
+                    // Check for Err(x) -> { ok: false, error: x }
+                    if ident.name == "Err" {
+                        self.emit("{ ok: false, error: ");
+                        if let Some(arg) = call.args.first() {
+                            self.gen_expr(arg);
+                        } else {
+                            self.emit("undefined");
+                        }
+                        self.emit(" }");
+                        return;
+                    }
                     // Check for Default::default() -> undefined or appropriate default
                     if ident.name == "Default::default()" || ident.name == "Default::default" {
                         self.emit("undefined");
@@ -2058,6 +2094,43 @@ impl BabelGenerator {
                         self.gen_expr(&mem.object);
                         return;
                     }
+                    // next() -> [0] (get first element from iterator/string)
+                    if prop == "next" {
+                        self.gen_expr(&mem.object);
+                        self.emit("[0]");
+                        return;
+                    }
+                    // unwrap() -> just the value (no-op in JS, Option/Result unwrapping)
+                    if prop == "unwrap" {
+                        self.gen_expr(&mem.object);
+                        return;
+                    }
+                    // collect() -> just the value (no-op in JS, iterators already return arrays)
+                    if prop == "collect" {
+                        self.gen_expr(&mem.object);
+                        return;
+                    }
+                    // unwrap_or(default) -> value ?? default (nullish coalescing)
+                    if prop == "unwrap_or" {
+                        self.emit("(");
+                        self.gen_expr(&mem.object);
+                        self.emit(" ?? ");
+                        if let Some(arg) = call.args.first() {
+                            self.gen_expr(arg);
+                        } else {
+                            self.emit("undefined");
+                        }
+                        self.emit(")");
+                        return;
+                    }
+                    // is_uppercase() -> char === char.toUpperCase()
+                    if prop == "is_uppercase" {
+                        self.emit("(");
+                        let obj_str = self.expr_to_string(&mem.object);
+                        self.gen_expr(&mem.object);
+                        self.emit(&format!(" === {}.toUpperCase())", obj_str));
+                        return;
+                    }
                     // insert() has different meanings for Vec vs HashMap vs HashSet
                     // We need to distinguish based on arg count and types
                     if prop == "insert" {
@@ -2159,11 +2232,9 @@ impl BabelGenerator {
                         self.gen_expr(&mem.object);
                         return;
                     }
-                    // s.push(ch) -> s += ch (for String::push in Rust)
-                    if prop == "push" && call.args.len() == 1 {
+                    // .into() -> just the value (no-op in JS, type conversions are implicit)
+                    if prop == "into" {
                         self.gen_expr(&mem.object);
-                        self.emit(" += ");
-                        self.gen_expr(&call.args[0]);
                         return;
                     }
                     // s.push_str(&t) -> s += t
