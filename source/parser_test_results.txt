@@ -1,0 +1,46 @@
+Testing parser on all .rsc files...
+==================================
+
+[1] Testing: ./examples/build_member_path.rsc ... PASSED
+[2] Testing: ./examples/console-stripper.rsc ... PASSED
+[3] Testing: ./examples/console_remover.rsc ... PASSED
+[4] Testing: ./examples/deep_chain_test.rsc ... PASSED
+[5] Testing: ./examples/matches_test.rsc ... PASSED
+[6] Testing: ./examples/optional_chain_test.rsc ... PASSED
+[7] Testing: ./examples/ownership_test.rsc ... PASSED
+[8] Testing: ./examples/simple.rsc ... PASSED
+[9] Testing: ./examples/test.rsc ... PASSED
+[10] Testing: ./examples/traverse-test.rsc ... PASSED
+[11] Testing: ./examples/tsx_parser_test/extract_interfaces.rsc ... PASSED
+[12] Testing: ./tests/conversion/extract_use_state.rsc ... PASSED
+[13] Testing: ./tests/enhancements/capturing_simple.rsc ... PASSED
+[14] Testing: ./tests/enhancements/field_types.rsc ... PASSED
+[15] Testing: ./tests/enhancements/file_io.rsc ... PASSED
+[16] Testing: ./tests/enhancements/hashmap_hashset.rsc ... PASSED
+[17] Testing: ./tests/enhancements/if_let_test.rsc ... PASSED
+[18] Testing: ./tests/enhancements/json_serialization.rsc ... PASSED
+[19] Testing: ./tests/enhancements/mutable_refs.rsc ... PASSED
+[20] Testing: ./tests/enhancements/nested_traverse.rsc ... PASSED
+[21] Testing: ./tests/enhancements/string_formatting.rsc ... PASSED
+[22] Testing: ./tests/gaps/associated_functions.rsc ... FAILED
+Parse error at 7:12: Expected identifier
+[23] Testing: ./tests/gaps/function_call_in_struct.rsc ... FAILED
+Parse error at 7:12: Expected identifier
+[24] Testing: ./tests/gaps/hashmap_length.rsc ... PASSED
+[25] Testing: ./tests/gaps/impl_blocks.rsc ... FAILED
+Parse error at 7:12: Expected identifier
+[26] Testing: ./tests/gaps/impl_simple.rsc ... PASSED
+[27] Testing: ./tests/gaps/method_chaining.rsc ... FAILED
+Parse error at 19:19: Expected identifier
+[28] Testing: ./tests/gaps/minimact_full.rsc ... PASSED
+[29] Testing: ./tests/gaps/plugin_self_test.rsc ... PASSED
+[30] Testing: ./tests/gaps/self_type.rsc ... FAILED
+Parse error at 12:32: Expected type name
+[31] Testing: ./tests/gaps/writer_lifecycle.rsc ... PASSED
+[32] Testing: ./tests/gaps/writer_minimal.rsc ... PASSED
+[33] Testing: ./tests/struct_return_test.rsc ... PASSED
+
+==================================
+Results: 28 passed, 5 failed out of 33 total
+test_parser.sh: line 40: bc: command not found
+Success rate: %

@@ -1,0 +1,373 @@
+//! ReluxScript Compiler CLI
+
+use clap::{Parser as ClapParser, Subcommand};
+use std::fs;
+use std::path::PathBuf;
+
+use reluxscript::{Lexer, Parser, analyze_with_base_dir, TokenRewriter};
+
+#[cfg(feature = "codegen")]
+use reluxscript::{generate, Target, lower};
+
+#[derive(ClapParser)]
+#[command(name = "reluxscript")]
+#[command(about = "ReluxScript compiler - compile to Babel and SWC plugins")]
+#[command(version)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Tokenize a ReluxScript file (for debugging)
+    Lex {
+        /// Input file
+        file: PathBuf,
+    },
+    /// Parse a ReluxScript file (for debugging)
+    Parse {
+        /// Input file
+        file: PathBuf,
+    },
+    /// Check a ReluxScript file for errors
+    Check {
+        /// Input file
+        file: PathBuf,
+        /// Automatically fix common issues (path-qualified if-let patterns)
+        #[arg(long)]
+        autofix: bool,
+    },
+    /// Build a ReluxScript project
+    #[cfg(feature = "codegen")]
+    Build {
+        /// Input file
+        file: PathBuf,
+        /// Target platform (babel, swc, both)
+        #[arg(short, long, default_value = "both")]
+        target: String,
+        /// Output directory
+        #[arg(short, long, default_value = "dist")]
+        output: PathBuf,
+        /// Automatically fix common issues (path-qualified if-let patterns)
+        #[arg(long)]
+        autofix: bool,
+    },
+    /// Fix common issues in ReluxScript files (rewrites in-place)
+    Fix {
+        /// Input file(s)
+        files: Vec<PathBuf>,
+        /// Show what would be changed without writing
+        #[arg(long)]
+        dry_run: bool,
+    },
+}
+
+fn main() {
+    let cli = <Cli as ClapParser>::parse();
+
+    match cli.command {
+        Commands::Lex { file } => {
+            let source = match fs::read_to_string(&file) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("Error reading file: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            let mut lexer = Lexer::new(&source);
+            let tokens = lexer.tokenize();
+
+            println!("Tokens for {:?}:", file);
+            println!("{:-<60}", "");
+            for token in &tokens {
+                println!(
+                    "{:>4}:{:<3} {:?}",
+                    token.span.line,
+                    token.span.column,
+                    token.kind
+                );
+            }
+            println!("{:-<60}", "");
+            println!("Total tokens: {}", tokens.len());
+        }
+        Commands::Parse { file } => {
+            let source = match fs::read_to_string(&file) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("Error reading file: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            let mut lexer = Lexer::new(&source);
+            let tokens = lexer.tokenize();
+            let mut parser = Parser::new_with_source(tokens, source.clone());
+
+            match parser.parse() {
+                Ok(program) => {
+                    println!("Successfully parsed {:?}", file);
+                    println!("{:-<60}", "");
+                    println!("{:#?}", program);
+                }
+                Err(e) => {
+                    eprintln!("Parse error at {}:{}: {}", e.span.line, e.span.column, e.message);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Commands::Check { file, autofix } => {
+            let source = match fs::read_to_string(&file) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("Error reading file: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            let mut lexer = Lexer::new(&source);
+            let mut tokens = lexer.tokenize();
+
+            // Apply autofix if requested
+            if autofix {
+                let rewriter = TokenRewriter::new(tokens);
+                let (fixed_tokens, fixes_applied) = rewriter.rewrite();
+                tokens = fixed_tokens;
+                if fixes_applied > 0 {
+                    println!("Autofix: Applied {} fix(es)", fixes_applied);
+                }
+            }
+
+            let mut parser = Parser::new_with_source(tokens, source.clone());
+
+            let program = match parser.parse() {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("Parse error at {}:{}: {}", e.span.line, e.span.column, e.message);
+                    std::process::exit(1);
+                }
+            };
+
+            // Get base directory from file path
+            let base_dir = file.parent().unwrap_or_else(|| std::path::Path::new(".")).to_path_buf();
+            let result = analyze_with_base_dir(&program, base_dir);
+
+            // Print errors
+            for error in &result.errors {
+                eprintln!(
+                    "error[{}]: {} at {}:{}",
+                    error.code, error.message, error.span.line, error.span.column
+                );
+                if let Some(ref hint) = error.hint {
+                    eprintln!("  help: {}", hint);
+                }
+            }
+
+            // Print warnings
+            for warning in &result.warnings {
+                eprintln!(
+                    "warning[{}]: {} at {}:{}",
+                    warning.code, warning.message, warning.span.line, warning.span.column
+                );
+                if let Some(ref hint) = warning.hint {
+                    eprintln!("  help: {}", hint);
+                }
+            }
+
+            if result.errors.is_empty() {
+                println!("Check passed: {:?}", file);
+                if !result.warnings.is_empty() {
+                    println!("  {} warning(s)", result.warnings.len());
+                }
+            } else {
+                eprintln!("Check failed: {} error(s)", result.errors.len());
+                std::process::exit(1);
+            }
+        }
+        #[cfg(feature = "codegen")]
+        Commands::Build { file, target, output, autofix } => {
+            let source = match fs::read_to_string(&file) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("Error reading file: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            // Parse
+            let mut lexer = Lexer::new(&source);
+            let mut tokens = lexer.tokenize();
+
+            // Apply autofix if requested
+            if autofix {
+                let rewriter = TokenRewriter::new(tokens);
+                let (fixed_tokens, fixes_applied) = rewriter.rewrite();
+                tokens = fixed_tokens;
+                if fixes_applied > 0 {
+                    println!("Autofix: Applied {} fix(es)", fixes_applied);
+                }
+            }
+
+            let mut parser = Parser::new_with_source(tokens, source.clone());
+
+            let mut program = match parser.parse() {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("Parse error at {}:{}: {}", e.span.line, e.span.column, e.message);
+                    std::process::exit(1);
+                }
+            };
+
+            // Semantic analysis
+            let base_dir = file.parent().unwrap_or_else(|| std::path::Path::new(".")).to_path_buf();
+            let result = analyze_with_base_dir(&program, base_dir);
+            if !result.errors.is_empty() {
+                for error in &result.errors {
+                    eprintln!(
+                        "error[{}]: {} at {}:{}",
+                        error.code, error.message, error.span.line, error.span.column
+                    );
+                }
+                eprintln!("Build failed: {} error(s)", result.errors.len());
+                std::process::exit(1);
+            }
+
+            // AST lowering (transform deep chains to pattern matching)
+            lower(&mut program);
+
+            // Determine target
+            let target_enum = match target.as_str() {
+                "babel" => Target::Babel,
+                "swc" => Target::Swc,
+                "both" => Target::Both,
+                _ => {
+                    eprintln!("Unknown target: {}. Use 'babel', 'swc', or 'both'", target);
+                    std::process::exit(1);
+                }
+            };
+
+            // Generate code
+            let generated = generate(&program, target_enum);
+
+            // Create output directory
+            if let Err(e) = fs::create_dir_all(&output) {
+                eprintln!("Error creating output directory: {}", e);
+                std::process::exit(1);
+            }
+
+            // Write generated files
+            if let Some(babel_code) = generated.babel {
+                let babel_path = output.join("index.js");
+                if let Err(e) = fs::write(&babel_path, babel_code) {
+                    eprintln!("Error writing Babel output: {}", e);
+                    std::process::exit(1);
+                }
+                println!("Generated Babel plugin: {:?}", babel_path);
+
+                // Validate generated JS syntax with node --check
+                let node_check = std::process::Command::new("node")
+                    .arg("--check")
+                    .arg(&babel_path)
+                    .output();
+
+                match node_check {
+                    Ok(output) if !output.status.success() => {
+                        eprintln!("\n[VALIDATION ERROR] Generated Babel plugin has syntax errors:");
+                        eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+                        eprintln!("\nCodegen produced invalid JavaScript. This is a compiler bug.");
+                        std::process::exit(1);
+                    }
+                    Ok(_) => {
+                        println!("✓ Babel output validated successfully");
+                    }
+                    Err(_) => {
+                        // Node.js not available, skip validation with warning
+                        eprintln!("Warning: Could not validate JS syntax (node not found)");
+                    }
+                }
+            }
+
+            if let Some(swc_code) = generated.swc {
+                let swc_path = output.join("lib.rs");
+                if let Err(e) = fs::write(&swc_path, swc_code) {
+                    eprintln!("Error writing SWC output: {}", e);
+                    std::process::exit(1);
+                }
+                println!("Generated SWC plugin: {:?}", swc_path);
+            }
+
+            println!("Build complete!");
+        }
+        Commands::Fix { files, dry_run } => {
+            let mut total_fixes = 0;
+            let mut files_changed = 0;
+
+            for file in &files {
+                let source = match fs::read_to_string(file) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!("Error reading {:?}: {}", file, e);
+                        continue;
+                    }
+                };
+
+                // Tokenize
+                let mut lexer = Lexer::new(&source);
+                let tokens = lexer.tokenize();
+
+                // Apply fixes
+                let rewriter = TokenRewriter::new(tokens);
+                let (fixed_tokens, fixes_applied) = rewriter.rewrite();
+
+                if fixes_applied == 0 {
+                    if files.len() == 1 {
+                        println!("No fixes needed for {:?}", file);
+                    }
+                    continue;
+                }
+
+                files_changed += 1;
+                total_fixes += fixes_applied;
+
+                println!("{:?}: {} fix(es) applied", file, fixes_applied);
+
+                if !dry_run {
+                    // We need to regenerate source from tokens
+                    // For now, we'll use a simple approach that works for our use case
+                    // In a production system, you'd want a proper token-to-source converter
+
+                    // Since we're rewriting if-let to match, we need to actually parse and
+                    // verify it works, then write it back
+                    // For simplicity, let's parse with the fixed tokens to verify it works
+                    let mut parser = Parser::new_with_source(fixed_tokens, source.clone());
+
+                    match parser.parse() {
+                        Ok(_) => {
+                            // The fix worked! But we can't write it back yet because
+                            // we need a token-to-source converter
+                            println!("  Warning: File NOT rewritten - token-to-source conversion not yet implemented");
+                            println!("  The fixes would have been applied, but source regeneration is needed");
+                        }
+                        Err(e) => {
+                            eprintln!("  Error: Fix validation failed: {}", e.message);
+                            eprintln!("  File NOT modified");
+                        }
+                    }
+                } else {
+                    println!("  (dry-run: file not modified)");
+                }
+            }
+
+            println!("\n{} file(s) processed, {} total fix(es)", files.len(), total_fixes);
+            if files_changed > 0 {
+                if dry_run {
+                    println!("Run without --dry-run to apply changes");
+                } else {
+                    println!("Note: Actual file rewriting requires token-to-source conversion (not yet implemented)");
+                    println!("Use --autofix with check/build commands to apply fixes during compilation");
+                }
+            }
+        }
+    }
+}
