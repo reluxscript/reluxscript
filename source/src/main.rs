@@ -290,11 +290,77 @@ fn main() {
 
             if let Some(swc_code) = generated.swc {
                 let swc_path = output.join("lib.rs");
-                if let Err(e) = fs::write(&swc_path, swc_code) {
+                if let Err(e) = fs::write(&swc_path, &swc_code) {
                     eprintln!("Error writing SWC output: {}", e);
                     std::process::exit(1);
                 }
                 println!("Generated SWC plugin: {:?}", swc_path);
+
+                // Generate a minimal Cargo.toml for validation
+                let cargo_toml_path = output.join("Cargo.toml");
+                let needs_cargo_toml = !cargo_toml_path.exists();
+
+                if needs_cargo_toml {
+                    let cargo_toml_content = r#"[package]
+name = "swc-plugin-temp"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+swc_common = "17"
+swc_ecma_ast = "18"
+swc_ecma_visit = "18"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+"#;
+                    if let Err(e) = fs::write(&cargo_toml_path, cargo_toml_content) {
+                        eprintln!("Warning: Could not create Cargo.toml for validation: {}", e);
+                    }
+                }
+
+                // Validate generated Rust code with cargo check
+                let cargo_check = std::process::Command::new("cargo")
+                    .arg("check")
+                    .arg("--manifest-path")
+                    .arg(&cargo_toml_path)
+                    .arg("--lib")
+                    .output();
+
+                match cargo_check {
+                    Ok(output) if !output.status.success() => {
+                        eprintln!("\n[VALIDATION ERROR] Generated SWC plugin has compilation errors:");
+                        eprintln!("{}", String::from_utf8_lossy(&output.stderr));
+                        eprintln!("\nCodegen produced invalid Rust code. This is a compiler bug.");
+
+                        // Clean up temporary Cargo.toml if we created it
+                        if needs_cargo_toml {
+                            let _ = fs::remove_file(&cargo_toml_path);
+                        }
+
+                        std::process::exit(1);
+                    }
+                    Ok(_) => {
+                        println!("✓ SWC output validated successfully");
+
+                        // Clean up temporary Cargo.toml if we created it
+                        if needs_cargo_toml {
+                            let _ = fs::remove_file(&cargo_toml_path);
+                        }
+                    }
+                    Err(_) => {
+                        // Cargo not available, skip validation with warning
+                        eprintln!("Warning: Could not validate Rust syntax (cargo not found)");
+
+                        // Clean up temporary Cargo.toml if we created it
+                        if needs_cargo_toml {
+                            let _ = fs::remove_file(&cargo_toml_path);
+                        }
+                    }
+                }
             }
 
             println!("Build complete!");
