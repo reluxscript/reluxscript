@@ -1,0 +1,29 @@
+/// Minimal test for Number type issue
+
+plugin TestNumberType {
+
+    struct TestStruct {
+        count: Number,
+    }
+
+    struct State {
+        items: Vec<TestStruct>,
+    }
+
+    fn visit_identifier(node: &mut Identifier, ctx: &Context) {
+        // Test 1: Direct literal
+        let test1 = TestStruct {
+            count: 42,
+        };
+
+        // Test 2: From variable
+        let num = 10;
+        let test2 = TestStruct {
+            count: num,
+        };
+
+        // Test 3: Add to state
+        self.state.items.push(test1);
+        self.state.items.push(test2);
+    }
+}

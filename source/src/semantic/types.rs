@@ -385,7 +385,7 @@ pub fn ast_type_to_type_info(ty: &crate::parser::Type) -> TypeInfo {
             "Str" => TypeInfo::Str,
             "i32" => TypeInfo::I32,
             "u32" => TypeInfo::U32,
-            "f64" => TypeInfo::F64,
+            "f64" | "Number" => TypeInfo::F64,  // Number is an alias for f64
             "bool" | "Bool" => TypeInfo::Bool,  // Accept both lowercase and uppercase
             "()" => TypeInfo::Unit,
             _ => TypeInfo::Unknown,
@@ -428,7 +428,7 @@ pub fn ast_type_to_type_info(ty: &crate::parser::Type) -> TypeInfo {
                 "Str" | "String" => TypeInfo::Str,
                 "i32" => TypeInfo::I32,
                 "u32" => TypeInfo::U32,
-                "f64" => TypeInfo::F64,
+                "f64" | "Number" => TypeInfo::F64,
                 _ => {
                     // Otherwise, treat as AST node type
                     TypeInfo::AstNode(name.clone())

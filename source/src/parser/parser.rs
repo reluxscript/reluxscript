@@ -622,7 +622,7 @@ impl Parser {
         } else {
             // Determine if it's a primitive or named type
             match name.as_str() {
-                "Str" | "i32" | "u32" | "f64" | "bool" => Ok(Type::Primitive(name)),
+                "Str" | "i32" | "u32" | "f64" | "bool" | "Number" => Ok(Type::Primitive(name)),
                 _ => Ok(Type::Named(name)),
             }
         }

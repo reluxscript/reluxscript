@@ -8,7 +8,7 @@ plugin KitchenSinkPlugin {
     struct HookInfo {
         name: Str,
         hook_type: Str,
-        args_count: i32,
+        args_count: Number,
     }
 
     struct ComponentStats {
@@ -97,7 +97,7 @@ plugin KitchenSinkPlugin {
         let name = node.id.name.clone();
 
         // Check if this is a React component
-        if Self::is_component_name(&name) {
+        if is_component_name(&name) {
             self.state.current_component = Some(name.clone());
 
             // Initialize component stats
@@ -119,12 +119,12 @@ plugin KitchenSinkPlugin {
     fn visit_call_expression(node: &mut CallExpression, ctx: &Context) {
         // Track hooks in components
         if let Some(component_name) = &self.state.current_component {
-            if let Some(callee_name) = Self::get_callee_name(&node.callee) {
-                if Self::is_hook_call(&callee_name) {
+            if let Some(callee_name) = get_callee_name(&node.callee) {
+                if is_hook_call(&callee_name) {
                     let hook_info = HookInfo {
                         name: callee_name.clone(),
-                        hook_type: Self::categorize_hook(&callee_name),
-                        args_count: node.arguments.len() as i32,
+                        hook_type: categorize_hook(&callee_name),
+                        args_count: 0,
                     };
 
                     // Find current component and add hook
@@ -139,8 +139,8 @@ plugin KitchenSinkPlugin {
         }
 
         // Remove console calls
-        if let Some(member) = Self::extract_member_call(node) {
-            if member.object == "console" && Self::should_remove_console(&member.property) {
+        if let Some(member) = extract_member_call(node) {
+            if member.object == "console" && should_remove_console(&member.property) {
                 self.state.removed_count += 1;
             }
         }
@@ -175,7 +175,13 @@ plugin KitchenSinkPlugin {
         if let Some(component_name) = &self.state.current_component {
             for component in &mut self.state.components {
                 if component.name == *component_name {
-                    component.has_jsx = true;
+                    // Create new struct with updated field
+                    let updated = ComponentStats {
+                        name: component.name.clone(),
+                        hooks: component.hooks.clone(),
+                        has_jsx: true,
+                    };
+                    *component = updated;
                     break;
                 }
             }
@@ -237,8 +243,8 @@ plugin KitchenSinkPlugin {
     }
 
     fn process_component(stats: &ComponentStats) -> Result<(), Str> {
-        let _name = Self::safe_get_name(stats)?;
-        let _first_hook = Self::get_first_hook(stats).unwrap_or("none".into());
+        let _name = safe_get_name(stats)?;
+        let _first_hook = get_first_hook(stats).unwrap_or("none".into());
         Ok(())
     }
 }
