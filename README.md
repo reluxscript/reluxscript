@@ -496,6 +496,18 @@ Read more in [Language Philosophy](docs/reluxscript-specification.md#11-design-p
 
 MIT License - see [LICENSE](LICENSE) for details.
 
+## Name Origin
+
+**ReluxScript** = **Re**ay + **Lux** + **Script**
+
+- **Ray** (sunshine) - Illuminating the path forward
+- **Lux** (light) - Bringing clarity to AST transformations
+- **Script** (code) - The language itself
+
+> *"Light, light, write!"* ☀️
+
+Like light passing through both mediums seamlessly, ReluxScript unifies JavaScript and Rust ecosystems.
+
 ## Acknowledgments
 
 - **Babel** team for the JavaScript AST transformation ecosystem
