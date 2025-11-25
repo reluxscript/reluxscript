@@ -1,0 +1,104 @@
+/**
+ * Type inference utilities
+ */
+
+/**
+ * Infer C# type from JavaScript AST node (for client-computed variables)
+ */
+pub fn infer_csharp_type_from_init(node: &Expression) -> Str {
+    match node {
+        // Array types
+        Expression::ArrayExpression(_) => {
+            "List<dynamic>".into()
+        }
+
+        // Call expressions - try to infer from method name
+        Expression::CallExpression(call) => {
+            if let Expression::MemberExpression(mem) = &call.callee {
+                if let Expression::Identifier(prop) = &mem.property {
+                    let method = &prop.name;
+
+                    // Common array methods return arrays
+                    if vec!["map", "filter", "sort", "sortBy", "orderBy", "slice", "concat"]
+                        .contains(&method.as_str()) {
+                        return "List<dynamic>".into();
+                    }
+
+                    // Aggregation methods return numbers
+                    if vec!["reduce", "sum", "sumBy", "mean", "meanBy", "average", "count", "size"]
+                        .contains(&method.as_str()) {
+                        return "double".into();
+                    }
+
+                    // Find methods return single item
+                    if vec!["find", "minBy", "maxBy", "first", "last"]
+                        .contains(&method.as_str()) {
+                        return "dynamic".into();
+                    }
+
+                    // String methods
+                    if vec!["format", "toString", "join"]
+                        .contains(&method.as_str()) {
+                        return "string".into();
+                    }
+                }
+            }
+
+            // Direct function calls (moment(), _.chain(), etc.)
+            "dynamic".into()
+        }
+
+        // String operations
+        Expression::TemplateLiteral(_) | Expression::StringLiteral(_) => {
+            "string".into()
+        }
+
+        // Numbers
+        Expression::NumericLiteral(_) => {
+            "double".into()
+        }
+
+        // Booleans
+        Expression::BooleanLiteral(_) => {
+            "bool".into()
+        }
+
+        // Binary expressions - try to infer from operation
+        Expression::BinaryExpression(bin) => {
+            if vec!["+", "-", "*", "/", "%"].contains(&bin.operator.as_str()) {
+                "double".into()
+            } else if vec!["==", "===", "!=", "!==", "<", ">", "<=", ">="]
+                .contains(&bin.operator.as_str()) {
+                "bool".into()
+            } else {
+                "dynamic".into()
+            }
+        }
+
+        // Logical expressions
+        Expression::LogicalExpression(_) => {
+            "bool".into()
+        }
+
+        // Default to dynamic
+        _ => "dynamic".into()
+    }
+}
+
+/**
+ * Convert TypeScript type to C# type
+ */
+pub fn ts_type_to_csharp_type(ts_type: &TSType) -> Str {
+    match ts_type {
+        TSType::TSStringKeyword => "string".into(),
+        TSType::TSNumberKeyword => "double".into(),
+        TSType::TSBooleanKeyword => "bool".into(),
+        TSType::TSVoidKeyword => "void".into(),
+        TSType::TSAnyKeyword => "dynamic".into(),
+        TSType::TSArrayType(array_type) => {
+            let element_type = ts_type_to_csharp_type(&array_type.element_type);
+            format!("List<{}>", element_type)
+        }
+        _ => "dynamic".into()
+    }
+}

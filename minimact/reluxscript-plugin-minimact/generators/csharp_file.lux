@@ -2,7 +2,7 @@
  * C# File Generator
  */
 
-use "./component.lux" { generate_component };
+use "./component/mod.lux" { generate_component };
 use "./plugin.lux" { uses_plugins };
 use "../types/component_types.lux" { Component };
 
@@ -40,7 +40,6 @@ pub fn generate_csharp_file(components: &Vec<Component>, state: &GeneratorState)
     } else {
         "Minimact.Components".into()
     };
-
     lines.push(format!("namespace {};", namespace));
     lines.push("".into());
 
@@ -54,10 +53,8 @@ pub fn generate_csharp_file(components: &Vec<Component>, state: &GeneratorState)
             }
         } else {
             // Normal component generation
-            let component_lines = generate_component(&mut component.clone());
-            for line in component_lines {
-                lines.push(line);
-            }
+            let component_lines = generate_component(component);
+            lines.extend(component_lines);
         }
         lines.push("".into());
     }

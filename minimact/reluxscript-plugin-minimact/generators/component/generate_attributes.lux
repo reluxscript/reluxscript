@@ -1,0 +1,81 @@
+/**
+ * Attribute generators for component class
+ */
+
+use "../../types/component_types.lux" { Component };
+use json;
+
+/**
+ * Generate loop template attributes
+ */
+pub fn generate_loop_template_attributes(component: &Component, lines: &mut Vec<Str>) {
+    if let Some(loop_templates) = &component.loop_templates {
+        if loop_templates.len() > 0 {
+            for loop_template in loop_templates {
+                let template_json = json::stringify(loop_template);
+                // Escape quotes for C# verbatim string
+                let escaped_json = template_json.replace("\"", "\"\"");
+
+                lines.push(format!(
+                    "[LoopTemplate(\"{}\", @\"{}\")]",
+                    loop_template.state_key,
+                    escaped_json
+                ));
+            }
+        }
+    }
+}
+
+/**
+ * Generate StateX projection attributes
+ */
+pub fn generate_state_x_attributes(component: &Component, lines: &mut Vec<Str>) {
+    if let Some(use_state_x) = &component.use_state_x {
+        if use_state_x.len() > 0 {
+            for i in 0..use_state_x.len() {
+                let state_x = &use_state_x[i];
+                let state_key = format!("stateX_{}", i);
+
+                for target in &state_x.targets {
+                    let mut parts = vec![];
+
+                    // Required: stateKey and selector
+                    parts.push(format!("\"{}\"", state_key));
+                    parts.push(format!("\"{}\"", target.selector));
+
+                    // Optional: Transform (C# lambda)
+                    if let Some(transform) = &target.transform {
+                        parts.push(format!("Transform = @\"{}\"", transform));
+                    }
+
+                    // Optional: TransformId (registry reference)
+                    if let Some(transform_id) = &target.transform_id {
+                        parts.push(format!("TransformId = \"{}\"", transform_id));
+                    }
+
+                    // Optional: ApplyAs mode
+                    if target.apply_as != "textContent" {
+                        parts.push(format!("ApplyAs = \"{}\"", target.apply_as));
+                    }
+
+                    // Optional: Property name
+                    if let Some(property) = &target.property {
+                        parts.push(format!("Property = \"{}\"", property));
+                    }
+
+                    // Optional: ApplyIf condition
+                    if let Some(apply_if) = &target.apply_if {
+                        parts.push(format!("ApplyIf = @\"{}\"", apply_if.csharp_code));
+                    }
+
+                    // Optional: Template hint
+                    if let Some(template) = &target.template {
+                        parts.push(format!("Template = \"{}\"", template));
+                    }
+
+                    lines.push(format!("[StateXTransform({})]", parts.join(", ")));
+                }
+            }
+        }
+    }
+}
