@@ -1,0 +1,39 @@
+ Summary: Playground Integration
+
+  I've integrated a playground into your existing site at J:\projects\relux\reluxscript\site. Here's what was done:
+
+  Files Created/Modified:
+
+  1. source/src/wasm.rs - WASM bindings that expose compile_reluxscript() function
+  2. source/Cargo.toml - Added WASM dependencies (wasm-bindgen, serde-wasm-bindgen) and wasm feature
+  3. source/src/lib.rs - Added pub mod wasm with #[cfg(feature = "wasm")]
+  4. site/src/main.js - Added "Playground" link to navigation
+  5. site/playground.html - Full playground UI with 3-panel editor (Input, Babel, SWC)
+  6. site/PLAYGROUND_BUILD.md - Build instructions
+
+  To Build and Run:
+
+  # 1. Install wasm-pack
+  cargo install wasm-pack
+
+  # 2. Build WASM module
+  cd source
+  wasm-pack build --target web --features wasm,codegen --out-dir ../site/public/pkg
+
+  # 3. Run dev server
+  cd ../site
+  npm run dev
+
+  # 4. Visit playground
+  # Open http://localhost:5173/playground.html
+
+  Features:
+
+  - 3-panel editor: ReluxScript input (.lux) → Babel output → SWC output
+  - Syntax highlighting: CodeMirror with Monokai theme
+  - Real-time compilation: Compiles in browser using WASM
+  - Error display: Shows compilation errors inline
+  - Matches site theme: Same cyan/gold gradient design
+  - Integrated navigation: Links back to main site
+
+  The playground runs entirely client-side - no server needed for compilation!

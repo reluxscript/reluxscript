@@ -777,11 +777,20 @@ impl BabelGenerator {
             self.register_node_var(original_name, Some("path"), None);
         }
 
+        // Set up alias for context parameter (second param) -> "path"
+        if f.params.len() >= 2 {
+            let ctx_param_name = &f.params[1].name;
+            self.param_aliases.insert(ctx_param_name.clone(), "path".to_string());
+        }
+
         self.gen_block(&f.body);
 
-        // Clear the alias after generating the method
+        // Clear the aliases after generating the method
         if !f.params.is_empty() {
             self.param_aliases.remove(&f.params[0].name);
+        }
+        if f.params.len() >= 2 {
+            self.param_aliases.remove(&f.params[1].name);
         }
 
         self.indent -= 1;
@@ -1484,7 +1493,13 @@ impl BabelGenerator {
 
                         // Bind inner pattern
                         if let Some(inner_pat) = inner {
-                            if let Pattern::Ident(binding) = inner_pat.as_ref() {
+                            // Unwrap Ref patterns to get to the actual binding
+                            let binding_pat = match inner_pat.as_ref() {
+                                Pattern::Ref { pattern: inner, .. } => inner.as_ref(),
+                                other => other,
+                            };
+
+                            if let Pattern::Ident(binding) = binding_pat {
                                 self.emit_indent();
                                 self.emit(&format!("const {} = {};\n", binding, temp_var));
                             }
@@ -1501,7 +1516,13 @@ impl BabelGenerator {
                         self.indent += 1;
 
                         if let Some(inner_pat) = inner {
-                            if let Pattern::Ident(binding) = inner_pat.as_ref() {
+                            // Unwrap Ref patterns to get to the actual binding
+                            let binding_pat = match inner_pat.as_ref() {
+                                Pattern::Ref { pattern: inner, .. } => inner.as_ref(),
+                                other => other,
+                            };
+
+                            if let Pattern::Ident(binding) = binding_pat {
                                 self.emit_indent();
                                 self.emit(&format!("const {} = {}.value;\n", binding, temp_var));
                             }
@@ -1513,7 +1534,13 @@ impl BabelGenerator {
                         self.indent += 1;
 
                         if let Some(inner_pat) = inner {
-                            if let Pattern::Ident(binding) = inner_pat.as_ref() {
+                            // Unwrap Ref patterns to get to the actual binding
+                            let binding_pat = match inner_pat.as_ref() {
+                                Pattern::Ref { pattern: inner, .. } => inner.as_ref(),
+                                other => other,
+                            };
+
+                            if let Pattern::Ident(binding) = binding_pat {
                                 self.emit_indent();
                                 self.emit(&format!("const {} = {}.error;\n", binding, temp_var));
                             }
@@ -1532,7 +1559,13 @@ impl BabelGenerator {
 
                         // Bind inner pattern if present
                         if let Some(inner_pat) = inner {
-                            if let Pattern::Ident(binding) = inner_pat.as_ref() {
+                            // Unwrap Ref patterns to get to the actual binding
+                            let binding_pat = match inner_pat.as_ref() {
+                                Pattern::Ref { pattern: inner, .. } => inner.as_ref(),
+                                other => other,
+                            };
+
+                            if let Pattern::Ident(binding) = binding_pat {
                                 self.emit_indent();
                                 self.emit(&format!("const {} = {};\n", binding, temp_var));
                             }
@@ -2124,6 +2157,12 @@ impl BabelGenerator {
                     // clone() -> just the value (no-op in JS)
                     if prop == "clone" {
                         self.gen_expr(&mem.object);
+                        return;
+                    }
+                    // remove() on Context -> path.remove() in Babel
+                    if prop == "remove" && call.args.is_empty() {
+                        self.gen_expr(&mem.object);
+                        self.emit(".remove()");
                         return;
                     }
                     // next() -> [0] (get first element from iterator/string)
