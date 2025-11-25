@@ -177,7 +177,7 @@ impl Visit for KitchenSinkWriter {
             self.newline();
             self.append("{");
             self.newline();
-            n.visit_children_with(self);
+            swc_ecma_visit::VisitWith::visit_children_with(n, self);
             self.append("}");
             self.newline();
             self.newline();
@@ -196,7 +196,7 @@ impl Visit for KitchenSinkWriter {
                 }
             }
         }
-        n.visit_children_with(self);
+        swc_ecma_visit::VisitWith::visit_children_with(n, self);
     }
     
     fn visit_ident(&mut self, n: &Ident) {
@@ -206,6 +206,6 @@ impl Visit for KitchenSinkWriter {
     fn visit_jsx_element(&mut self, n: &JSXElement) {
         self.append("    // JSX element");
         self.newline();
-        n.visit_children_with(self);
+        swc_ecma_visit::VisitWith::visit_children_with(n, self);
     }
 }

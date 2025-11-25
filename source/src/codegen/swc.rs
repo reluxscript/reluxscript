@@ -2411,12 +2411,16 @@ impl SwcGenerator {
                 // Check for visitor traversal methods
                 if let Expr::Member(mem) = call.callee.as_ref() {
                     let prop = &mem.property;
-                    // visit_children(self) -> n.visit_children_with(self) for writers, n.visit_mut_children_with(self) for plugins
+                    // visit_children(self) -> swc_ecma_visit::VisitWith::visit_children_with(node, self) for writers
+                    //                      -> n.visit_mut_children_with(self) for plugins
                     if prop == "visit_children" {
-                        self.gen_expr(&mem.object);
                         if self.is_writer {
-                            self.emit(".visit_children_with(self)");
+                            // Use fully qualified syntax for Visit trait
+                            self.emit("swc_ecma_visit::VisitWith::visit_children_with(");
+                            self.gen_expr(&mem.object);
+                            self.emit(", self)");
                         } else {
+                            self.gen_expr(&mem.object);
                             self.emit(".visit_mut_children_with(self)");
                         }
                         return;
