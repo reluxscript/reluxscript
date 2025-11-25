@@ -158,7 +158,7 @@ plugin RemoveDebugger {
 ### Compile to Babel
 
 ```bash
-reluxc build remove_debugger.lux --target babel
+relux build remove_debugger.lux --target babel
 ```
 
 Generates `dist/index.js` - a ready-to-use Babel plugin!
@@ -166,7 +166,7 @@ Generates `dist/index.js` - a ready-to-use Babel plugin!
 ### Compile to SWC
 
 ```bash
-reluxc build remove_debugger.lux --target swc
+relux build remove_debugger.lux --target swc
 ```
 
 Generates `dist/lib.rs` - a ready-to-use SWC plugin!
@@ -377,7 +377,7 @@ cargo test
 # Build release
 cargo build --release
 
-# The binary is at: target/release/reluxc
+# The binary is at: target/release/relux
 ```
 
 ### Development
@@ -399,25 +399,25 @@ cargo fmt
 
 ```bash
 # Compile to Babel
-reluxc build plugin.lux --target babel
+relux build plugin.lux --target babel
 
 # Compile to SWC
-reluxc build plugin.lux --target swc
+relux build plugin.lux --target swc
 
 # Compile both targets
-reluxc build plugin.lux --target all
-
-# Watch mode (recompile on changes)
-reluxc watch plugin.lux --target babel
+relux build plugin.lux --target both
 
 # Type check only (no codegen)
-reluxc check plugin.lux
+relux check plugin.lux
 
-# Show AST
-reluxc ast plugin.lux
+# Debug: view tokens
+relux lex plugin.lux
+
+# Debug: view AST
+relux parse plugin.lux
 
 # Help
-reluxc --help
+relux --help
 ```
 
 ## Roadmap
