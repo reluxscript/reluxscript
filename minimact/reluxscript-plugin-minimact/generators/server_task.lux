@@ -1,0 +1,114 @@
+/**
+ * Server Task Generator
+ *
+ * Generates C# async Task methods from useServerTask calls
+ */
+
+use "../transpilers/typescript_to_c_sharp.lux" { transpile_async_function_to_csharp };
+use "../types/component_types.lux" { Component };
+
+/**
+ * Generate C# server task methods
+ */
+pub fn generate_server_task_methods(component: &Component) -> Vec<Str> {
+    if let Some(use_server_task) = &component.use_server_task {
+        if use_server_task.is_empty() {
+            return vec![];
+        }
+
+        let mut lines = vec![];
+
+        for (i, task) in use_server_task.iter().enumerate() {
+            let task_id = format!("serverTask_{}", i);
+
+            // Generate method
+            lines.push("".into());
+
+            let streaming_attr = if task.is_streaming {
+                ", Streaming = true"
+            } else {
+                ""
+            };
+            lines.push(format!("    [ServerTask(\"{}\"{})], task_id, streaming_attr));
+
+            // Method signature
+            let return_type = if task.is_streaming {
+                format!("IAsyncEnumerable<{}>", task.return_type.as_ref().unwrap_or(&"object".into()))
+            } else {
+                format!("Task<{}>", task.return_type.as_ref().unwrap_or(&"object".into()))
+            };
+
+            let mut params = vec![];
+
+            // Add user parameters
+            for param in &task.parameters {
+                params.push(format!("{} {}", param.param_type, param.name));
+            }
+
+            // Add progress parameter (non-streaming only)
+            if !task.is_streaming {
+                params.push("IProgress<double> progress".into());
+            }
+
+            // Add cancellation token
+            if task.is_streaming {
+                params.push("[EnumeratorCancellation] CancellationToken cancellationToken = default".into());
+            } else {
+                params.push("CancellationToken cancellationToken".into());
+            }
+
+            let method_name = capitalize(&task_id);
+            let params_list = params.join(", ");
+
+            lines.push(format!("    private async {} {}({})", return_type, method_name, params_list));
+            lines.push("    {".into());
+
+            // Transpile function body
+            let csharp_body = transpile_async_function_to_csharp(&task.async_function)?;
+            let indented_body = indent(&csharp_body, 8);
+
+            lines.push(indented_body);
+            lines.push("    }".into());
+        }
+
+        lines
+    } else {
+        vec![]
+    }
+}
+
+/**
+ * Capitalize first letter
+ */
+fn capitalize(s: &Str) -> Str {
+    if s.is_empty() {
+        return s.clone();
+    }
+
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(first) => {
+            let mut result = first.to_uppercase().to_string();
+            result.push_str(&chars.collect::<String>());
+            result
+        }
+    }
+}
+
+/**
+ * Indent code
+ */
+fn indent(code: &Str, spaces: usize) -> Str {
+    let prefix = " ".repeat(spaces);
+    code.split('\n')
+        .map(|line| {
+            if line.is_empty() {
+                String::new()
+            } else {
+                format!("{}{}", prefix, line)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}

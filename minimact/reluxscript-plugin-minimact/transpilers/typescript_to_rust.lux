@@ -1,0 +1,324 @@
+/**
+ * TypeScript → Rust Transpiler
+ *
+ * Transpiles TypeScript async functions to Rust async functions
+ * for useServerTask with runtime: 'rust'
+ */
+
+use parser;
+
+/**
+ * Transpile async function body → Rust code
+ */
+pub fn transpile_async_function_to_rust(async_function: &Expression) -> Result<Str, Str> {
+    let body = match async_function {
+        Expression::ArrowFunctionExpression(arrow) => &arrow.body,
+        Expression::FunctionExpression(func) => &func.body,
+        _ => return Err("Expected arrow or function expression".into())
+    };
+
+    // Transpile body
+    let rust_code = if let Expression::BlockStatement(block) = body {
+        transpile_block_statement(block)?
+    } else {
+        transpile_expression(body)?
+    };
+
+    Ok(rust_code)
+}
+
+/**
+ * Transpile TypeScript block statement → Rust code
+ */
+fn transpile_block_statement(block: &BlockStatement) -> Result<Str, Str> {
+    let mut code = String::new();
+
+    for statement in &block.body {
+        code.push_str(&transpile_statement(statement)?);
+    }
+
+    Ok(code)
+}
+
+/**
+ * Transpile individual TypeScript statement → Rust statement
+ */
+fn transpile_statement(statement: &Statement) -> Result<Str, Str> {
+    match statement {
+        Statement::VariableDeclaration(var_decl) => {
+            let is_mutable = var_decl.kind == "let";
+            let declarations: Vec<Str> = var_decl.declarations.iter()
+                .map(|decl| {
+                    if let Pattern::Identifier(id) = &decl.id {
+                        let name = &id.name;
+                        let init = if let Some(init_expr) = &decl.init {
+                            transpile_expression(init_expr).unwrap_or("Default::default()".into())
+                        } else {
+                            "Default::default()".into()
+                        };
+
+                        let mut_str = if is_mutable { "mut " } else { "" };
+                        format!("    let {}{} = {};", mut_str, name, init)
+                    } else {
+                        "    let unknown = Default::default();".into()
+                    }
+                })
+                .collect();
+
+            Ok(format!("{}\n", declarations.join("\n")))
+        }
+
+        Statement::ReturnStatement(ret) => {
+            let value = if let Some(argument) = &ret.argument {
+                transpile_expression(argument)?
+            } else {
+                "()".into()
+            };
+            Ok(format!("    {}\n", value))
+        }
+
+        Statement::ExpressionStatement(expr_stmt) => {
+            Ok(format!("    {};\n", transpile_expression(&expr_stmt.expression)?))
+        }
+
+        Statement::ForStatement(for_stmt) => {
+            // for (let i = 0; i < n; i++) → for i in 0..n
+            let var_name = if let Some(ForInit::VariableDeclaration(var_decl)) = &for_stmt.init {
+                if let Some(decl) = var_decl.declarations.first() {
+                    if let Pattern::Identifier(id) = &decl.id {
+                        id.name.clone()
+                    } else {
+                        "i".into()
+                    }
+                } else {
+                    "i".into()
+                }
+            } else {
+                "i".into()
+            };
+
+            let start = "0".to_string();
+            let end = "n".to_string();
+            let body = transpile_statement(&for_stmt.body)?;
+
+            Ok(format!("    for {} in {}..{} {{\n{}\n    }}\n", var_name, start, end, indent(&body, 4)))
+        }
+
+        Statement::ForOfStatement(for_of) => {
+            let left = match &for_of.left {
+                ForInOfLeft::VariableDeclaration(var_decl) => {
+                    if let Some(decl) = var_decl.declarations.first() {
+                        if let Pattern::Identifier(id) = &decl.id {
+                            id.name.clone()
+                        } else {
+                            "item".into()
+                        }
+                    } else {
+                        "item".into()
+                    }
+                }
+                ForInOfLeft::Pattern(pattern) => {
+                    if let Pattern::Identifier(id) = pattern {
+                        id.name.clone()
+                    } else {
+                        "item".into()
+                    }
+                }
+            };
+
+            let right = transpile_expression(&for_of.right)?;
+            let body = transpile_block_statement(&for_of.body)?;
+
+            // Check if it's for await of
+            if for_of.is_await {
+                Ok(format!("    while let Some({}) = {}.next().await {{\n{}\n    }}\n",
+                    left, right, indent(&body, 4)))
+            } else {
+                Ok(format!("    for {} in {} {{\n{}\n    }}\n",
+                    left, right, indent(&body, 4)))
+            }
+        }
+
+        Statement::WhileStatement(while_stmt) => {
+            let test = transpile_expression(&while_stmt.test)?;
+            let body = transpile_block_statement(&while_stmt.body)?;
+            Ok(format!("    while {} {{\n{}\n    }}\n", test, indent(&body, 4)))
+        }
+
+        Statement::IfStatement(if_stmt) => {
+            let test = transpile_expression(&if_stmt.test)?;
+            let consequent = transpile_block_statement(&if_stmt.consequent)?;
+            let alternate = if let Some(alt) = &if_stmt.alternate {
+                format!("\n    else {{\n{}\n    }}", indent(&transpile_statement(alt)?, 4))
+            } else {
+                String::new()
+            };
+
+            Ok(format!("    if {} {{\n{}\n    }}{}\n", test, indent(&consequent, 4), alternate))
+        }
+
+        Statement::BlockStatement(block) => {
+            transpile_block_statement(block)
+        }
+
+        Statement::BreakStatement(_) => Ok("    break;\n".into()),
+
+        Statement::ContinueStatement(_) => Ok("    continue;\n".into()),
+
+        _ => Ok("    /* TODO: statement */\n".into())
+    }
+}
+
+/**
+ * Transpile TypeScript expression → Rust expression
+ */
+fn transpile_expression(expr: &Expression) -> Result<Str, Str> {
+    match expr {
+        Expression::StringLiteral(lit) => {
+            Ok(format!("\"{}\"", lit.value.replace("\\", "\\\\").replace("\"", "\\\"")))
+        }
+
+        Expression::NumericLiteral(num) => {
+            Ok(num.value.to_string())
+        }
+
+        Expression::BooleanLiteral(bool_lit) => {
+            Ok(if bool_lit.value { "true" } else { "false" }.into())
+        }
+
+        Expression::NullLiteral(_) => Ok("None".into()),
+
+        Expression::Identifier(id) => {
+            Ok(id.name.clone())
+        }
+
+        Expression::MemberExpression(mem) => {
+            let object = transpile_expression(&mem.object)?;
+            let property = if mem.computed {
+                format!("[{}]", transpile_expression(&mem.property)?)
+            } else {
+                if let Expression::Identifier(prop_id) = &*mem.property {
+                    format!(".{}", prop_id.name)
+                } else {
+                    ".unknown".into()
+                }
+            };
+
+            Ok(format!("{}{}", object, property))
+        }
+
+        Expression::CallExpression(call) => {
+            let callee = transpile_expression(&call.callee)?;
+            let args: Vec<Str> = call.arguments.iter()
+                .map(|arg| transpile_expression(arg))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            Ok(transpile_method_call(&callee, &args))
+        }
+
+        Expression::AwaitExpression(await_expr) => {
+            Ok(format!("{}.await", transpile_expression(&await_expr.argument)?))
+        }
+
+        Expression::ArrayExpression(arr) => {
+            let elements: Vec<Str> = arr.elements.iter()
+                .map(|el| transpile_expression(el))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(format!("vec![{}]", elements.join(", ")))
+        }
+
+        Expression::BinaryExpression(bin) => {
+            let left = transpile_expression(&bin.left)?;
+            let right = transpile_expression(&bin.right)?;
+            let operator = transpile_operator(&bin.operator);
+            Ok(format!("({} {} {})", left, operator, right))
+        }
+
+        Expression::LogicalExpression(log) => {
+            let left = transpile_expression(&log.left)?;
+            let right = transpile_expression(&log.right)?;
+            let operator = transpile_operator(&log.operator);
+            Ok(format!("({} {} {})", left, operator, right))
+        }
+
+        Expression::ConditionalExpression(cond) => {
+            let test = transpile_expression(&cond.test)?;
+            let consequent = transpile_expression(&cond.consequent)?;
+            let alternate = transpile_expression(&cond.alternate)?;
+            Ok(format!("if {} {{ {} }} else {{ {} }}", test, consequent, alternate))
+        }
+
+        Expression::UnaryExpression(unary) => {
+            let operator = transpile_operator(&unary.operator);
+            let argument = transpile_expression(&unary.argument)?;
+            Ok(if unary.prefix {
+                format!("{}{}", operator, argument)
+            } else {
+                format!("{}{}", argument, operator)
+            })
+        }
+
+        _ => Ok("/* TODO: expression */".into())
+    }
+}
+
+/**
+ * Transpile method call (handle special Rust methods)
+ */
+fn transpile_method_call(callee: &Str, args: &Vec<Str>) -> Str {
+    let args_str = args.join(", ");
+
+    // Array methods: .map, .filter, etc. are already valid in Rust
+    // String methods: mostly compatible
+
+    // Special handling for console.log → println!
+    if callee.contains("console.log") {
+        return format!("println!(\"{{:?}}\", {})", args_str);
+    }
+
+    // Special handling for Math methods
+    if callee.starts_with("Math.") {
+        let method = callee.replace("Math.", "");
+        let rust_method = method.to_lowercase();
+        return format!("{}.{}()", args_str, rust_method);
+    }
+
+    // Special handling for .push()
+    if callee.ends_with(".push") {
+        let obj = callee.replace(".push", "");
+        return format!("{}.push({})", obj, args_str);
+    }
+
+    // Default: just call the method
+    format!("{}({})", callee, args_str)
+}
+
+/**
+ * Transpile operator
+ */
+fn transpile_operator(op: &Str) -> Str {
+    match op.as_str() {
+        "===" => "==".into(),
+        "!==" => "!=".into(),
+        "&&" => "&&".into(),
+        "||" => "||".into(),
+        _ => op.clone()
+    }
+}
+
+/**
+ * Indent code
+ */
+fn indent(code: &Str, spaces: usize) -> Str {
+    let prefix = " ".repeat(spaces);
+    code.split('\n')
+        .map(|line| {
+            if line.is_empty() {
+                String::new()
+            } else {
+                format!("{}{}", prefix, line)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}

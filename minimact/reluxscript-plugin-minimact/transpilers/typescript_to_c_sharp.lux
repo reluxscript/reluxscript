@@ -1,0 +1,380 @@
+/**
+ * TypeScript → C# Transpiler
+ *
+ * Transpiles TypeScript async functions to C# async Tasks
+ * for useServerTask support
+ */
+
+use parser;
+
+/**
+ * Transpile async function body → C# code
+ */
+pub fn transpile_async_function_to_csharp(async_function: &Expression) -> Result<Str, Str> {
+    let (body, params) = match async_function {
+        Expression::ArrowFunctionExpression(arrow) => {
+            (&arrow.body, &arrow.params)
+        }
+        Expression::FunctionExpression(func) => {
+            (&func.body, &func.params)
+        }
+        _ => return Err("Expected arrow or function expression".into())
+    };
+
+    // Transpile body
+    let csharp_code = if let Expression::BlockStatement(block) = body {
+        transpile_block_statement(block)?
+    } else {
+        // Arrow function with expression body: () => expr
+        format!("return {};", transpile_expression(body)?)
+    };
+
+    Ok(csharp_code)
+}
+
+/**
+ * Transpile TypeScript block statement → C# code
+ */
+fn transpile_block_statement(block: &BlockStatement) -> Result<Str, Str> {
+    let mut code = String::new();
+
+    for statement in &block.body {
+        code.push_str(&transpile_statement(statement)?);
+        code.push('\n');
+    }
+
+    Ok(code)
+}
+
+/**
+ * Convert non-boolean expressions to boolean for C# conditions
+ * In JavaScript, any value can be truthy/falsy. In C#, we need explicit bools.
+ * This wraps non-boolean expressions with a runtime type converter.
+ */
+fn convert_string_to_bool(csharp_test: Str, original_test_node: &Expression) -> Str {
+    // If it's already a boolean expression, return as-is
+    match original_test_node {
+        Expression::BinaryExpression(_) => return csharp_test,
+        Expression::LogicalExpression(_) => return csharp_test,
+        Expression::UnaryExpression(unary) if unary.operator == "!" => return csharp_test,
+        _ => {}
+    }
+
+    // For any other expression, wrap with ToBool() helper
+    // This will handle strings, numbers, objects, etc. at runtime
+    format!("MinimactHelpers.ToBool({})", csharp_test)
+}
+
+/**
+ * Transpile individual TypeScript statement → C# statement
+ */
+fn transpile_statement(statement: &Statement) -> Result<Str, Str> {
+    match statement {
+        Statement::VariableDeclaration(var_decl) => {
+            let declarations: Vec<Str> = var_decl.declarations.iter()
+                .map(|decl| {
+                    if let Pattern::Identifier(id) = &decl.id {
+                        let name = &id.name;
+                        let init = if let Some(init_expr) = &decl.init {
+                            transpile_expression(init_expr).unwrap_or("null".into())
+                        } else {
+                            "null".into()
+                        };
+
+                        if name == "chartData" {
+                            println!("[DEBUG chartData] init result: {}", init);
+                        }
+
+                        format!("var {} = {};", name, init)
+                    } else {
+                        "var unknown = null;".into()
+                    }
+                })
+                .collect();
+
+            Ok(declarations.join("\n"))
+        }
+
+        Statement::ReturnStatement(ret) => {
+            let arg = if let Some(argument) = &ret.argument {
+                transpile_expression(argument)?
+            } else {
+                "null".into()
+            };
+            Ok(format!("return {};", arg))
+        }
+
+        Statement::ExpressionStatement(expr_stmt) => {
+            // Check for yield expression (streaming)
+            if let Expression::YieldExpression(yield_expr) = &expr_stmt.expression {
+                if let Some(argument) = &yield_expr.argument {
+                    return Ok(format!("yield return {};", transpile_expression(argument)?));
+                }
+            }
+            Ok(format!("{};", transpile_expression(&expr_stmt.expression)?))
+        }
+
+        Statement::ForStatement(for_stmt) => {
+            let init = if let Some(init_stmt) = &for_stmt.init {
+                transpile_statement(init_stmt)?.trim_end_matches(';').to_string()
+            } else {
+                String::new()
+            };
+
+            let test = if let Some(test_expr) = &for_stmt.test {
+                transpile_expression(test_expr)?
+            } else {
+                "true".into()
+            };
+
+            let update = if let Some(update_expr) = &for_stmt.update {
+                transpile_expression(update_expr)?
+            } else {
+                String::new()
+            };
+
+            let body = transpile_statement(&for_stmt.body)?;
+
+            Ok(format!("for ({}; {}; {})\n{{\n{}\n}}",
+                init, test, update, indent(&body, 4)))
+        }
+
+        Statement::ForOfStatement(for_of) => {
+            let left = match &for_of.left {
+                ForInOfLeft::VariableDeclaration(var_decl) => {
+                    if let Some(decl) = var_decl.declarations.first() {
+                        if let Pattern::Identifier(id) = &decl.id {
+                            id.name.clone()
+                        } else {
+                            "item".into()
+                        }
+                    } else {
+                        "item".into()
+                    }
+                }
+                ForInOfLeft::Pattern(pattern) => {
+                    if let Pattern::Identifier(id) = pattern {
+                        id.name.clone()
+                    } else {
+                        "item".into()
+                    }
+                }
+            };
+
+            let right = transpile_expression(&for_of.right)?;
+            let body = transpile_statement(&for_of.body)?;
+
+            // Check if it's for await of (streaming)
+            if for_of.is_await {
+                Ok(format!("await foreach (var {} in {})\n{{\n{}\n}}",
+                    left, right, indent(&body, 4)))
+            } else {
+                Ok(format!("foreach (var {} in {})\n{{\n{}\n}}",
+                    left, right, indent(&body, 4)))
+            }
+        }
+
+        Statement::WhileStatement(while_stmt) => {
+            let test = transpile_expression(&while_stmt.test)?;
+            let body = transpile_statement(&while_stmt.body)?;
+            Ok(format!("while ({})\n{{\n{}\n}}", test, indent(&body, 4)))
+        }
+
+        Statement::IfStatement(if_stmt) => {
+            let mut test = transpile_expression(&if_stmt.test)?;
+
+            // Convert string truthy checks to proper C# boolean expressions
+            test = convert_string_to_bool(test, &if_stmt.test);
+
+            let consequent = transpile_statement(&if_stmt.consequent)?;
+            let alternate = if let Some(alt) = &if_stmt.alternate {
+                format!("\nelse\n{{\n{}\n}}", indent(&transpile_statement(alt)?, 4))
+            } else {
+                String::new()
+            };
+
+            Ok(format!("if ({})\n{{\n{}\n}}{}", test, indent(&consequent, 4), alternate))
+        }
+
+        Statement::BlockStatement(block) => {
+            transpile_block_statement(block)
+        }
+
+        Statement::TryStatement(try_stmt) => {
+            let block = transpile_block_statement(&try_stmt.block)?;
+            let handler = if let Some(catch_clause) = &try_stmt.handler {
+                transpile_catch_clause(catch_clause)?
+            } else {
+                String::new()
+            };
+            let finalizer = if let Some(finally_block) = &try_stmt.finalizer {
+                format!("\nfinally\n{{\n{}\n}}",
+                    indent(&transpile_block_statement(finally_block)?, 4))
+            } else {
+                String::new()
+            };
+
+            Ok(format!("try\n{{\n{}\n}}{}{}", indent(&block, 4), handler, finalizer))
+        }
+
+        Statement::ThrowStatement(throw_stmt) => {
+            Ok(format!("throw {};", transpile_expression(&throw_stmt.argument)?))
+        }
+
+        Statement::BreakStatement(_) => Ok("break;".into()),
+
+        Statement::ContinueStatement(_) => Ok("continue;".into()),
+
+        _ => Ok(format!("/* TODO: Transpile {} */", "statement"))
+    }
+}
+
+/**
+ * Transpile TypeScript expression → C# expression
+ */
+fn transpile_expression(expr: &Expression) -> Result<Str, Str> {
+    match expr {
+        Expression::StringLiteral(lit) => {
+            Ok(format!("\"{}\"", escape_string(&lit.value)))
+        }
+
+        Expression::NumericLiteral(num) => {
+            Ok(num.value.to_string())
+        }
+
+        Expression::BooleanLiteral(bool_lit) => {
+            Ok(if bool_lit.value { "true" } else { "false" }.into())
+        }
+
+        Expression::NullLiteral(_) => Ok("null".into()),
+
+        Expression::Identifier(id) => {
+            if id.name == "progress" {
+                return Ok("progress".into());
+            }
+            if id.name == "cancellationToken" || id.name == "cancel" {
+                return Ok("cancellationToken".into());
+            }
+            Ok(id.name.clone())
+        }
+
+        Expression::MemberExpression(mem) => {
+            let object = transpile_expression(&mem.object)?;
+            let property = if mem.computed {
+                format!("[{}]", transpile_expression(&mem.property)?)
+            } else {
+                if let Expression::Identifier(prop_id) = &*mem.property {
+                    format!(".{}", prop_id.name)
+                } else {
+                    ".unknown".into()
+                }
+            };
+
+            let full_expr = format!("{}{}", object, property);
+            Ok(transpile_member_expression(&full_expr, &object, &property))
+        }
+
+        Expression::CallExpression(call) => {
+            let callee = transpile_expression(&call.callee)?;
+            let args: Vec<Str> = call.arguments.iter()
+                .map(|arg| transpile_expression(arg))
+                .collect::<Result<Vec<_>, _>>()?;
+            let args_str = args.join(", ");
+
+            Ok(transpile_method_call(&callee, &args_str))
+        }
+
+        Expression::AwaitExpression(await_expr) => {
+            Ok(format!("await {}", transpile_expression(&await_expr.argument)?))
+        }
+
+        Expression::ArrayExpression(arr) => {
+            let elements: Vec<Str> = arr.elements.iter()
+                .map(|el| transpile_expression(el))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(format!("new[] {{ {} }}", elements.join(", ")))
+        }
+
+        Expression::BinaryExpression(bin) => {
+            let left = transpile_expression(&bin.left)?;
+            let right = transpile_expression(&bin.right)?;
+            let operator = transpile_operator(&bin.operator);
+            Ok(format!("({} {} {})", left, operator, right))
+        }
+
+        Expression::ConditionalExpression(cond) => {
+            let test = transpile_expression(&cond.test)?;
+            let consequent = transpile_expression(&cond.consequent)?;
+            let alternate = transpile_expression(&cond.alternate)?;
+            Ok(format!("({} ? {} : {})", test, consequent, alternate))
+        }
+
+        _ => Ok("/* TODO: expression */".into())
+    }
+}
+
+fn transpile_method_call(callee: &Str, args: &Str) -> Str {
+    let mappings = vec![
+        (".map", ".Select"),
+        (".filter", ".Where"),
+        (".find", ".FirstOrDefault"),
+        ("console.log", "Console.WriteLine"),
+        ("Math.floor", "Math.Floor"),
+    ];
+
+    for (ts, csharp) in mappings {
+        if callee.contains(ts) {
+            let transpiled_callee = callee.replace(ts, csharp);
+            return format!("{}({})", transpiled_callee, args);
+        }
+    }
+
+    format!("{}({})", callee, args)
+}
+
+fn transpile_member_expression(full_expr: &Str, object: &Str, property: &Str) -> Str {
+    if object == "progress" && property == ".report" {
+        return "progress.Report".into();
+    }
+    full_expr.clone()
+}
+
+fn transpile_operator(op: &Str) -> Str {
+    match op.as_str() {
+        "===" => "==".into(),
+        "!==" => "!=".into(),
+        _ => op.clone()
+    }
+}
+
+fn transpile_catch_clause(handler: &CatchClause) -> Result<Str, Str> {
+    let param = "ex";
+    let body = transpile_block_statement(&handler.body)?;
+    Ok(format!("\ncatch (Exception {})\n{{\n{}\n}}", param, indent(&body, 4)))
+}
+
+fn escape_string(s: &Str) -> Str {
+    s.replace("\\", "\\\\").replace("\"", "\\\"")
+}
+
+fn capitalize(s: &Str) -> Str {
+    if s.is_empty() {
+        return s.clone();
+    }
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(first) => {
+            let mut result = first.to_uppercase().to_string();
+            result.push_str(&chars.collect::<String>());
+            result
+        }
+    }
+}
+
+fn indent(code: &Str, spaces: usize) -> Str {
+    let prefix = " ".repeat(spaces);
+    code.split('\n')
+        .map(|line| format!("{}{}", prefix, line))
+        .join("\n")
+}

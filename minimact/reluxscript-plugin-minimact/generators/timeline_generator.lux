@@ -1,0 +1,213 @@
+/**
+ * Timeline Generator Module
+ *
+ * Generates C# attributes and timeline metadata files from timeline analysis
+ */
+
+use "../types/component_types.lux" { Timeline, TimelineKeyframe, StateBinding };
+
+pub struct TimelineMetadata {
+    pub component: Str,
+    pub timeline_id: Str,
+    pub duration: i32,
+    pub repeat: bool,
+    pub repeat_count: i32,
+    pub easing: Str,
+    pub state_bindings: Vec<(Str, StateBindingMetadata)>,
+    pub keyframes: Vec<KeyframeMetadata>,
+    pub generated_at: i64
+}
+
+pub struct StateBindingMetadata {
+    pub interpolate: bool,
+    pub state_type: Str,
+    pub setter_name: Str
+}
+
+pub struct KeyframeMetadata {
+    pub time: i32,
+    pub label: Option<Str>,
+    pub state: Vec<(Str, Str)>,
+    pub easing: Option<Str>,
+    pub affected_paths: Vec<Str>
+}
+
+/**
+ * Generate C# attributes for timeline
+ */
+pub fn generate_timeline_attributes(timeline: &Timeline) -> Vec<Str> {
+    let mut attributes = vec![];
+
+    // 1. Generate [Timeline] attribute
+    let mut timeline_attr_parts = vec![
+        format!("[Timeline(\"{}\", {}", timeline.timeline_id, timeline.duration)
+    ];
+
+    if timeline.repeat {
+        timeline_attr_parts.push(", Repeat = true".into());
+    }
+
+    if let Some(repeat_count) = timeline.repeat_count {
+        if repeat_count != -1 {
+            timeline_attr_parts.push(format!(", RepeatCount = {}", repeat_count));
+        }
+    }
+
+    if let Some(easing) = &timeline.easing {
+        if easing != "linear" {
+            timeline_attr_parts.push(format!(", Easing = \"{}\"", easing));
+        }
+    }
+
+    timeline_attr_parts.push(")]".into());
+    attributes.push(timeline_attr_parts.join(""));
+
+    // 2. Generate [TimelineKeyframe] attributes
+    for kf in &timeline.keyframes {
+        for (state_key, value) in &kf.state {
+            let value_str = format_csharp_value(value);
+            let mut keyframe_attr = format!(
+                "[TimelineKeyframe({}, \"{}\", {}",
+                kf.time, state_key, value_str
+            );
+
+            if let Some(label) = &kf.label {
+                keyframe_attr.push_str(&format!(", Label = \"{}\"", label));
+            }
+
+            if let Some(easing) = &kf.easing {
+                keyframe_attr.push_str(&format!(", Easing = \"{}\"", easing));
+            }
+
+            keyframe_attr.push_str(")]");
+            attributes.push(keyframe_attr);
+        }
+    }
+
+    // 3. Generate [TimelineStateBinding] attributes
+    for (state_key, binding) in &timeline.state_bindings {
+        let mut binding_attr = format!("[TimelineStateBinding(\"{}\"", state_key);
+
+        if binding.interpolate {
+            binding_attr.push_str(", Interpolate = true");
+        }
+
+        binding_attr.push_str(")]");
+        attributes.push(binding_attr);
+    }
+
+    attributes
+}
+
+/**
+ * Format a value for C# code
+ */
+fn format_csharp_value(value: &Str) -> Str {
+    // Try to parse as number
+    if let Ok(num) = value.parse::<f64>() {
+        return num.to_string();
+    }
+
+    // Try to parse as boolean
+    if value == "true" {
+        return "true".into();
+    }
+    if value == "false" {
+        return "false".into();
+    }
+
+    // Try to parse as null
+    if value == "null" {
+        return "null".into();
+    }
+
+    // Otherwise treat as string - escape quotes and backslashes
+    let escaped = value
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"");
+    format!("\"{}\"", escaped)
+}
+
+/**
+ * Generate timeline metadata JSON file
+ */
+pub fn generate_timeline_metadata_file(
+    component_name: &Str,
+    timeline: &Timeline,
+    templates: &Option<Vec<(Str, Template)>>
+) -> TimelineMetadata {
+    let state_bindings = timeline.state_bindings.iter()
+        .map(|(key, binding)| {
+            (
+                key.clone(),
+                StateBindingMetadata {
+                    interpolate: binding.interpolate,
+                    state_type: binding.state_type.clone(),
+                    setter_name: binding.setter_name.clone()
+                }
+            )
+        })
+        .collect();
+
+    let keyframes = timeline.keyframes.iter()
+        .map(|kf| {
+            KeyframeMetadata {
+                time: kf.time,
+                label: kf.label.clone(),
+                state: kf.state.clone(),
+                easing: kf.easing.clone(),
+                affected_paths: extract_affected_paths(&kf.state, templates)
+            }
+        })
+        .collect();
+
+    TimelineMetadata {
+        component: component_name.clone(),
+        timeline_id: timeline.timeline_id.clone(),
+        duration: timeline.duration,
+        repeat: timeline.repeat,
+        repeat_count: timeline.repeat_count.unwrap_or(-1),
+        easing: timeline.easing.clone().unwrap_or("linear".into()),
+        state_bindings,
+        keyframes,
+        generated_at: 0 // Would use actual timestamp
+    }
+}
+
+struct Template {
+    bindings: Option<Vec<Str>>
+}
+
+/**
+ * Extract hex paths affected by state changes in keyframe
+ */
+fn extract_affected_paths(
+    state: &Vec<(Str, Str)>,
+    templates: &Option<Vec<(Str, Template)>>
+) -> Vec<Str> {
+    let mut paths = vec![];
+
+    if let Some(templates_vec) = templates {
+        // Find templates that reference these state keys
+        for (path, template) in templates_vec {
+            if let Some(bindings) = &template.bindings {
+                // Check if any of the bindings match state keys
+                for binding in bindings {
+                    // Binding might be "count" or "item.count" or nested
+                    let base_key = binding.split('.').next().unwrap_or("");
+
+                    for (state_key, _) in state {
+                        if state_key == base_key {
+                            if !paths.contains(path) {
+                                paths.push(path.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    paths.sort();
+    paths
+}
