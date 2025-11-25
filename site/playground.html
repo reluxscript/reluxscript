@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Playground - ReluxScript</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/monokai.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        ::-webkit-scrollbar {
+            width: 12px;
+            height: 12px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 17, 51, 0.5);
+            border-radius: 10px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(135deg, #00FFFF 0%, #00CCCC 100%);
+            border-radius: 10px;
+            border: 2px solid rgba(0, 17, 51, 0.5);
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(135deg, #00FFFF 0%, #FFD700 100%);
+        }
+
+        * {
+            scrollbar-width: thin;
+            scrollbar-color: #00FFFF rgba(0, 17, 51, 0.5);
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background: linear-gradient(135deg, #001133 0%, #002244 50%, #001a33 100%);
+            color: #ffffff;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            padding: 1.5rem 2rem;
+            background: rgba(0, 17, 51, 0.8);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(0, 255, 255, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #00FFFF 0%, #FFD700 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-decoration: none;
+        }
+
+        nav {
+            display: flex;
+            gap: 2rem;
+            align-items: center;
+        }
+
+        nav a {
+            color: rgba(255, 255, 255, 0.8);
+            text-decoration: none;
+            transition: color 0.3s;
+            font-weight: 500;
+        }
+
+        nav a:hover {
+            color: #00FFFF;
+        }
+
+        .tagline {
+            font-size: 0.9rem;
+            color: rgba(255, 255, 255, 0.6);
+            margin-left: 1rem;
+        }
+
+        .container {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 1px;
+            background: rgba(0, 255, 255, 0.1);
+            overflow: hidden;
+        }
+
+        .panel {
+            background: rgba(0, 17, 51, 0.9);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            padding: 0.75rem 1rem;
+            background: rgba(0, 255, 255, 0.1);
+            border-bottom: 1px solid rgba(0, 255, 255, 0.2);
+            font-weight: 600;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .panel-header .badge {
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 700;
+        }
+
+        .badge-lux {
+            background: linear-gradient(135deg, #00FFFF 0%, #00CCCC 100%);
+            color: #001133;
+        }
+
+        .badge-babel {
+            background: #F9DC3E;
+            color: #000;
+        }
+
+        .badge-swc {
+            background: #FF6B35;
+            color: #fff;
+        }
+
+        .editor-wrapper {
+            flex: 1;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .CodeMirror {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            height: 100%;
+            font-size: 14px;
+        }
+
+        textarea {
+            width: 100%;
+            height: 100%;
+            min-height: 400px;
+        }
+
+        .compile-btn {
+            margin: 1rem;
+            padding: 0.75rem 1.5rem;
+            background: linear-gradient(135deg, #00FFFF 0%, #00CCCC 100%);
+            color: #001133;
+            border: none;
+            border-radius: 6px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .compile-btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .compile-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .error {
+            padding: 1rem;
+            background: rgba(255, 0, 0, 0.1);
+            border-left: 3px solid #ff0000;
+            margin: 1rem;
+            font-family: monospace;
+            font-size: 0.85rem;
+            color: #ffaaaa;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        @media (max-width: 1200px) {
+            .container {
+                grid-template-columns: 1fr;
+                grid-template-rows: 1fr 1fr 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div style="display: flex; align-items: center;">
+            <a href="/" class="logo">⚡ ReluxScript</a>
+            <span class="tagline">Playground</span>
+        </div>
+        <nav>
+            <a href="/#features">Features</a>
+            <a href="https://docs.reluxscript.com">Docs</a>
+            <a href="/#examples">Examples</a>
+            <a href="https://github.com/reluxscript/reluxscript">GitHub</a>
+        </nav>
+    </header>
+
+    <div class="container">
+        <div class="panel">
+            <div class="panel-header">
+                <span class="badge badge-lux">.lux</span>
+                ReluxScript Input
+            </div>
+            <div class="editor-wrapper">
+                <textarea id="input-editor">plugin RemoveConsole {
+    fn visit_call_expression(node: &mut CallExpression, ctx: &Context) {
+        if let Callee::MemberExpression(ref member) = node.callee {
+            if let Expression::Identifier(ref obj) = *member.object {
+                if let Expression::Identifier(ref prop) = *member.property {
+                    if obj.name == "console" && prop.name == "log" {
+                        ctx.remove();
+                    }
+                }
+            }
+        }
+    }
+}</textarea>
+            </div>
+            <button class="compile-btn" id="compile-btn" onclick="compile()">Compile ⚡</button>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <span class="badge badge-babel">Babel</span>
+                JavaScript Output
+            </div>
+            <div class="editor-wrapper">
+                <div id="babel-loading" class="loading">Initializing WASM...</div>
+                <textarea id="babel-editor" readonly style="display: none;"></textarea>
+            </div>
+            <div id="babel-error" class="error" style="display: none;"></div>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header">
+                <span class="badge badge-swc">SWC</span>
+                Rust Output
+            </div>
+            <div class="editor-wrapper">
+                <div id="swc-loading" class="loading">Initializing WASM...</div>
+                <textarea id="swc-editor" readonly style="display: none;"></textarea>
+            </div>
+            <div id="swc-error" class="error" style="display: none;"></div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/mode/simple.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/clike/clike.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/rust/rust.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/javascript/javascript.min.js"></script>
+    <script type="module">
+        import init, { compile_reluxscript as compileRelux } from './pkg/reluxscript.js';
+
+        let compile_reluxscript;
+        let inputEditor, babelEditor, swcEditor;
+
+        async function initPlayground() {
+            try {
+                console.log('Initializing WASM module...');
+
+                // Initialize WASM
+                await init();
+                compile_reluxscript = compileRelux;
+                console.log('WASM module initialized successfully');
+
+                // Hide loading messages
+                document.getElementById('babel-loading').style.display = 'none';
+                document.getElementById('swc-loading').style.display = 'none';
+                document.getElementById('babel-editor').style.display = 'block';
+                document.getElementById('swc-editor').style.display = 'block';
+
+                // Initialize CodeMirror editors
+                window.inputEditor = CodeMirror.fromTextArea(document.getElementById('input-editor'), {
+                    mode: 'rust',
+                    theme: 'monokai',
+                    lineNumbers: true,
+                    indentUnit: 4,
+                });
+
+                window.babelEditor = CodeMirror.fromTextArea(document.getElementById('babel-editor'), {
+                    mode: 'javascript',
+                    theme: 'monokai',
+                    lineNumbers: true,
+                    readOnly: true,
+                });
+
+                window.swcEditor = CodeMirror.fromTextArea(document.getElementById('swc-editor'), {
+                    mode: 'rust',
+                    theme: 'monokai',
+                    lineNumbers: true,
+                    readOnly: true,
+                });
+
+                // Enable compile button
+                document.getElementById('compile-btn').disabled = false;
+
+                // Auto-compile on load
+                compile();
+            } catch (err) {
+                console.error('Failed to initialize playground:', err);
+                document.getElementById('babel-loading').textContent = 'Failed to load compiler: ' + err.message;
+                document.getElementById('swc-loading').textContent = 'Failed to load compiler: ' + err.message;
+            }
+        }
+
+        window.compile = function() {
+            if (!window.inputEditor || !compile_reluxscript) {
+                console.error('Editor or compiler not initialized');
+                return;
+            }
+
+            const source = window.inputEditor.getValue();
+
+            try {
+                console.log('Compiling:', source.substring(0, 50) + '...');
+                const result = compile_reluxscript(source);
+                console.log('Compilation result:', result);
+
+                if (result.success) {
+                    window.babelEditor.setValue(result.babel || '// No Babel output');
+                    window.swcEditor.setValue(result.swc || '// No SWC output');
+
+                    document.getElementById('babel-error').style.display = 'none';
+                    document.getElementById('swc-error').style.display = 'none';
+                } else {
+                    // Show errors
+                    const errorMsg = result.errors.map(e =>
+                        `Line ${e.line}:${e.column} - ${e.message}`
+                    ).join('\n');
+
+                    document.getElementById('babel-error').textContent = errorMsg;
+                    document.getElementById('babel-error').style.display = 'block';
+
+                    document.getElementById('swc-error').textContent = errorMsg;
+                    document.getElementById('swc-error').style.display = 'block';
+
+                    window.babelEditor.setValue('// Compilation failed\n// See errors above');
+                    window.swcEditor.setValue('// Compilation failed\n// See errors above');
+                }
+            } catch (err) {
+                console.error('Compilation error:', err);
+                alert('Compilation failed: ' + err.message);
+            }
+        };
+
+        // Disable compile button until WASM loads
+        document.getElementById('compile-btn').disabled = true;
+
+        initPlayground();
+    </script>
+</body>
+</html>

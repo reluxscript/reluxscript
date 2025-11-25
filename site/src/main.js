@@ -8,6 +8,7 @@ document.querySelector('#app').innerHTML = `
             <li><a href="#features">Features</a></li>
             <li><a href="https://docs.reluxscript.com">Docs</a></li>
             <li><a href="#examples">Examples</a></li>
+            <li><a href="/playground.html">Playground</a></li>
             <li><a href="https://github.com/reluxscript/reluxscript">GitHub</a></li>
         </ul>
     </nav>

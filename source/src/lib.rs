@@ -23,3 +23,7 @@ pub use mapping::{
     get_node_mapping, get_field_mapping, get_helper_for_field, get_pattern_check,
 };
 pub use autofix::TokenRewriter;
+
+// WASM bindings for playground
+#[cfg(feature = "wasm")]
+pub mod wasm;
