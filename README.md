@@ -6,7 +6,8 @@
 
 <p align="center">
   <strong>Write once, compile everywhere</strong><br>
-  A unified language for building AST transformation plugins
+  A unified language for building AST transformation plugins<br>
+  <em>/ˈreɪ.lʌks.skrɪpt/ • ray-lucks-script</em>
 </p>
 
 <p align="center">
