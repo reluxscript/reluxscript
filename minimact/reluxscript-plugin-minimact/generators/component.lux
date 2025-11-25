@@ -1,0 +1,125 @@
+/**
+ * Component Generator
+ */
+
+use "./expressions.lux" { set_current_component };
+use "./server_task.lux" { generate_server_task_methods };
+use "./timeline_generator.lux" { generate_timeline_attributes };
+use "./component/generate_attributes.lux" {
+    generate_loop_template_attributes,
+    generate_state_x_attributes
+};
+use "./component/generate_fields.lux" {
+    generate_template_properties,
+    generate_prop_fields,
+    generate_state_fields,
+    generate_mvc_state_fields,
+    generate_mvc_view_model_fields,
+    generate_state_x_fields,
+    generate_ref_fields,
+    generate_markdown_fields,
+    generate_razor_markdown_fields,
+    generate_validation_fields,
+    generate_modal_fields,
+    generate_toggle_fields,
+    generate_dropdown_fields,
+    generate_pub_sub_fields,
+    generate_task_scheduling_fields,
+    generate_signal_r_fields,
+    generate_predict_hint_fields,
+    generate_client_computed_properties
+};
+use "./component/generate_methods.lux" {
+    generate_render_method,
+    generate_effect_methods,
+    generate_event_handlers,
+    generate_toggle_methods,
+    generate_client_handlers_method,
+    generate_client_effects_method,
+    generate_pub_sub_methods,
+    generate_signal_r_methods,
+    generate_mvc_state_setters,
+    generate_on_initialized_method,
+    generate_helper_functions
+};
+use "./component/infer_types.lux" { infer_csharp_type_from_init };
+use "../types/component_types.lux" { Component };
+
+/**
+ * Generate C# class for a component
+ */
+pub fn generate_component(component: &mut Component) -> Vec<Str> {
+    // Set the current component context for useState setter detection
+    set_current_component(component);
+
+    let mut lines = vec![];
+
+    // Timeline attributes (for @minimact/timeline)
+    if let Some(timeline) = &component.timeline {
+        let timeline_attrs = generate_timeline_attributes(timeline);
+        for attr in timeline_attrs {
+            lines.push(attr);
+        }
+    }
+
+    // Loop template attributes
+    generate_loop_template_attributes(component, &mut lines);
+
+    // StateX projection attributes
+    generate_state_x_attributes(component, &mut lines);
+
+    // Class declaration
+    lines.push("[Component]".into());
+
+    let base_class = if let Some(use_template) = &component.use_template {
+        use_template.name.clone()
+    } else {
+        "MinimactComponent".into()
+    };
+
+    lines.push(format!("public partial class {} : {}", component.name, base_class));
+    lines.push("{".into());
+
+    // Generate all fields
+    generate_template_properties(component, &mut lines);
+    generate_prop_fields(component, &mut lines);
+    generate_state_fields(component, &mut lines);
+    generate_mvc_state_fields(component, &mut lines);
+    generate_mvc_view_model_fields(component, &mut lines);
+    generate_state_x_fields(component, &mut lines);
+    generate_ref_fields(component, &mut lines);
+    generate_markdown_fields(component, &mut lines);
+    generate_razor_markdown_fields(component, &mut lines);
+    generate_validation_fields(component, &mut lines);
+    generate_modal_fields(component, &mut lines);
+    generate_toggle_fields(component, &mut lines);
+    generate_dropdown_fields(component, &mut lines);
+    generate_pub_sub_fields(component, &mut lines);
+    generate_task_scheduling_fields(component, &mut lines);
+    generate_signal_r_fields(component, &mut lines);
+    generate_predict_hint_fields(component, &mut lines);
+    generate_client_computed_properties(component, &mut lines);
+
+    // Server Task methods (useServerTask)
+    let server_task_methods = generate_server_task_methods(component);
+    for line in server_task_methods {
+        lines.push(line);
+    }
+
+    // Generate all methods
+    generate_render_method(component, &mut lines);
+    generate_effect_methods(component, &mut lines);
+    generate_event_handlers(component, &mut lines);
+    generate_toggle_methods(component, &mut lines);
+    generate_client_handlers_method(component, &mut lines);
+    generate_client_effects_method(component, &mut lines);
+    generate_pub_sub_methods(component, &mut lines);
+    generate_signal_r_methods(component, &mut lines);
+    generate_mvc_state_setters(component, &mut lines);
+    generate_on_initialized_method(component, &mut lines);
+    generate_helper_functions(component, &mut lines);
+
+    lines.push("}".into());
+
+    lines
+}

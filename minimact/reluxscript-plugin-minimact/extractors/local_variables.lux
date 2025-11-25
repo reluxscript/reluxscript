@@ -1,0 +1,259 @@
+/**
+ * Local Variables Extractor
+ */
+
+use "../generators/expressions.lux" { generate_csharp_expression };
+use "../types/type_conversion.lux" { ts_type_to_csharp_type };
+use "../types/component_types.lux" { Component, LocalVariable, EventHandler };
+
+/**
+ * Check if an expression uses external libraries
+ */
+pub fn uses_external_library(
+    node: &Expression,
+    external_imports: &Vec<Str>,
+    visited: &mut Vec<usize>
+) -> bool {
+    // Get a unique ID for the node (simplified, in real code would use actual memory address)
+    let node_id = 0; // Placeholder for cycle detection
+
+    if visited.contains(&node_id) {
+        return false;
+    }
+    visited.push(node_id);
+
+    match node {
+        // Direct identifier match
+        Expression::Identifier(ident) => {
+            external_imports.contains(&ident.name)
+        }
+
+        // Member expression (_.sortBy, moment().format)
+        Expression::MemberExpression(mem) => {
+            uses_external_library(&mem.object, external_imports, visited)
+        }
+
+        // Call expression (_.sortBy(...), moment(...))
+        Expression::CallExpression(call) => {
+            if uses_external_library(&call.callee, external_imports, visited) {
+                return true;
+            }
+            for arg in &call.arguments {
+                if uses_external_library(arg, external_imports, visited) {
+                    return true;
+                }
+            }
+            false
+        }
+
+        // Binary/Logical expressions
+        Expression::BinaryExpression(bin) => {
+            uses_external_library(&bin.left, external_imports, visited) ||
+            uses_external_library(&bin.right, external_imports, visited)
+        }
+
+        Expression::LogicalExpression(log) => {
+            uses_external_library(&log.left, external_imports, visited) ||
+            uses_external_library(&log.right, external_imports, visited)
+        }
+
+        // Conditional expression
+        Expression::ConditionalExpression(cond) => {
+            uses_external_library(&cond.test, external_imports, visited) ||
+            uses_external_library(&cond.consequent, external_imports, visited) ||
+            uses_external_library(&cond.alternate, external_imports, visited)
+        }
+
+        // Array expressions
+        Expression::ArrayExpression(arr) => {
+            for el in &arr.elements {
+                if uses_external_library(el, external_imports, visited) {
+                    return true;
+                }
+            }
+            false
+        }
+
+        // Object expressions
+        Expression::ObjectExpression(obj) => {
+            for prop in &obj.properties {
+                if let ObjectProperty::Property(p) = prop {
+                    if uses_external_library(&p.value, external_imports, visited) {
+                        return true;
+                    }
+                }
+            }
+            false
+        }
+
+        // Arrow functions and function expressions
+        Expression::ArrowFunctionExpression(arrow) => {
+            uses_external_library(&arrow.body, external_imports, visited)
+        }
+
+        Expression::FunctionExpression(func) => {
+            if let Some(body) = &func.body {
+                match body {
+                    FunctionBody::BlockStatement(block) => {
+                        for stmt in &block.body {
+                            if uses_external_library_stmt(stmt, external_imports, visited) {
+                                return true;
+                            }
+                        }
+                    }
+                    FunctionBody::Expression(expr) => {
+                        return uses_external_library(expr, external_imports, visited);
+                    }
+                }
+            }
+            false
+        }
+
+        _ => false
+    }
+}
+
+/**
+ * Check if a statement uses external libraries
+ */
+fn uses_external_library_stmt(
+    stmt: &Statement,
+    external_imports: &Vec<Str>,
+    visited: &mut Vec<usize>
+) -> bool {
+    match stmt {
+        Statement::BlockStatement(block) => {
+            for s in &block.body {
+                if uses_external_library_stmt(s, external_imports, visited) {
+                    return true;
+                }
+            }
+            false
+        }
+
+        Statement::ReturnStatement(ret) => {
+            if let Some(arg) = &ret.argument {
+                uses_external_library(arg, external_imports, visited)
+            } else {
+                false
+            }
+        }
+
+        Statement::ExpressionStatement(expr_stmt) => {
+            uses_external_library(&expr_stmt.expression, external_imports, visited)
+        }
+
+        _ => false
+    }
+}
+
+/**
+ * Extract local variables (const/let/var) from function body
+ */
+pub fn extract_local_variables(
+    declarations: &Vec<VariableDeclarator>,
+    component: &mut Component
+) {
+    for declarator in declarations {
+        // Skip if it's a hook call (already handled)
+        if let Some(init) = &declarator.init {
+            if let Expression::CallExpression(call) = init {
+                if let Expression::Identifier(callee) = &call.callee {
+                    if callee.name.starts_with("use") {
+                        continue; // Skip hook calls
+                    }
+                }
+            }
+        }
+
+        // Check if this is an event handler (arrow function or function expression)
+        if let Pattern::Identifier(id) = &declarator.id {
+            let var_name = id.name.clone();
+
+            if let Some(init) = &declarator.init {
+                // If it's an arrow function or function expression
+                let is_function = matches!(init,
+                    Expression::ArrowFunctionExpression(_) |
+                    Expression::FunctionExpression(_)
+                );
+
+                if is_function {
+                    // Check if the function body uses external libraries
+                    let mut visited = vec![];
+                    let uses_external = uses_external_library(init, &component.external_imports, &mut visited);
+
+                    if uses_external {
+                        // Mark as client-computed function
+                        component.client_computed_vars.insert(var_name.clone());
+
+                        component.local_variables.push(LocalVariable {
+                            name: var_name,
+                            var_type: "dynamic".into(), // Will be refined to Func<> in generator
+                            initial_value: "null".into(),
+                            is_client_computed: true,
+                            is_function: Some(true),
+                            init: Some(init.clone())
+                        });
+                    } else {
+                        // Regular event handler
+                        let (body, params) = match init {
+                            Expression::ArrowFunctionExpression(arrow) => {
+                                (Some(arrow.body.clone()), arrow.params.clone())
+                            }
+                            Expression::FunctionExpression(func) => {
+                                let body_expr = match &func.body {
+                                    Some(FunctionBody::BlockStatement(block)) => {
+                                        Some(Expression::BlockStatement(block.clone()))
+                                    }
+                                    Some(FunctionBody::Expression(expr)) => {
+                                        Some(expr.clone())
+                                    }
+                                    None => None
+                                };
+                                (body_expr, func.params.clone())
+                            }
+                            _ => (None, vec![])
+                        };
+
+                        component.event_handlers.push(EventHandler {
+                            name: var_name,
+                            body,
+                            params,
+                            captured_params: vec![],
+                            is_async: false,
+                            is_curried_error: false
+                        });
+                    }
+                    continue;
+                }
+
+                // Check if this variable uses external libraries
+                let mut visited = vec![];
+                let is_client_computed = uses_external_library(init, &component.external_imports, &mut visited);
+
+                if is_client_computed {
+                    // Mark as client-computed
+                    component.client_computed_vars.insert(var_name.clone());
+                }
+
+                // Otherwise, treat as a regular local variable
+                let init_value = generate_csharp_expression(init);
+
+                // Try to infer type from TypeScript annotation or initial value
+                let mut var_type = "var".into(); // C# var for type inference
+                if let Some(type_annotation) = &id.type_annotation {
+                    var_type = ts_type_to_csharp_type(&type_annotation.type_annotation);
+                }
+
+                component.local_variables.push(LocalVariable {
+                    name: var_name,
+                    var_type,
+                    initial_value: init_value,
+                    is_client_computed,
+                    is_function: Some(false),
+                    init: Some(init.clone())
+                });
+            }
+        }
+    }
+}

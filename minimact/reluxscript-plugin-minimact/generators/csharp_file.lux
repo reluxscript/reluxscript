@@ -1,0 +1,66 @@
+/**
+ * C# File Generator
+ */
+
+use "./component.lux" { generate_component };
+use "./plugin.lux" { uses_plugins };
+use "../types/component_types.lux" { Component };
+
+pub struct GeneratorState {
+    pub namespace: Option<Str>
+}
+
+/**
+ * Generate C# file from components
+ */
+pub fn generate_csharp_file(components: &Vec<Component>, state: &GeneratorState) -> Str {
+    let mut lines = vec![];
+
+    // Check if any component uses plugins
+    let has_plugins = components.iter().any(|c| uses_plugins(c));
+
+    // Usings
+    lines.push("using Minimact.AspNetCore.Core;".into());
+    lines.push("using Minimact.AspNetCore.Extensions;".into());
+    lines.push("using MinimactHelpers = Minimact.AspNetCore.Core.Minimact;".into());
+    lines.push("using System.Collections.Generic;".into());
+    lines.push("using System.Linq;".into());
+    lines.push("using System.Threading.Tasks;".into());
+
+    // Add plugin using directives if any component uses plugins
+    if has_plugins {
+        lines.push("using Minimact.AspNetCore.Plugins;".into());
+    }
+
+    lines.push("".into());
+
+    // Namespace (extract from file path or use default)
+    let namespace = if let Some(ns) = &state.namespace {
+        ns.clone()
+    } else {
+        "Minimact.Components".into()
+    };
+
+    lines.push(format!("namespace {};", namespace));
+    lines.push("".into());
+
+    // Generate each component
+    for component in components {
+        // Check if this is a custom hook with pre-generated code
+        if component.is_hook {
+            if let Some(hook_data) = &component.hook_data {
+                // Use the pre-generated hook class code
+                lines.push(hook_data.clone());
+            }
+        } else {
+            // Normal component generation
+            let component_lines = generate_component(&mut component.clone());
+            for line in component_lines {
+                lines.push(line);
+            }
+        }
+        lines.push("".into());
+    }
+
+    lines.join("\n")
+}
