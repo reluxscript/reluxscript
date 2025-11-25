@@ -20,6 +20,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Create a new ReluxScript plugin
+    New {
+        /// Plugin name
+        name: String,
+    },
     /// Tokenize a ReluxScript file (for debugging)
     Lex {
         /// Input file
@@ -67,6 +72,40 @@ fn main() {
     let cli = <Cli as ClapParser>::parse();
 
     match cli.command {
+        Commands::New { name } => {
+            // Create plugin file
+            let plugin_file = PathBuf::from(format!("{}.lux", name));
+
+            if plugin_file.exists() {
+                eprintln!("Error: {} already exists", plugin_file.display());
+                std::process::exit(1);
+            }
+
+            // Create a basic plugin template
+            let template = format!(r#"// {name} - A ReluxScript plugin
+// Edit this file to implement your AST transformation
+
+plugin {name} {{
+    fn visit_call_expression(node: &mut CallExpression, ctx: &Context) {{
+        // Example: Remove console.log calls
+        // if matches!(node.callee, "console.log") {{
+        //     *node = Statement::empty();
+        // }}
+    }}
+}}
+"#, name = name);
+
+            if let Err(e) = fs::write(&plugin_file, template) {
+                eprintln!("Error creating plugin file: {}", e);
+                std::process::exit(1);
+            }
+
+            println!("Created new plugin: {}", plugin_file.display());
+            println!("\nNext steps:");
+            println!("  1. Edit {} to implement your transformation", plugin_file.display());
+            println!("  2. Build to Babel: relux build {} --target babel", plugin_file.display());
+            println!("  3. Build to SWC: relux build {} --target swc", plugin_file.display());
+        }
         Commands::Lex { file } => {
             let source = match fs::read_to_string(&file) {
                 Ok(s) => s,

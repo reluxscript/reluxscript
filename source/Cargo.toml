@@ -2,6 +2,17 @@
 name = "reluxscript"
 version = "0.1.0"
 edition = "2021"
+description = "Write AST transformations once. Compile to Babel, SWC, and beyond."
+license = "MIT"
+repository = "https://github.com/reluxscript/reluxscript"
+homepage = "https://reluxscript.com"
+documentation = "https://docs.reluxscript.com"
+keywords = ["babel", "swc", "ast", "compiler", "transpiler"]
+categories = ["development-tools", "compilers"]
+
+[[bin]]
+name = "relux"
+path = "src/main.rs"
 
 [dependencies]
 ariadne = "0.4"

@@ -53,11 +53,11 @@ cargo install reluxscript
 # Create your first plugin
 relux new my-plugin
 
-# Compile to Babel
-relux compile my-plugin.lux --target babel
+# Build to Babel
+relux build my-plugin.lux --target babel
 
-# Compile to SWC
-relux compile my-plugin.lux --target swc
+# Build to SWC
+relux build my-plugin.lux --target swc
 ```
 
 ## Example
