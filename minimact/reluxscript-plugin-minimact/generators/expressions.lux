@@ -1,0 +1,705 @@
+/**
+ * Expression Generators
+ */
+
+use "../utils/helpers.lux" { escape_csharp_string };
+use "../analyzers/dependencies.lux" { analyze_dependencies };
+use "../analyzers/classification.lux" { classify_node };
+use "./runtime_helpers.lux" { generate_runtime_helper_for_jsx_node };
+use "./jsx.lux" { generate_jsx_element };
+use "../utils/path_assignment.lux" { get_path_from_node };
+
+// Import extracted expression handlers
+use "./expressions/literals.lux" {
+    generate_string_literal,
+    generate_numeric_literal,
+    generate_boolean_literal,
+    generate_null_literal,
+    generate_template_literal
+};
+
+use "./expressions/operators.lux" {
+    generate_unary_expression,
+    generate_binary_expression,
+    generate_logical_expression,
+    generate_conditional_expression,
+    generate_assignment_expression
+};
+
+use "./expressions/identifiers.lux" {
+    generate_identifier,
+    generate_member_expression,
+    generate_optional_member_expression
+};
+
+use "./expressions/arrays.lux" { generate_array_expression };
+use "./expressions/objects.lux" { generate_object_expression };
+use "./expressions/functions.lux" { generate_function_expression };
+use "./expressions/calls.lux" { generate_call_expression, generate_optional_call_expression };
+use "./expressions/new_expressions.lux" { generate_new_expression };
+
+use "../types/component_types.lux" { Component };
+
+// Module-level variable to store current component context
+// This allows useState setter detection without threading component through all calls
+static mut CURRENT_COMPONENT: Option<*const Component> = None;
+
+/**
+ * Convert C# string truthy checks to proper boolean expressions
+ * Wraps non-boolean expressions with MinimactHelpers.ToBool()
+ */
+fn convert_string_to_bool(csharp_test: &Str, original_test_node: &Expression) -> Str {
+    // If it's already a boolean expression, return as-is
+    if matches!(original_test_node,
+        Expression::BinaryExpression(_) |
+        Expression::LogicalExpression(_)) {
+        return csharp_test.clone();
+    }
+
+    if let Expression::UnaryExpression(unary) = original_test_node {
+        if unary.operator == "!" {
+            return csharp_test.clone();
+        }
+    }
+
+    // For any other expression, wrap with ToBool() helper
+    // This will handle strings, numbers, objects, etc. at runtime
+    format!("MinimactHelpers.ToBool({})", csharp_test)
+}
+
+/**
+ * Generate expression for use in boolean context (conditionals, logical operators)
+ * Wraps expressions in MObject for JavaScript truthiness semantics
+ */
+pub fn generate_boolean_expression(expr: &Expression) -> Str {
+    let generated = generate_csharp_expression(expr, false);
+
+    // Check if this is a member expression on dynamic object (like user.isAdmin)
+    if let Expression::MemberExpression(mem) = expr {
+        if !mem.computed {
+            if let Expression::Identifier(_) = &mem.object {
+                // Wrap dynamic member access in MObject for proper truthiness
+                return format!("new MObject({})", generated);
+            }
+        }
+    }
+
+    // Check if this is a simple identifier that might be dynamic
+    if let Expression::Identifier(_) = expr {
+        // Wrap in MObject for null/truthiness handling
+        return format!("new MObject({})", generated);
+    }
+
+    // For other expressions (literals, etc.), use as-is
+    generated
+}
+
+/**
+ * Generate JSX expression (e.g., {count}, {user.name})
+ */
+pub fn generate_jsx_expression(expr: &Expression, component: &Component, indent: i32) -> Str {
+    // Analyze dependencies
+    let deps = analyze_dependencies(expr, component);
+    let zone = classify_node(&deps);
+
+    // For hybrid zones, we need to split
+    if zone == "hybrid" {
+        return generate_hybrid_expression(expr, component, &deps, indent);
+    }
+
+    // Add zone attribute if needed
+    let zone_attr = if zone == "client" {
+        "data-minimact-client-scope"
+    } else if zone == "server" {
+        "data-minimact-server-scope"
+    } else {
+        ""
+    };
+
+    // Handle special JSX expression types
+    if let Expression::ConditionalExpression(cond_expr) = expr {
+        // Ternary with JSX: condition ? <A/> : <B/>
+        // Force runtime helpers for JSX in conditionals
+        let condition = generate_boolean_expression(&cond_expr.test);
+        let consequent = if matches!(&cond_expr.consequent, Expression::JSXElement(_) | Expression::JSXFragment(_)) {
+            generate_runtime_helper_for_jsx_node(&cond_expr.consequent, component, indent)
+        } else {
+            generate_csharp_expression(&cond_expr.consequent, false) // Normal C# expression context
+        };
+
+        // Handle alternate - if null literal, use VNull with path
+        let alternate = if cond_expr.alternate.is_none() || matches!(&cond_expr.alternate, Some(Expression::NullLiteral(_))) {
+            let expr_path = get_path_from_node(expr);
+            format!("new VNull(\"{}\")", expr_path)
+        } else if let Some(alt) = &cond_expr.alternate {
+            if matches!(alt, Expression::JSXElement(_) | Expression::JSXFragment(_)) {
+                generate_runtime_helper_for_jsx_node(alt, component, indent)
+            } else {
+                generate_csharp_expression(alt, false) // Normal C# expression context
+            }
+        } else {
+            let expr_path = get_path_from_node(expr);
+            format!("new VNull(\"{}\")", expr_path)
+        };
+
+        return format!("({}) ? {} : {}", condition, consequent, alternate);
+    }
+
+    if let Expression::LogicalExpression(logical) = expr {
+        if logical.operator == "&&" {
+            // Short-circuit with JSX: condition && <Element/>
+            // Force runtime helpers for JSX in logical expressions
+            let left = generate_boolean_expression(&logical.left);
+            let right = if matches!(&logical.right, Expression::JSXElement(_) | Expression::JSXFragment(_)) {
+                generate_runtime_helper_for_jsx_node(&logical.right, component, indent)
+            } else {
+                generate_csharp_expression(&logical.right, false)
+            };
+            // Get path for VNull (use the expression container's path)
+            let expr_path = get_path_from_node(expr);
+            return format!("({}) ? {} : new VNull(\"{}\")", left, right, expr_path);
+        }
+    }
+
+    if let Expression::CallExpression(call) = expr {
+        if let Expression::MemberExpression(mem) = &call.callee {
+            if let Expression::Identifier(prop) = &mem.property {
+                if prop.name == "map" {
+                    // Array.map() with JSX callback
+                    return generate_map_expression(expr, component, indent);
+                }
+            }
+        }
+    }
+
+    // Generate C# expression
+    generate_csharp_expression(expr, false)
+}
+
+/**
+ * Generate conditional (ternary)
+ */
+pub fn generate_conditional(node: &ConditionalExpression, component: &Component, indent: i32) -> Str {
+    let indent_str = "    ".repeat(indent as usize);
+    let condition = generate_csharp_expression(&node.test, false);
+    let consequent = generate_jsx_element(&node.consequent, component, indent);
+    let alternate = generate_jsx_element(&node.alternate, component, indent);
+
+    format!("{}return {}\n{}    ? {}\n{}    : {};", indent_str, condition, indent_str, consequent, indent_str, alternate)
+}
+
+/**
+ * Generate short-circuit (&&)
+ */
+pub fn generate_short_circuit(node: &LogicalExpression, component: &Component, indent: i32) -> Str {
+    let indent_str = "    ".repeat(indent as usize);
+    let condition = generate_csharp_expression(&node.left, false);
+    let element = generate_jsx_element(&node.right, component, indent);
+
+    format!("{}if ({})\n{}{{\n{}    return {};\n{}}}\n{}return new VText(\"\");",
+            indent_str, condition, indent_str, indent_str, element, indent_str, indent_str)
+}
+
+/**
+ * Generate .map() expression
+ */
+pub fn generate_map_expression(node: &Expression, component: &mut Component, indent: i32) -> Str {
+    if let Expression::CallExpression(call) = node {
+        let indent_str = "    ".repeat(indent as usize);
+
+        if let Expression::MemberExpression(mem) = &call.callee {
+            let array = &mem.object;
+
+            if call.arguments.is_empty() {
+                return "/* empty map */".into();
+            }
+
+            let callback = &call.arguments[0];
+
+            let array_name = if let Expression::Identifier(ident) = array {
+                ident.name.clone()
+            } else {
+                generate_csharp_expression(array, false)
+            };
+
+            let (item_param, index_param, body) = match callback {
+                Expression::ArrowFunctionExpression(arrow) => {
+                    let item = if !arrow.params.is_empty() {
+                        if let Pattern::Identifier(id) = &arrow.params[0] {
+                            id.name.clone()
+                        } else {
+                            "item".into()
+                        }
+                    } else {
+                        "item".into()
+                    };
+
+                    let index = if arrow.params.len() > 1 {
+                        if let Pattern::Identifier(id) = &arrow.params[1] {
+                            Some(id.name.clone())
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
+                    (item, index, &arrow.body)
+                }
+                _ => ("item".into(), None, callback)
+            };
+
+            // Track map context for event handler closure capture (nested maps)
+            let previous_map_context = component.current_map_context.clone();
+            let previous_params = if let Some(ctx) = &previous_map_context {
+                ctx.params.clone()
+            } else {
+                vec![]
+            };
+
+            let mut current_params = vec![item_param.clone()];
+            if let Some(idx) = &index_param {
+                current_params.push(idx.clone());
+            }
+
+            let mut all_params = previous_params.clone();
+            all_params.extend(current_params);
+
+            component.current_map_context = Some(MapContext {
+                params: all_params
+            });
+
+            let mut item_code: Str;
+            let mut has_block_statements = false;
+
+            if let Expression::JSXElement(_) = body {
+                // Direct JSX return: item => <div>...</div>
+                item_code = generate_jsx_element(body, component, indent + 1);
+            } else if let Expression::BlockStatement(block) = body {
+                // Block statement: item => { const x = ...; return <div>...</div>; }
+                // Need to generate a statement lambda in C#
+                has_block_statements = true;
+
+                let mut statements = vec![];
+                let mut return_jsx: Option<&Expression> = None;
+
+                // Process all statements in the block
+                for stmt in &block.body {
+                    if let Statement::ReturnStatement(ret) = stmt {
+                        if let Some(arg) = &ret.argument {
+                            if matches!(arg, Expression::JSXElement(_)) {
+                                return_jsx = Some(arg);
+                                // Don't add return statement to statements array yet
+                                continue;
+                            }
+                        }
+                    } else if let Statement::VariableDeclaration(var_decl) = stmt {
+                        // Convert variable declarations: const displayValue = item[field];
+                        for decl in &var_decl.declarations {
+                            if let Pattern::Identifier(id) = &decl.id {
+                                let var_name = &id.name;
+                                let init = if let Some(init_expr) = &decl.init {
+                                    generate_csharp_expression(init_expr, false)
+                                } else {
+                                    "null".into()
+                                };
+                                statements.push(format!("var {} = {};", var_name, init));
+                            }
+                        }
+                    } else {
+                        // Other statements - convert them
+                        statements.push(generate_csharp_statement(stmt));
+                    }
+                }
+
+                if return_jsx.is_none() {
+                    println!("[generateMapExpression] Block statement has no JSX return");
+                    panic!("Map callback with block statement must return JSX element");
+                }
+
+                let jsx_code = generate_jsx_element(return_jsx.unwrap(), component, indent + 1);
+                statements.push(format!("return {};", jsx_code));
+
+                item_code = statements.join(" ");
+            } else {
+                println!("[generateMapExpression] Unsupported callback body type");
+                panic!("Unsupported map callback body type");
+            }
+
+            // Restore previous context
+            component.current_map_context = previous_map_context;
+
+            // Check if array is dynamic (likely from outer .map())
+            let needs_cast = array_name.contains(".") && !array_name.chars().next().unwrap().is_uppercase();
+            let casted_array = if needs_cast {
+                format!("((IEnumerable<dynamic>){})", array_name)
+            } else {
+                array_name
+            };
+
+            // C# Select supports (item, index) => ...
+            if has_block_statements {
+                // Use statement lambda: item => { statements; return jsx; }
+                if let Some(idx_param) = index_param {
+                    let lambda_expr = format!("({}, {}) => {{ {} }}", item_param, idx_param, item_code);
+                    let casted_lambda = if needs_cast {
+                        format!("(Func<dynamic, int, dynamic>)({})", lambda_expr)
+                    } else {
+                        lambda_expr
+                    };
+                    return format!("{}.Select({}).ToArray()", casted_array, casted_lambda);
+                } else {
+                    let lambda_expr = format!("{} => {{ {} }}", item_param, item_code);
+                    let casted_lambda = if needs_cast {
+                        format!("(Func<dynamic, dynamic>)({})", lambda_expr)
+                    } else {
+                        lambda_expr
+                    };
+                    return format!("{}.Select({}).ToArray()", casted_array, casted_lambda);
+                }
+            } else {
+                // Use expression lambda: item => jsx
+                if let Some(idx_param) = index_param {
+                    let lambda_expr = format!("({}, {}) => {}", item_param, idx_param, item_code);
+                    let casted_lambda = if needs_cast {
+                        format!("(Func<dynamic, int, dynamic>)({})", lambda_expr)
+                    } else {
+                        lambda_expr
+                    };
+                    return format!("{}.Select({}).ToArray()", casted_array, casted_lambda);
+                } else {
+                    let lambda_expr = format!("{} => {}", item_param, item_code);
+                    let casted_lambda = if needs_cast {
+                        format!("(Func<dynamic, dynamic>)({})", lambda_expr)
+                    } else {
+                        lambda_expr
+                    };
+                    return format!("{}.Select({}).ToArray()", casted_array, casted_lambda);
+                }
+            }
+        }
+    }
+
+    "/* invalid map */".into()
+}
+
+/**
+ * Generate C# statement from JavaScript AST node
+ */
+pub fn generate_csharp_statement(node: &Statement) -> Str {
+    match node {
+        Statement::ExpressionStatement(expr_stmt) => {
+            format!("{};", generate_csharp_expression(&expr_stmt.expression, false))
+        }
+
+        Statement::ReturnStatement(ret) => {
+            // Handle empty return statement: return; (not return null;)
+            if ret.argument.is_none() {
+                "return;".into()
+            } else {
+                format!("return {};", generate_csharp_expression(ret.argument.as_ref().unwrap(), false))
+            }
+        }
+
+        Statement::ThrowStatement(throw_stmt) => {
+            format!("throw {};", generate_csharp_expression(&throw_stmt.argument, false))
+        }
+
+        Statement::VariableDeclaration(var_decl) => {
+            let declarations: Vec<Str> = var_decl.declarations.iter().map(|d| {
+                if let Pattern::Identifier(id) = &d.id {
+                    let name = &id.name;
+                    let value = if let Some(init) = &d.init {
+                        generate_csharp_expression(init, false)
+                    } else {
+                        "null".into()
+                    };
+                    format!("var {} = {};", name, value)
+                } else {
+                    "".into()
+                }
+            }).collect();
+            declarations.join(" ")
+        }
+
+        Statement::IfStatement(if_stmt) => {
+            let mut test = generate_csharp_expression(&if_stmt.test, false);
+
+            // Convert string truthy checks to proper C# boolean expressions
+            test = convert_string_to_bool(&test, &if_stmt.test);
+
+            let mut result = format!("if ({}) {{\n", test);
+
+            // Handle consequent (then branch)
+            if let Statement::BlockStatement(block) = &if_stmt.consequent {
+                for stmt in &block.body {
+                    result.push_str("    ");
+                    result.push_str(&generate_csharp_statement(stmt));
+                    result.push_str("\n");
+                }
+            } else {
+                result.push_str("    ");
+                result.push_str(&generate_csharp_statement(&if_stmt.consequent));
+                result.push_str("\n");
+            }
+
+            result.push_str("}");
+
+            // Handle alternate (else branch) if it exists
+            if let Some(alternate) = &if_stmt.alternate {
+                result.push_str(" else {\n");
+                if let Statement::BlockStatement(block) = alternate {
+                    for stmt in &block.body {
+                        result.push_str("    ");
+                        result.push_str(&generate_csharp_statement(stmt));
+                        result.push_str("\n");
+                    }
+                } else if let Statement::IfStatement(_) = alternate {
+                    // else if
+                    result.push_str("    ");
+                    result.push_str(&generate_csharp_statement(alternate));
+                    result.push_str("\n");
+                } else {
+                    result.push_str("    ");
+                    result.push_str(&generate_csharp_statement(alternate));
+                    result.push_str("\n");
+                }
+                result.push_str("}");
+            }
+
+            result
+        }
+
+        Statement::TryStatement(try_stmt) => {
+            let mut result = "try {\n".to_string();
+
+            // Handle try block
+            if let Some(block) = &try_stmt.block {
+                for stmt in &block.body {
+                    result.push_str("    ");
+                    result.push_str(&generate_csharp_statement(stmt));
+                    result.push_str("\n");
+                }
+            }
+
+            result.push_str("}");
+
+            // Handle catch clause
+            if let Some(handler) = &try_stmt.handler {
+                let catch_param = if let Some(param) = &handler.param {
+                    if let Pattern::Identifier(id) = param {
+                        id.name.clone()
+                    } else {
+                        "ex".into()
+                    }
+                } else {
+                    "ex".into()
+                };
+
+                result.push_str(&format!(" catch (Exception {}) {{\n", catch_param));
+
+                for stmt in &handler.body.body {
+                    result.push_str("    ");
+                    result.push_str(&generate_csharp_statement(stmt));
+                    result.push_str("\n");
+                }
+
+                result.push_str("}");
+            }
+
+            // Handle finally block
+            if let Some(finalizer) = &try_stmt.finalizer {
+                result.push_str(" finally {\n");
+
+                for stmt in &finalizer.body {
+                    result.push_str("    ");
+                    result.push_str(&generate_csharp_statement(stmt));
+                    result.push_str("\n");
+                }
+
+                result.push_str("}");
+            }
+
+            result
+        }
+
+        _ => {
+            // Fallback: try to convert as expression
+            format!("{};", "/* unknown statement */")
+        }
+    }
+}
+
+/**
+ * Generate C# expression from JS expression
+ * @param in_interpolation - True if this expression will be inside $"{...}"
+ */
+pub fn generate_csharp_expression(node: &Expression, in_interpolation: bool) -> Str {
+    match node {
+        Expression::StringLiteral(lit) => {
+            generate_string_literal(lit, in_interpolation)
+        }
+
+        Expression::NumericLiteral(lit) => {
+            generate_numeric_literal(lit)
+        }
+
+        Expression::BooleanLiteral(lit) => {
+            generate_boolean_literal(lit)
+        }
+
+        Expression::NullLiteral(lit) => {
+            generate_null_literal(lit)
+        }
+
+        Expression::Identifier(ident) => {
+            unsafe {
+                let comp_ptr = CURRENT_COMPONENT.unwrap_or(std::ptr::null());
+                let comp_ref = if !comp_ptr.is_null() {
+                    Some(&*comp_ptr)
+                } else {
+                    None
+                };
+                generate_identifier(ident, comp_ref)
+            }
+        }
+
+        Expression::AssignmentExpression(assign) => {
+            generate_assignment_expression(assign, generate_csharp_expression, in_interpolation)
+        }
+
+        Expression::AwaitExpression(await_expr) => {
+            format!("await {}", generate_csharp_expression(&await_expr.argument, in_interpolation))
+        }
+
+        // Handle TypeScript type assertions: (e.target as any) → e.target (strip the cast)
+        // In C#, we rely on dynamic typing, so type casts are usually unnecessary
+        Expression::TSAsExpression(as_expr) => {
+            generate_csharp_expression(&as_expr.expression, in_interpolation)
+        }
+
+        // Handle TypeScript type assertions (angle bracket syntax): <any>e.target → e.target
+        Expression::TSTypeAssertion(type_assert) => {
+            generate_csharp_expression(&type_assert.expression, in_interpolation)
+        }
+
+        // Handle optional chaining: viewModel?.userEmail → viewModel?.UserEmail
+        Expression::OptionalMemberExpression(opt_mem) => {
+            generate_optional_member_expression(opt_mem, generate_csharp_expression, in_interpolation)
+        }
+
+        Expression::MemberExpression(mem) => {
+            generate_member_expression(mem, generate_csharp_expression, in_interpolation)
+        }
+
+        Expression::ArrayExpression(arr) => {
+            generate_array_expression(arr, generate_csharp_expression)
+        }
+
+        Expression::UnaryExpression(unary) => {
+            generate_unary_expression(unary, generate_csharp_expression, in_interpolation)
+        }
+
+        Expression::BinaryExpression(bin) => {
+            generate_binary_expression(bin, generate_csharp_expression)
+        }
+
+        Expression::LogicalExpression(logical) => {
+            generate_logical_expression(logical, generate_csharp_expression)
+        }
+
+        Expression::ConditionalExpression(cond) => {
+            generate_conditional_expression(cond, generate_csharp_expression)
+        }
+
+        Expression::CallExpression(call) => {
+            unsafe {
+                let comp_ptr = CURRENT_COMPONENT.unwrap_or(std::ptr::null());
+                let comp_ref = if !comp_ptr.is_null() {
+                    Some(&*comp_ptr)
+                } else {
+                    None
+                };
+                generate_call_expression(call, generate_csharp_expression, generate_csharp_statement, comp_ref)
+            }
+        }
+
+        Expression::OptionalCallExpression(opt_call) => {
+            unsafe {
+                let comp_ptr = CURRENT_COMPONENT.unwrap_or(std::ptr::null());
+                let comp_ref = if !comp_ptr.is_null() {
+                    Some(&*comp_ptr)
+                } else {
+                    None
+                };
+                generate_optional_call_expression(opt_call, generate_csharp_expression, generate_csharp_statement, comp_ref)
+            }
+        }
+
+        Expression::TemplateLiteral(template) => {
+            generate_template_literal(template, generate_csharp_expression)
+        }
+
+        Expression::NewExpression(new_expr) => {
+            generate_new_expression(new_expr, generate_csharp_expression)
+        }
+
+        Expression::ObjectExpression(obj) => {
+            generate_object_expression(obj, generate_csharp_expression)
+        }
+
+        Expression::ArrowFunctionExpression(arrow) => {
+            generate_function_expression(&Expression::ArrowFunctionExpression(arrow.clone()), generate_csharp_expression, generate_csharp_statement)
+        }
+
+        Expression::FunctionExpression(func) => {
+            generate_function_expression(&Expression::FunctionExpression(func.clone()), generate_csharp_expression, generate_csharp_statement)
+        }
+
+        _ => {
+            // Fallback for unknown node types
+            let node_path = get_path_from_node(node);
+            format!("new VNull(\"{}\")", node_path)
+        }
+    }
+}
+
+/**
+ * Generate attribute value
+ */
+pub fn generate_attribute_value(value: &JSXAttributeValue) -> Str {
+    match value {
+        JSXAttributeValue::StringLiteral(lit) => {
+            format!("\"{}\"", escape_csharp_string(&lit.value))
+        }
+
+        JSXAttributeValue::JSXExpressionContainer(container) => {
+            generate_csharp_expression(&container.expression, false)
+        }
+
+        _ => "\"\"".into()
+    }
+}
+
+/**
+ * Generate hybrid expression with smart span splitting
+ */
+pub fn generate_hybrid_expression(
+    expr: &Expression,
+    component: &Component,
+    deps: &Dependencies,
+    indent: i32
+) -> Str {
+    // For now, return a simplified version
+    // TODO: Implement full AST splitting logic
+    format!("new VText({})", generate_csharp_expression(expr, false))
+}
+
+/**
+ * Set the current component context for useState setter detection
+ */
+pub fn set_current_component(component: &Component) {
+    unsafe {
+        CURRENT_COMPONENT = Some(component as *const Component);
+    }
+}

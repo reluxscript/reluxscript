@@ -1,0 +1,62 @@
+/**
+ * Render Body Generator
+ */
+
+use "./jsx.lux" { generate_jsx_element };
+use "./expressions.lux" { generate_conditional, generate_short_circuit, generate_map_expression };
+use "../types/component_types.lux" { Component };
+
+/**
+ * Generate C# code for render body
+ */
+pub fn generate_render_body(node: Option<&Expression>, component: &Component, indent: i32) -> Str {
+    let indent_str = "    ".repeat(indent as usize);
+
+    if node.is_none() {
+        return format!("{}return new VText(\"\");", indent_str);
+    }
+
+    let node = node.unwrap();
+
+    // Handle different node types
+    match node {
+        Expression::JSXElement(_) | Expression::JSXFragment(_) => {
+            format!("{}return {};", indent_str, generate_jsx_element(node, component, indent))
+        }
+
+        Expression::ConditionalExpression(_) => {
+            // Ternary: condition ? a : b
+            generate_conditional(node, component, indent)
+        }
+
+        Expression::LogicalExpression(logical) => {
+            if logical.operator == "&&" {
+                // Short-circuit: condition && <Element>
+                generate_short_circuit(node, component, indent)
+            } else {
+                // Fallback
+                format!("{}return new VText(\"{}\");", indent_str, "LogicalExpression")
+            }
+        }
+
+        Expression::CallExpression(call) => {
+            // Check if it's a .map() call
+            if let Expression::MemberExpression(mem) = &call.callee {
+                if let Expression::Identifier(prop) = &mem.property {
+                    if prop.name == "map" {
+                        // Array.map()
+                        return generate_map_expression(node, component, indent);
+                    }
+                }
+            }
+
+            // Fallback
+            format!("{}return new VText(\"CallExpression\");", indent_str)
+        }
+
+        _ => {
+            // Fallback
+            format!("{}return new VText(\"UnknownExpression\");", indent_str)
+        }
+    }
+}
