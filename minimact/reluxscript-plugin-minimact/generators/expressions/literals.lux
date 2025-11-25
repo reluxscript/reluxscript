@@ -4,7 +4,7 @@
  * Generates C# code for JavaScript/TypeScript literal values
  */
 
-use "../../utils/helpers.rsc" { escape_csharp_string };
+use "../../utils/helpers.lux" { escape_csharp_string };
 
 /**
  * Generate string literal

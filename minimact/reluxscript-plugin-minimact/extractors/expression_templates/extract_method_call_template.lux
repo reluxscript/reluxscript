@@ -4,9 +4,9 @@
  * Extracts template from method call expressions
  */
 
-use "./extract_binding.rsc" { extract_binding };
-use "./extract_state_key.rsc" { extract_state_key };
-use "./supported_transforms.rsc" { get_transform_info };
+use "./extract_binding.lux" { extract_binding };
+use "./extract_state_key.lux" { extract_state_key };
+use "./supported_transforms.lux" { get_transform_info };
 
 /**
  * Method call transform

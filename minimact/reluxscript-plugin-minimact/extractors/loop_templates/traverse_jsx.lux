@@ -5,8 +5,8 @@
  * searching for .map() calls in attributes and expression containers.
  */
 
-use "./find_map_expressions.rsc" { find_map_expressions };
-use "./extract_loop_template.rsc" { LoopTemplate };
+use "./find_map_expressions.lux" { find_map_expressions };
+use "./extract_loop_template.lux" { LoopTemplate };
 
 /**
  * Traverse JSX tree and collect loop templates

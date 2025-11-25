@@ -7,14 +7,14 @@
  */
 
 // Core path and binding utilities
-pub use "./build_member_expression_path.rsc" { build_member_expression_path };
-pub use "./build_binding_path.rsc" { build_binding_path };
-pub use "./extract_literal_value.rsc" { extract_literal_value };
-pub use "./extract_array_binding.rsc" { extract_array_binding };
+pub use "./build_member_expression_path.lux" { build_member_expression_path };
+pub use "./build_binding_path.lux" { build_binding_path };
+pub use "./extract_literal_value.lux" { extract_literal_value };
+pub use "./extract_array_binding.lux" { extract_array_binding };
 
 // Expression analysis
-pub use "./extract_loop_identifiers.rsc" { extract_loop_identifiers };
-pub use "./extract_loop_expressions.rsc" {
+pub use "./extract_loop_identifiers.lux" { extract_loop_identifiers };
+pub use "./extract_loop_expressions.lux" {
     extract_loop_binary_expression,
     extract_loop_logical_expression,
     extract_loop_unary_expression,
@@ -22,23 +22,23 @@ pub use "./extract_loop_expressions.rsc" {
 };
 
 // Template extraction
-pub use "./extract_conditional_template.rsc" { extract_conditional_template, ConditionalTemplate };
-pub use "./extract_template_from_template_literal.rsc" {
+pub use "./extract_conditional_template.lux" { extract_conditional_template, ConditionalTemplate };
+pub use "./extract_template_from_template_literal.lux" {
     extract_template_from_template_literal,
     TemplateLiteralResult
 };
-pub use "./extract_text_template.rsc" { extract_text_template, TextTemplate };
-pub use "./extract_prop_templates.rsc" { extract_prop_templates, PropTemplate };
+pub use "./extract_text_template.lux" { extract_text_template, TextTemplate };
+pub use "./extract_prop_templates.lux" { extract_prop_templates, PropTemplate };
 
 // JSX structure extraction
-pub use "./extract_children_templates.rsc" { extract_children_templates, ChildTemplate };
-pub use "./extract_element_template.rsc" { extract_element_template, ElementTemplate };
-pub use "./extract_key_binding.rsc" { extract_key_binding };
-pub use "./extract_jsx_from_callback.rsc" { extract_jsx_from_callback };
+pub use "./extract_children_templates.lux" { extract_children_templates, ChildTemplate };
+pub use "./extract_element_template.lux" { extract_element_template, ElementTemplate };
+pub use "./extract_key_binding.lux" { extract_key_binding };
+pub use "./extract_jsx_from_callback.lux" { extract_jsx_from_callback };
 
 // Loop template extraction (main)
-pub use "./extract_loop_template.rsc" { extract_loop_template, LoopTemplate };
+pub use "./extract_loop_template.lux" { extract_loop_template, LoopTemplate };
 
 // Traversal and discovery
-pub use "./find_map_expressions.rsc" { find_map_expressions };
-pub use "./traverse_jsx.rsc" { traverse_jsx };
+pub use "./find_map_expressions.lux" { find_map_expressions };
+pub use "./traverse_jsx.lux" { traverse_jsx };

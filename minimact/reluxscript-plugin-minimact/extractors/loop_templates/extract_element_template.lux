@@ -10,8 +10,8 @@
  * }
  */
 
-use "./extract_prop_templates.rsc" { extract_prop_templates, PropTemplate };
-use "./extract_children_templates.rsc" { extract_children_templates, ChildTemplate };
+use "./extract_prop_templates.lux" { extract_prop_templates, PropTemplate };
+use "./extract_children_templates.lux" { extract_children_templates, ChildTemplate };
 
 /**
  * Element template structure

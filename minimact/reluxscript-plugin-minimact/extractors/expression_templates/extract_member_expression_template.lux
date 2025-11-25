@@ -4,9 +4,9 @@
  * Extracts template from member expressions (property access)
  */
 
-use "./build_member_path.rsc" { build_member_path };
-use "./extract_state_key.rsc" { extract_state_key };
-use "./supported_transforms.rsc" { get_transform_info };
+use "./build_member_path.lux" { build_member_path };
+use "./extract_state_key.lux" { extract_state_key };
+use "./supported_transforms.lux" { get_transform_info };
 
 /**
  * Transform metadata

@@ -4,8 +4,8 @@
  * Extracts template information from style object expressions
  */
 
-use "./extract_binding_shared.rsc" { extract_binding_shared, BindingResult };
-use "./style_helpers.rsc" { camel_to_kebab, convert_style_value };
+use "./extract_binding_shared.lux" { extract_binding_shared, BindingResult };
+use "./style_helpers.lux" { camel_to_kebab, convert_style_value };
 
 /**
  * Style template result

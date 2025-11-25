@@ -5,7 +5,7 @@
  */
 
 use codegen;
-use "./build_member_path.rsc" { build_member_path };
+use "./build_member_path.lux" { build_member_path };
 
 /**
  * Attribute value types

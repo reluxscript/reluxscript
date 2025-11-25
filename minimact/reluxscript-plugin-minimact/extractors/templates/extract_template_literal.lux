@@ -4,7 +4,7 @@
  * Extracts binding information from template literals
  */
 
-use "./extract_binding_shared.rsc" { extract_binding_shared, BindingResult };
+use "./extract_binding_shared.lux" { extract_binding_shared, BindingResult };
 
 /**
  * Template literal transform metadata

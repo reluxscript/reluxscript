@@ -5,10 +5,10 @@
  */
 
 use codegen;
-use "./extract_left_side_of_and.rsc" { extract_left_side_of_and };
-use "./extract_bindings_from_condition.rsc" { extract_bindings_from_condition };
-use "./is_condition_evaluable_client_side.rsc" { is_condition_evaluable_client_side };
-use "./extract_element_structure.rsc" { extract_element_structure, ElementStructure };
+use "./extract_left_side_of_and.lux" { extract_left_side_of_and };
+use "./extract_bindings_from_condition.lux" { extract_bindings_from_condition };
+use "./is_condition_evaluable_client_side.lux" { is_condition_evaluable_client_side };
+use "./extract_element_structure.lux" { extract_element_structure, ElementStructure };
 
 /**
  * Conditional element template result

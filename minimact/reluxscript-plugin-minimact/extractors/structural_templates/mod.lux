@@ -5,22 +5,22 @@
  */
 
 // Member path building
-pub use "./build_member_path.rsc" {
+pub use "./build_member_path.lux" {
     build_member_path
 };
 
 // Binding extraction
-pub use "./extract_binding.rsc" {
+pub use "./extract_binding.lux" {
     extract_binding
 };
 
 // State key extraction
-pub use "./extract_state_key.rsc" {
+pub use "./extract_state_key.lux" {
     extract_state_key
 };
 
 // Simple element template
-pub use "./extract_simple_element_template.rsc" {
+pub use "./extract_simple_element_template.lux" {
     extract_simple_element_template,
     SimpleElementTemplate,
     PropValue,
@@ -28,27 +28,27 @@ pub use "./extract_simple_element_template.rsc" {
 };
 
 // Element or fragment template
-pub use "./extract_element_or_fragment_template.rsc" {
+pub use "./extract_element_or_fragment_template.lux" {
     extract_element_or_fragment_template,
     ElementOrFragmentTemplate
 };
 
 // Conditional structural template
-pub use "./extract_conditional_structural_template.rsc" {
+pub use "./extract_conditional_structural_template.lux" {
     extract_conditional_structural_template,
     ConditionalStructuralTemplate,
     ConditionalBranch
 };
 
 // Logical AND template
-pub use "./extract_logical_and_template.rsc" {
+pub use "./extract_logical_and_template.lux" {
     extract_logical_and_template,
     LogicalAndTemplate,
     NullTemplate
 };
 
 // JSX traversal
-pub use "./traverse_jsx.rsc" {
+pub use "./traverse_jsx.lux" {
     traverse_jsx,
     StructuralTemplate
 };

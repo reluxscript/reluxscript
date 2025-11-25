@@ -5,7 +5,7 @@
  * loop templates from them.
  */
 
-use "./extract_loop_template.rsc" { extract_loop_template, LoopTemplate };
+use "./extract_loop_template.lux" { extract_loop_template, LoopTemplate };
 
 /**
  * Find all .map() call expressions in an expression tree

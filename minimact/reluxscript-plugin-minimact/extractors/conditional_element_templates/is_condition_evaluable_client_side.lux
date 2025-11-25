@@ -5,7 +5,7 @@
  * Only simple boolean logic is supported (&&, ||, !, comparisons)
  */
 
-use "./is_simple_expression.rsc" { is_simple_expression };
+use "./is_simple_expression.lux" { is_simple_expression };
 
 /**
  * Check if condition can be evaluated client-side

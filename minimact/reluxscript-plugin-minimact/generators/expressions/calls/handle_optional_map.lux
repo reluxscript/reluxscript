@@ -4,7 +4,7 @@
  * Converts JavaScript optional chaining map to C# optional LINQ
  */
 
-use "./handle_array_methods.rsc" { ComponentContext, MapContext };
+use "./handle_array_methods.lux" { ComponentContext, MapContext };
 
 /**
  * Handle optional .map() call: array?.map(...)

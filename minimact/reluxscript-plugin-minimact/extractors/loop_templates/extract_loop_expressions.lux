@@ -8,7 +8,7 @@
  * - Call: todo.text.toUpperCase(), todo.text.substring(0, 10)
  */
 
-use "./extract_loop_identifiers.rsc" { extract_loop_identifiers };
+use "./extract_loop_identifiers.lux" { extract_loop_identifiers };
 
 /**
  * Extract binding from binary expression in loop

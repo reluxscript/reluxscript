@@ -4,7 +4,7 @@
  * Analyzes binary expressions to extract arithmetic operations
  */
 
-use "./is_binding_expression.rsc" { is_binding_expression };
+use "./is_binding_expression.lux" { is_binding_expression };
 
 /**
  * Arithmetic operation

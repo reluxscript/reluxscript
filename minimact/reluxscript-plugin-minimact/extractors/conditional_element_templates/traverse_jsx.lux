@@ -4,8 +4,8 @@
  * Traverses JSX tree to find conditional expressions
  */
 
-use "./extract_logical_and_element_template.rsc" { extract_logical_and_element_template };
-use "./extract_ternary_element_template.rsc" { extract_ternary_element_template, ConditionalElementTemplate };
+use "./extract_logical_and_element_template.lux" { extract_logical_and_element_template };
+use "./extract_ternary_element_template.lux" { extract_ternary_element_template, ConditionalElementTemplate };
 
 /**
  * Traverse JSX tree to find conditional expressions

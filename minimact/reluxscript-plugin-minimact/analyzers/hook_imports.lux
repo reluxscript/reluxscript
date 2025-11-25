@@ -11,8 +11,8 @@
 use fs;
 use path;
 use parser;
-use "./hook_detector.rsc" { is_custom_hook, get_hook_name, get_hook_parameters, get_hook_body, HookParameter };
-use "./hook_analyzer.rsc" { analyze_hook, HookAnalysis };
+use "./hook_detector.lux" { is_custom_hook, get_hook_name, get_hook_parameters, get_hook_body, HookParameter };
+use "./hook_analyzer.lux" { analyze_hook, HookAnalysis };
 
 /**
  * Hook metadata from imported file
@@ -324,10 +324,10 @@ fn is_var_exported_later(program: &Program, var_name: &Str) -> bool {
 
 /**
  * Resolve relative import path to absolute path
- * Tries common extensions: .tsx, .ts, .jsx, .js, .rsc
+ * Tries common extensions: .tsx, .ts, .jsx, .js, .lux
  */
 fn resolve_import_path(import_source: &Str, current_dir: &Str) -> Option<Str> {
-    let extensions = vec![".tsx", ".ts", ".jsx", ".js", ".rsc"];
+    let extensions = vec![".tsx", ".ts", ".jsx", ".js", ".lux"];
 
     for ext in extensions {
         let with_ext = if import_source.ends_with(ext) {

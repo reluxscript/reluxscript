@@ -4,11 +4,11 @@
  * Main binding extraction logic for JSX expressions
  */
 
-use "./build_member_path.rsc" { build_member_path };
-use "./extract_identifiers.rsc" { extract_identifiers };
-use "./extract_method_call_binding.rsc" { extract_method_call_binding, MethodCallBinding };
-use "./extract_conditional_binding.rsc" { extract_conditional_binding, ConditionalBinding };
-use "./extract_optional_chain_binding.rsc" { extract_optional_chain_binding, OptionalChainBinding };
+use "./build_member_path.lux" { build_member_path };
+use "./extract_identifiers.lux" { extract_identifiers };
+use "./extract_method_call_binding.lux" { extract_method_call_binding, MethodCallBinding };
+use "./extract_conditional_binding.lux" { extract_conditional_binding, ConditionalBinding };
+use "./extract_optional_chain_binding.lux" { extract_optional_chain_binding, OptionalChainBinding };
 
 /**
  * Binding extraction result

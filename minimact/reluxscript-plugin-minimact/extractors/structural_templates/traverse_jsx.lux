@@ -4,8 +4,8 @@
  * Traverses JSX tree looking for conditional expressions that affect structure
  */
 
-use "./extract_conditional_structural_template.rsc" { extract_conditional_structural_template, ConditionalStructuralTemplate };
-use "./extract_logical_and_template.rsc" { extract_logical_and_template, LogicalAndTemplate };
+use "./extract_conditional_structural_template.lux" { extract_conditional_structural_template, ConditionalStructuralTemplate };
+use "./extract_logical_and_template.lux" { extract_logical_and_template, LogicalAndTemplate };
 
 /**
  * Structural template result (union type)

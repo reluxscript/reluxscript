@@ -7,9 +7,9 @@
  * - Template literals: className={`item-${todo.id}`} → template with placeholder
  */
 
-use "./build_binding_path.rsc" { build_binding_path };
-use "./extract_conditional_template.rsc" { extract_conditional_template };
-use "./extract_template_from_template_literal.rsc" { extract_template_from_template_literal };
+use "./build_binding_path.lux" { build_binding_path };
+use "./extract_conditional_template.lux" { extract_conditional_template };
+use "./extract_template_from_template_literal.lux" { extract_template_from_template_literal };
 
 /**
  * Prop template structure

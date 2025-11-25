@@ -4,7 +4,7 @@
  * Extracts conditional binding from ternary expressions
  */
 
-use "./extract_literal_value.rsc" { extract_literal_value };
+use "./extract_literal_value.lux" { extract_literal_value };
 
 /**
  * Conditional binding result

@@ -4,8 +4,8 @@
  * Extracts template from unary expressions (-count, +value, etc.)
  */
 
-use "./extract_binding.rsc" { extract_binding };
-use "./extract_state_key.rsc" { extract_state_key };
+use "./extract_binding.lux" { extract_binding };
+use "./extract_state_key.lux" { extract_state_key };
 
 /**
  * Unary transform metadata

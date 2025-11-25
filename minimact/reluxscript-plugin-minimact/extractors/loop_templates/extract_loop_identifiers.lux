@@ -2,7 +2,7 @@
  * Extract identifiers from expression, converting item references to "item" prefix
  */
 
-use "./build_member_expression_path.rsc" { build_member_expression_path };
+use "./build_member_expression_path.lux" { build_member_expression_path };
 
 /**
  * Extract all identifiers from an expression within a loop context

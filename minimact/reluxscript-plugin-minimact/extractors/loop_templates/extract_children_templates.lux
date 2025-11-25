@@ -2,11 +2,11 @@
  * Extract children templates from JSX children
  *
  * Returns array of templates (text or element)
- * Note: This has a circular dependency with extract_element_template.rsc
+ * Note: This has a circular dependency with extract_element_template.lux
  */
 
-use "./extract_text_template.rsc" { extract_text_template, TextTemplate };
-use "./extract_element_template.rsc" { extract_element_template, ElementTemplate };
+use "./extract_text_template.lux" { extract_text_template, TextTemplate };
+use "./extract_element_template.lux" { extract_element_template, ElementTemplate };
 
 /**
  * Child template (can be text or element)

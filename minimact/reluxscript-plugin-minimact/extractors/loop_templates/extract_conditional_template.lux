@@ -11,8 +11,8 @@
  * }
  */
 
-use "./build_binding_path.rsc" { build_binding_path };
-use "./extract_literal_value.rsc" { extract_literal_value };
+use "./build_binding_path.lux" { build_binding_path };
+use "./extract_literal_value.lux" { extract_literal_value };
 
 /**
  * Template result for conditional expressions

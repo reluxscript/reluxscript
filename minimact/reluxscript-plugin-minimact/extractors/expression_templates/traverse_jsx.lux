@@ -4,7 +4,7 @@
  * Traverses JSX tree looking for expression containers
  */
 
-use "./extract_expression_template.rsc" { extract_expression_template, ExpressionTemplate };
+use "./extract_expression_template.lux" { extract_expression_template, ExpressionTemplate };
 
 /**
  * Traverse JSX tree looking for expression containers

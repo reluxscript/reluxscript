@@ -11,8 +11,8 @@
  * - index * 2 + 1 → "__expr__:index"
  */
 
-use "./build_member_expression_path.rsc" { build_member_expression_path };
-use "./extract_loop_expressions.rsc" {
+use "./build_member_expression_path.lux" { build_member_expression_path };
+use "./extract_loop_expressions.lux" {
     extract_loop_binary_expression,
     extract_loop_logical_expression,
     extract_loop_unary_expression,

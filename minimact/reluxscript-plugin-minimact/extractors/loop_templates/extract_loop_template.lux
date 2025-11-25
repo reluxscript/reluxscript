@@ -11,10 +11,10 @@
  * - Item template (how to render each element)
  */
 
-use "./extract_array_binding.rsc" { extract_array_binding };
-use "./extract_jsx_from_callback.rsc" { extract_jsx_from_callback };
-use "./extract_element_template.rsc" { extract_element_template, ElementTemplate };
-use "./extract_key_binding.rsc" { extract_key_binding };
+use "./extract_array_binding.lux" { extract_array_binding };
+use "./extract_jsx_from_callback.lux" { extract_jsx_from_callback };
+use "./extract_element_template.lux" { extract_element_template, ElementTemplate };
+use "./extract_key_binding.lux" { extract_key_binding };
 
 /**
  * Loop template structure

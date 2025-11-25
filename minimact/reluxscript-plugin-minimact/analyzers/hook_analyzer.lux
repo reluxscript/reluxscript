@@ -8,7 +8,7 @@
  * - Return values → API surface
  */
 
-use "./hook_detector.rsc" { get_hook_name, get_hook_parameters, get_hook_body, extract_type_string, HookParameter };
+use "./hook_detector.lux" { get_hook_name, get_hook_parameters, get_hook_body, extract_type_string, HookParameter };
 
 /**
  * Hook analysis result

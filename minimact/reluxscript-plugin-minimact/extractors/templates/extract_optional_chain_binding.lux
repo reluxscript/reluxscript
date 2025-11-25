@@ -4,7 +4,7 @@
  * Extracts binding from optional chaining expressions
  */
 
-use "./build_member_path.rsc" { build_optional_member_path };
+use "./build_member_path.lux" { build_optional_member_path };
 
 /**
  * Optional chain binding result

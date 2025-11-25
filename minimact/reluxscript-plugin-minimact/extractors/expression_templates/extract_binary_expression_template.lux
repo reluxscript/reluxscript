@@ -4,9 +4,9 @@
  * Extracts template from binary expressions (arithmetic, etc.)
  */
 
-use "./extract_identifiers.rsc" { extract_identifiers };
-use "./analyze_binary_expression.rsc" { analyze_binary_expression, BinaryExpressionAnalysis };
-use "./generate_expression_string.rsc" { generate_expression_string };
+use "./extract_identifiers.lux" { extract_identifiers };
+use "./analyze_binary_expression.lux" { analyze_binary_expression, BinaryExpressionAnalysis };
+use "./generate_expression_string.lux" { generate_expression_string };
 
 /**
  * Binary expression template result

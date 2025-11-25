@@ -4,7 +4,7 @@
  * Generates expression string for complex expressions
  */
 
-use "./build_member_path.rsc" { build_member_path };
+use "./build_member_path.lux" { build_member_path };
 
 /**
  * Generate expression string for complex expressions

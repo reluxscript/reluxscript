@@ -10,7 +10,7 @@
  * }
  */
 
-use "./build_binding_path.rsc" { build_binding_path };
+use "./build_binding_path.lux" { build_binding_path };
 
 /**
  * Template literal result

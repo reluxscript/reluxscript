@@ -4,7 +4,7 @@
  * Example: <li key={todo.id}> → "item.id"
  */
 
-use "./build_binding_path.rsc" { build_binding_path };
+use "./build_binding_path.lux" { build_binding_path };
 
 /**
  * Extract the key binding from a JSX element's attributes

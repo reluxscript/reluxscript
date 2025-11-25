@@ -4,8 +4,8 @@
  * Extracts template from mixed text/expression children in JSX
  */
 
-use "./extract_binding.rsc" { extract_binding, Binding };
-use "./extract_template_literal.rsc" { extract_template_literal };
+use "./extract_binding.lux" { extract_binding, Binding };
+use "./extract_template_literal.lux" { extract_template_literal };
 
 /**
  * Conditional template values

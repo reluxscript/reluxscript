@@ -5,10 +5,10 @@
  */
 
 // Math methods
-pub use "./handle_math_calls.rsc" { handle_math_calls };
+pub use "./handle_math_calls.lux" { handle_math_calls };
 
 // Global functions
-pub use "./handle_global_functions.rsc" {
+pub use "./handle_global_functions.lux" {
     handle_encode_uri_component,
     handle_set_state,
     handle_fetch,
@@ -17,20 +17,20 @@ pub use "./handle_global_functions.rsc" {
 };
 
 // Promise methods
-pub use "./handle_promise_calls.rsc" {
+pub use "./handle_promise_calls.lux" {
     handle_promise_resolve,
     handle_promise_reject
 };
 
 // Object/Date/console methods
-pub use "./handle_object_calls.rsc" {
+pub use "./handle_object_calls.lux" {
     handle_object_keys,
     handle_date_now,
     handle_console_log
 };
 
 // String methods
-pub use "./handle_string_methods.rsc" {
+pub use "./handle_string_methods.lux" {
     handle_to_fixed,
     handle_to_locale_string,
     handle_to_lower_case,
@@ -43,7 +43,7 @@ pub use "./handle_string_methods.rsc" {
 };
 
 // Array methods
-pub use "./handle_array_methods.rsc" {
+pub use "./handle_array_methods.lux" {
     handle_map,
     handle_state_setters,
     ComponentContext,
@@ -52,4 +52,4 @@ pub use "./handle_array_methods.rsc" {
 };
 
 // Optional map
-pub use "./handle_optional_map.rsc" { handle_optional_map };
+pub use "./handle_optional_map.lux" { handle_optional_map };

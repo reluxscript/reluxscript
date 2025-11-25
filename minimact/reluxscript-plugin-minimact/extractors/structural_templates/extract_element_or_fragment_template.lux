@@ -4,7 +4,7 @@
  * Extracts template from JSX element or fragment
  */
 
-use "./extract_simple_element_template.rsc" { extract_simple_element_template, SimpleElementTemplate, TemplateChild };
+use "./extract_simple_element_template.lux" { extract_simple_element_template, SimpleElementTemplate, TemplateChild };
 
 /**
  * Element or fragment template result

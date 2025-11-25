@@ -4,9 +4,9 @@
  * Extracts structural template from logical AND expressions
  */
 
-use "./extract_binding.rsc" { extract_binding };
-use "./extract_state_key.rsc" { extract_state_key };
-use "./extract_element_or_fragment_template.rsc" { extract_element_or_fragment_template, ElementOrFragmentTemplate };
+use "./extract_binding.lux" { extract_binding };
+use "./extract_state_key.lux" { extract_state_key };
+use "./extract_element_or_fragment_template.lux" { extract_element_or_fragment_template, ElementOrFragmentTemplate };
 
 /**
  * Logical AND template result

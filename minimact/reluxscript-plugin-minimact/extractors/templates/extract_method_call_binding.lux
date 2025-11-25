@@ -4,8 +4,8 @@
  * Extracts binding from method call expressions with transformations
  */
 
-use "./build_member_path.rsc" { build_member_path, build_optional_member_path };
-use "./extract_identifiers.rsc" { extract_identifiers };
+use "./build_member_path.lux" { build_member_path, build_optional_member_path };
+use "./extract_identifiers.lux" { extract_identifiers };
 
 /**
  * Method call binding result

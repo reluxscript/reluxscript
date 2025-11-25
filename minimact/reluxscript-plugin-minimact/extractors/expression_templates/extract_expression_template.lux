@@ -4,10 +4,10 @@
  * Main entry point for extracting expression templates
  */
 
-use "./extract_method_call_template.rsc" { extract_method_call_template, MethodCallTemplate };
-use "./extract_binary_expression_template.rsc" { extract_binary_expression_template, BinaryExpressionTemplate };
-use "./extract_member_expression_template.rsc" { extract_member_expression_template, MemberExpressionTemplate };
-use "./extract_unary_expression_template.rsc" { extract_unary_expression_template, UnaryExpressionTemplate };
+use "./extract_method_call_template.lux" { extract_method_call_template, MethodCallTemplate };
+use "./extract_binary_expression_template.lux" { extract_binary_expression_template, BinaryExpressionTemplate };
+use "./extract_member_expression_template.lux" { extract_member_expression_template, MemberExpressionTemplate };
+use "./extract_unary_expression_template.lux" { extract_unary_expression_template, UnaryExpressionTemplate };
 
 /**
  * Expression template result (union of all template types)

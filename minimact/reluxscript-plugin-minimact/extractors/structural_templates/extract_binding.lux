@@ -4,7 +4,7 @@
  * Extracts binding from expressions for structural templates
  */
 
-use "./build_member_path.rsc" { build_member_path };
+use "./build_member_path.lux" { build_member_path };
 
 /**
  * Extract binding from expression
