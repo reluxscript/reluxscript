@@ -1,0 +1,262 @@
+/**
+ * Razor Markdown to C# Conversion
+ *
+ * Converts Razor-style syntax in markdown to C# string interpolation.
+ *
+ * Input (TSX):
+ *   `# @name - $@price`
+ *
+ * Output (C#):
+ *   $@"# {name} - ${price}"
+ *
+ * Supported conversions:
+ * - @variable → {variable}
+ * - @variable.Property → {variable.Property}
+ * - @(expression) → {(expression)}
+ * - @if (cond) { ... } else { ... } → {(cond ? @"..." : @"...")}
+ * - @foreach (var x in xs) { ... } → {string.Join("\n", xs.Select(x => $@"..."))}
+ * - @for (var i = 1; i <= count; i++) { ... } → {string.Join("\n", Enumerable.Range(1, count).Select(i => $@"..."))}
+ * - @switch (x) { case ...: ... } → {x switch { ... => @"...", _ => @"..." }}
+ */
+
+/**
+ * Convert Razor markdown to C# interpolated string
+ */
+pub fn convert_razor_markdown_to_csharp(razor_markdown: &Str) -> Str {
+    if razor_markdown.is_empty() {
+        return "$@\"\"".into();
+    }
+
+    let mut markdown = razor_markdown.clone();
+
+    // Step 1: Convert @if blocks (must come before variable references)
+    markdown = convert_if_blocks(&markdown);
+
+    // Step 2: Convert @foreach blocks
+    markdown = convert_foreach_blocks(&markdown);
+
+    // Step 3: Convert @for blocks
+    markdown = convert_for_blocks(&markdown);
+
+    // Step 4: Convert @switch blocks
+    markdown = convert_switch_blocks(&markdown);
+
+    // Step 5: Convert @(expression)
+    markdown = convert_inline_expressions(&markdown);
+
+    // Step 6: Convert @variableName (must come last)
+    markdown = convert_variable_references(&markdown);
+
+    // Step 8: Wrap in $@"..."
+    format!("$@\"{}\"", markdown)
+}
+
+/**
+ * Convert @if blocks to C# ternary expressions
+ *
+ * @if (condition) { body } → {(condition ? @"body" : "")}
+ * @if (condition) { body } else { elseBody } → {(condition ? @"body" : @"elseBody")}
+ */
+pub fn convert_if_blocks(markdown: &Str) -> Str {
+    // Pattern: @if \s* ( condition ) \s* { body } [else { elseBody }]
+    let if_pattern = r"@if\s*\(([^)]+)\)\s*\{([\s\S]*?)\}(?:\s*else\s*\{([\s\S]*?)\})?";
+
+    // Use regex replace with callback
+    markdown.replace_regex(if_pattern, |captures| {
+        let condition = captures[1].trim();
+        let then_body = captures[2].trim();
+        let else_body = if captures.len() > 3 {
+            Some(captures[3].trim())
+        } else {
+            None
+        };
+
+        // Recursively convert nested Razor in the bodies
+        let converted_then = convert_nested_razor(&then_body, None);
+
+        if let Some(else_part) = else_body {
+            let converted_else = convert_nested_razor(&else_part, None);
+            format!("{{({} ? @\"{}\" : @\"{}\")}}", condition, converted_then, converted_else)
+        } else {
+            format!("{{({} ? @\"{}\" : \"\")}}", condition, converted_then)
+        }
+    })
+}
+
+/**
+ * Convert @foreach blocks to LINQ Select
+ *
+ * @foreach (var item in collection) { body } →
+ * {string.Join("\n", collection.Select(item => $@"body"))}
+ */
+pub fn convert_foreach_blocks(markdown: &Str) -> Str {
+    // Pattern: @foreach \s* ( var itemVar in collection ) \s* { body }
+    let foreach_pattern = r"@foreach\s*\(\s*var\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+in\s+([a-zA-Z_][a-zA-Z0-9_.]*)\)\s*\{([\s\S]*?)\}";
+
+    markdown.replace_regex(foreach_pattern, |captures| {
+        let item_var = captures[1].trim();
+        let collection = captures[2].trim();
+        let body = captures[3].trim();
+
+        // Recursively convert nested Razor in body (preserving item variable references)
+        let converted_body = convert_nested_razor(&body, Some(&item_var));
+
+        format!("{{string.Join(\"\\n\", {}.Select({} => $@\"{}\"))}}",
+            collection, item_var, converted_body)
+    })
+}
+
+/**
+ * Convert @for blocks to Enumerable.Range
+ *
+ * @for (var i = 1; i <= count; i++) { body } →
+ * {string.Join("\n", Enumerable.Range(1, count).Select(i => $@"body"))}
+ */
+pub fn convert_for_blocks(markdown: &Str) -> Str {
+    // Pattern: @for ( var indexVar = start; indexVar <= end; indexVar++ ) { body }
+    let for_pattern = r"@for\s*\(\s*var\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(\d+)\s*;\s*\1\s*<=?\s*([a-zA-Z_0-9][a-zA-Z0-9_.]*)\s*;\s*\1\+\+\s*\)\s*\{([\s\S]*?)\}";
+
+    markdown.replace_regex(for_pattern, |captures| {
+        let index_var = captures[1].trim();
+        let start = captures[2].trim();
+        let end = captures[3].trim();
+        let body = captures[4].trim();
+
+        let converted_body = convert_nested_razor(&body, Some(&index_var));
+
+        // Enumerable.Range(start, count) where count = end - start + 1
+        let is_end_numeric = end.chars().all(|c| c.is_digit(10));
+        let count = if is_end_numeric {
+            let start_num: i32 = start.parse().unwrap_or(0);
+            let end_num: i32 = end.parse().unwrap_or(0);
+            (end_num - start_num + 1).to_string()
+        } else {
+            format!("{} - {} + 1", end, start)
+        };
+
+        format!("{{string.Join(\"\\n\", Enumerable.Range({}, {}).Select({} => $@\"{}\"))}}",
+            start, count, index_var, converted_body)
+    })
+}
+
+/**
+ * Convert @switch blocks to C# switch expressions
+ *
+ * @switch (expr) { case "x": body break; default: defaultBody break; } →
+ * {expr switch { "x" => @"body", _ => @"defaultBody" }}
+ */
+pub fn convert_switch_blocks(markdown: &Str) -> Str {
+    let switch_pattern = r"@switch\s*\(([^)]+)\)\s*\{([\s\S]*?)\}";
+
+    markdown.replace_regex(switch_pattern, |captures| {
+        let expr = captures[1].trim();
+        let cases = captures[2].trim();
+
+        let mut switch_cases = vec![];
+
+        // Match case patterns: case pattern: body break;
+        let case_pattern = r"case\s+(.*?):([\s\S]*?)(?=break;)";
+        for case_match in cases.match_all_regex(case_pattern) {
+            let pattern = case_match[1].trim();
+            let body = case_match[2].trim();
+
+            // Recursively convert nested Razor in body
+            let converted_body = convert_nested_razor(&body, None);
+
+            // Check if pattern contains 'var' (pattern guard)
+            if pattern.starts_with("var ") {
+                switch_cases.push(format!("{} => $@\"{}\"", pattern, converted_body));
+            } else {
+                switch_cases.push(format!("{} => @\"{}\"", pattern, converted_body));
+            }
+        }
+
+        // Match default case: default: body break;
+        if let Some(default_match) = cases.match_regex(r"default:([\s\S]*?)(?=break;)") {
+            let body = default_match[1].trim();
+            let converted_body = convert_nested_razor(&body, None);
+            switch_cases.push(format!("_ => @\"{}\"", converted_body));
+        }
+
+        format!("{{{} switch {{ {} }}}}", expr, switch_cases.join(", "))
+    })
+}
+
+/**
+ * Convert @(expression) to {(expression)}
+ */
+pub fn convert_inline_expressions(markdown: &Str) -> Str {
+    // Convert @(expression) → {(expression)}
+    markdown.replace_regex(r"@\(([^)]+)\)", |captures| {
+        format!("{{({})}}", captures[1])
+    })
+}
+
+/**
+ * Convert @variableName to {variableName}
+ */
+pub fn convert_variable_references(markdown: &Str) -> Str {
+    // Convert @variableName → {variableName}
+    // Convert @variable.Property → {variable.Property}
+    // Convert @variable.Method() → {variable.Method()}
+
+    // Pattern: @ followed by identifier, with optional property/method chain
+    let keywords = vec!["if", "else", "foreach", "for", "while", "switch"];
+
+    markdown.replace_regex(r"@([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*|\([^)]*\))*)", |captures| {
+        let var_path = captures[1];
+        let root_var = var_path.split(&['.', '('][..]).next().unwrap_or("");
+
+        // Skip Razor keywords (shouldn't happen - already converted)
+        if keywords.contains(&root_var) {
+            return format!("@{}", var_path);
+        }
+
+        format!("{{{}}}", var_path)
+    })
+}
+
+/**
+ * Recursively convert nested Razor syntax within bodies
+ *
+ * Used for converting Razor inside @if, @foreach, @for, @switch bodies
+ */
+pub fn convert_nested_razor(body: &Str, item_var: Option<&Str>) -> Str {
+    let mut result = body.clone();
+
+    // Step 1: Convert @(expression)
+    result = result.replace_regex(r"@\(([^)]+)\)", |captures| {
+        format!("{{({})}}", captures[1])
+    });
+
+    // Step 2: If itemVar provided, convert @itemVar references
+    if let Some(var_name) = item_var {
+        // Convert @itemVar.property or @itemVar
+        let item_pattern = format!(r"@{}(\.[a-zA-Z_][a-zA-Z0-9_]*|\([^)]*\))*", var_name);
+        result = result.replace_regex(&item_pattern, |captures| {
+            let matched = captures[0];
+            // Remove @ and wrap in {}
+            format!("{{{}}}", &matched[1..])
+        });
+    }
+
+    // Step 3: Convert other @variable references
+    result = result.replace_regex(r"@([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*|\([^)]*\))*)", |captures| {
+        let var_path = captures[1];
+
+        // Don't double-convert itemVar (already done above)
+        if let Some(var_name) = item_var {
+            if var_path.starts_with(var_name) {
+                return format!("@{}", var_path);
+            }
+        }
+
+        format!("{{{}}}", var_path)
+    });
+
+    // Step 4: Escape quotes in the body for C# verbatim strings
+    // Replace " with "" for @"..." strings
+    result = result.replace("\"", "\"\"");
+
+    result
+}

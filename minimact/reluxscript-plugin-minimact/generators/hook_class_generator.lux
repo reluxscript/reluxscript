@@ -1,0 +1,328 @@
+/**
+ * Hook Class Generator
+ *
+ * Generates C# class code for custom hooks
+ * Output format:
+ *
+ * [Hook]
+ * public partial class UseCounterHook : MinimactComponent
+ * {
+ *     [State] private int count = 0;
+ *     private void setCount(int value) => SetState("count", value);
+ *     private void increment() => setCount(count + 1);
+ *     protected override VNode Render() { ... }
+ * }
+ */
+
+use "./render_body.lux" { generate_render_body };
+use "../utils/path_assignment.lux" { assign_paths_to_jsx };
+use "../utils/hex_path.lux" { HexPathGenerator };
+
+pub struct HookParam {
+    pub name: Str,
+    pub param_type: Str
+}
+
+pub struct HookState {
+    pub var_name: Str,
+    pub setter_name: Str,
+    pub state_type: Str,
+    pub initial_value: Option<Str>
+}
+
+pub struct HookMethod {
+    pub name: Str,
+    pub return_type: Str,
+    pub params: Vec<HookParam>,
+    pub body: Str
+}
+
+pub struct JSXElement {
+    pub node: Expression
+}
+
+pub struct HookReturnValue {
+    pub return_type: Str,
+    pub name: Str
+}
+
+pub struct HookAnalysis {
+    pub name: Str,
+    pub class_name: Str,
+    pub params: Vec<HookParam>,
+    pub states: Vec<HookState>,
+    pub methods: Vec<HookMethod>,
+    pub jsx_elements: Vec<JSXElement>,
+    pub return_values: Vec<HookReturnValue>
+}
+
+pub struct StateAccessor {
+    pub var_name: Str,
+    pub state_key: Option<Str>,
+    pub code: Str
+}
+
+/**
+ * Generate complete C# class for a hook
+ */
+pub fn generate_hook_class(analysis: &HookAnalysis, component: &Component) -> Str {
+    let mut lines = vec![];
+
+    // Class declaration with [Hook] attribute
+    lines.push("// ============================================================".into());
+    lines.push(format!("// HOOK CLASS - Generated from {}", analysis.name));
+    lines.push("// ============================================================".into());
+    lines.push("[Hook]".into());
+    lines.push(format!("public partial class {} : MinimactComponent", analysis.class_name));
+    lines.push("{".into());
+
+    // Configuration properties (from hook parameters)
+    if !analysis.params.is_empty() {
+        lines.push("    // Configuration (from hook arguments)".into());
+        for param in &analysis.params {
+            let csharp_type = map_type_to_csharp(&param.param_type);
+            lines.push(format!("    private {} {} => GetState<{}>(\"%config.{}\");",
+                csharp_type, param.name, csharp_type, param.name));
+        }
+        lines.push("".into());
+    }
+
+    // State fields
+    if !analysis.states.is_empty() {
+        lines.push("    // Hook state".into());
+        for state in &analysis.states {
+            let csharp_type = map_type_to_csharp(&state.state_type);
+            let initial_value = if let Some(val) = &state.initial_value {
+                val.clone()
+            } else {
+                get_default_value(&csharp_type)
+            };
+            lines.push("    [State]".into());
+            lines.push(format!("    private {} {} = {};",
+                csharp_type, state.var_name, initial_value));
+            lines.push("".into());
+        }
+    }
+
+    // Setter methods for state
+    if !analysis.states.is_empty() {
+        lines.push("    // State setters".into());
+        for state in &analysis.states {
+            let csharp_type = map_type_to_csharp(&state.state_type);
+            lines.push(format!("    private void {}({} value)", state.setter_name, csharp_type));
+            lines.push("    {".into());
+            lines.push(format!("        SetState(nameof({}), value);", state.var_name));
+            lines.push("    }".into());
+            lines.push("".into());
+        }
+    }
+
+    // Methods
+    if !analysis.methods.is_empty() {
+        lines.push("    // Hook methods".into());
+        for method in &analysis.methods {
+            let return_type = map_type_to_csharp(&method.return_type);
+            let params = method.params.iter()
+                .map(|p| format!("{} {}", map_type_to_csharp(&p.param_type), p.name))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            lines.push(format!("    private {} {}({})", return_type, method.name, params));
+            lines.push("    {".into());
+            // TODO: Transpile method body properly
+            lines.push(format!("        {}", method.body));
+            lines.push("    }".into());
+            lines.push("".into());
+        }
+    }
+
+    // Render method (if hook has JSX)
+    if !analysis.jsx_elements.is_empty() {
+        let jsx = &analysis.jsx_elements[0]; // Take first JSX element
+
+        lines.push("    // Hook UI rendering".into());
+        lines.push("    protected override VNode Render()".into());
+        lines.push("    {".into());
+        lines.push("        StateManager.SyncMembersToState(this);".into());
+        lines.push("".into());
+
+        // Assign hex paths to JSX tree
+        let mut path_gen = HexPathGenerator::new();
+        let mut jsx_node = jsx.node.clone();
+        assign_paths_to_jsx(&mut jsx_node, "", &mut path_gen);
+
+        // Generate VNode code using existing generator
+        let render_code = generate_render_body(&jsx_node, component, 2);
+        lines.push(format!("        {}", render_code.trim()));
+
+        lines.push("    }".into());
+        lines.push("".into());
+
+        // Event handlers (if any)
+        if !component.event_handlers.is_empty() {
+            lines.push("    // Event handlers".into());
+            for (index, handler) in component.event_handlers.iter().enumerate() {
+                lines.push(format!("    public void Handle{}(dynamic e)", index));
+                lines.push("    {".into());
+                if let Some(body) = &handler.body {
+                    // Generate method call from body
+                    lines.push(format!("        // {}", handler.name));
+                }
+                lines.push("    }".into());
+                lines.push("".into());
+            }
+        }
+    }
+
+    lines.push("}".into());
+    lines.push("".into());
+
+    lines.join("\n")
+}
+
+/**
+ * Map TypeScript/JavaScript type to C# type
+ */
+pub fn map_type_to_csharp(js_type: &Str) -> Str {
+    match js_type.as_str() {
+        "string" => "string",
+        "number" => "int",
+        "boolean" => "bool",
+        "any" => "dynamic",
+        "void" => "void",
+        "object" => "object",
+        "any[]" => "List<dynamic>",
+        "string[]" => "List<string>",
+        "number[]" => "List<int>",
+        "boolean[]" => "List<bool>",
+        _ => "dynamic"
+    }.into()
+}
+
+/**
+ * Get default value for C# type
+ */
+pub fn get_default_value(csharp_type: &Str) -> Str {
+    // Handle List types
+    if csharp_type.starts_with("List<") {
+        return format!("new {}()", csharp_type);
+    }
+
+    match csharp_type.as_str() {
+        "int" => "0",
+        "bool" => "false",
+        "string" => "\"\"",
+        "dynamic" => "null",
+        "object" => "null",
+        _ => "null"
+    }.into()
+}
+
+/**
+ * Generate VComponentWrapper usage code
+ */
+pub fn generate_v_component_wrapper(
+    analysis: &HookAnalysis,
+    namespace: &Str,
+    hex_path: &Str,
+    args: &Vec<Str>
+) -> Str {
+    let mut lines = vec![];
+
+    lines.push("new VComponentWrapper".into());
+    lines.push("{".into());
+    lines.push(format!("    ComponentName = \"{}\",", namespace));
+    lines.push(format!("    ComponentType = \"{}\",", analysis.class_name));
+    lines.push(format!("    HexPath = \"{}\",", hex_path));
+    lines.push("    InitialState = new Dictionary<string, object>".into());
+    lines.push("    {".into());
+
+    // Initialize state fields
+    let mut field_count = 0;
+    if !analysis.states.is_empty() {
+        for (index, state) in analysis.states.iter().enumerate() {
+            let initial_val = if let Some(val) = &state.initial_value {
+                val.clone()
+            } else {
+                get_default_value(&map_type_to_csharp(&state.state_type))
+            };
+            let comma = if index < analysis.states.len() - 1 || !args.is_empty() {
+                ","
+            } else {
+                ""
+            };
+            lines.push(format!("        [\"{}\"] = {}{}", state.var_name, initial_val, comma));
+        }
+        field_count = analysis.states.len();
+    }
+
+    // Initialize config parameters
+    if !args.is_empty() {
+        for (index, arg) in args.iter().enumerate() {
+            let comma = if index < args.len() - 1 { "," } else { "" };
+            let param_name = &analysis.params[index].name;
+            lines.push(format!("        [\"_config.{}\"] = {}{}", param_name, arg, comma));
+        }
+    }
+
+    lines.push("    }".into());
+    lines.push("}".into());
+
+    lines.join("\n")
+}
+
+/**
+ * Generate state access code for parent component
+ */
+pub fn generate_state_access(
+    analysis: &HookAnalysis,
+    namespace: &Str,
+    return_bindings: &Vec<Str>
+) -> Vec<StateAccessor> {
+    let mut accessors = vec![];
+
+    if analysis.return_values.is_empty() || return_bindings.is_empty() {
+        return accessors;
+    }
+
+    for (index, return_value) in analysis.return_values.iter().enumerate() {
+        if index >= return_bindings.len() {
+            break;
+        }
+
+        let var_name = return_bindings[index].clone();
+
+        match return_value.return_type.as_str() {
+            "state" => {
+                // Access state value: var count = State["namespace.count"];
+                let state_key = format!("{}.{}", namespace, return_value.name);
+                let csharp_type = map_type_to_csharp(&"any".into()); // TODO: Infer correct type
+                accessors.push(StateAccessor {
+                    var_name: var_name.clone(),
+                    state_key: Some(state_key.clone()),
+                    code: format!("var {} = GetState<{}>(\"{}\");", var_name, csharp_type, state_key)
+                });
+            }
+            "setter" => {
+                // Generate method to call setter
+                accessors.push(StateAccessor {
+                    var_name: var_name.clone(),
+                    state_key: None,
+                    code: format!("// {} - method call via state manipulation", var_name)
+                });
+            }
+            "method" => {
+                // Generate method wrapper
+                accessors.push(StateAccessor {
+                    var_name: var_name.clone(),
+                    state_key: None,
+                    code: format!("// {} - method call via hook instance", var_name)
+                });
+            }
+            _ => {}
+            // JSX is handled via VComponentWrapper, no accessor needed
+        }
+    }
+
+    accessors
+}
