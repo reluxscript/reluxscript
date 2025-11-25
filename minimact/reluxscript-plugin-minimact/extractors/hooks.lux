@@ -1,0 +1,1340 @@
+/**
+ * Hook Extractors
+ *
+ * This file contains extractors for all Minimact hooks.
+ * Due to the size and complexity, some functions are simplified.
+ */
+
+use "../types/component_types.lux" { Component };
+use "../generators/expressions.lux" { generate_csharp_expression };
+use "../types/type_conversion.lux" { infer_type, ts_type_to_csharp_type };
+use "./use_state_x.lux" { extract_use_state_x };
+use codegen;
+
+/**
+ * Main hook extraction dispatcher
+ */
+pub fn extract_hook(call_expr: &CallExpression, component: &mut Component) {
+    if let Expression::Identifier(callee) = &call_expr.callee {
+        let hook_name = &callee.name;
+
+        // Check if this hook was imported (takes precedence)
+        if let Some(imported_hooks) = &component.imported_hook_metadata {
+            if imported_hooks.contains_key(hook_name) {
+                println!("[Custom Hook] Found imported hook call: {}", hook_name);
+                extract_custom_hook_call(call_expr, component, hook_name);
+                return;
+            }
+        }
+
+        // Built-in hooks
+        match hook_name.as_str() {
+            "useState" => extract_use_state(call_expr, component, "useState"),
+            "useClientState" => extract_use_state(call_expr, component, "useClientState"),
+            "useProtectedState" => extract_use_protected_state(call_expr, component),
+            "useStateX" => extract_use_state_x(call_expr, component),
+            "useEffect" => extract_use_effect(call_expr, component),
+            "useRef" => extract_use_ref(call_expr, component),
+            "useMarkdown" => extract_use_markdown(call_expr, component),
+            "useRazorMarkdown" => extract_use_razor_markdown(call_expr, component),
+            "useTemplate" => extract_use_template(call_expr, component),
+            "useValidation" => extract_use_validation(call_expr, component),
+            "useModal" => extract_use_modal(call_expr, component),
+            "useToggle" => extract_use_toggle(call_expr, component),
+            "useDropdown" => extract_use_dropdown(call_expr, component),
+            "usePub" => extract_use_pub(call_expr, component),
+            "useSub" => extract_use_sub(call_expr, component),
+            "useMicroTask" => extract_use_micro_task(call_expr, component),
+            "useMacroTask" => extract_use_macro_task(call_expr, component),
+            "useSignalR" => extract_use_signal_r(call_expr, component),
+            "usePredictHint" => extract_use_predict_hint(call_expr, component),
+            "useServerTask" => extract_use_server_task(call_expr, component),
+            "usePaginatedServerTask" => extract_use_paginated_server_task(call_expr, component),
+            "useMvcState" => extract_use_mvc_state(call_expr, component),
+            "useMvcViewModel" => extract_use_mvc_view_model(call_expr, component),
+            _ => {
+                // Check if custom hook (starts with 'use')
+                if hook_name.starts_with("use") {
+                    extract_custom_hook_call(call_expr, component, hook_name);
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Extract useState or useClientState
+ *
+ * Note: In Babel, this receives a path with path.parent access.
+ * In ReluxScript, this should be called from a visitor that provides parent context.
+ */
+pub fn extract_use_state(
+    call_expr: &CallExpression,
+    parent: &VariableDeclarator,
+    component: &mut Component,
+    hook_type: &str
+) {
+    // Check if parent has array pattern destructuring
+    if let Pattern::ArrayPattern(array_pattern) = &parent.id {
+        let elements = &array_pattern.elements;
+
+        // const [stateVar, setterVar] = useState(...)
+        if elements.is_empty() {
+            return;
+        }
+
+        let state_var = elements.get(0);
+        let setter_var = if elements.len() > 1 {
+            elements.get(1)
+        } else {
+            None
+        };
+
+        // Handle read-only state (no setter): const [value] = useState(...)
+        if state_var.is_none() {
+            println!("[useState] Skipping invalid destructuring (no state variable)");
+            return;
+        }
+
+        let state_name = if let Some(Pattern::Identifier(id)) = state_var {
+            id.name.clone()
+        } else {
+            return;
+        };
+
+        let setter_name = if let Some(Some(Pattern::Identifier(id))) = setter_var {
+            Some(id.name.clone())
+        } else {
+            None
+        };
+
+        // Get initial value
+        let initial_value = call_expr.arguments.get(0);
+
+        // Check if there's a generic type parameter (e.g., useState<decimal>(0))
+        let explicit_type = if let Some(type_params) = &call_expr.type_parameters {
+            if let Some(type_param) = type_params.params.get(0) {
+                let csharp_type = ts_type_to_csharp_type(type_param);
+                println!("[useState] Found explicit type parameter for '{}': {}", state_name, csharp_type);
+                Some(csharp_type)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Generate C# expression for initial value
+        let initial_value_expr = if let Some(init) = initial_value {
+            generate_csharp_expression(init)
+        } else {
+            "null".into()
+        };
+
+        // Infer type if not explicitly provided
+        let state_type = if let Some(explicit) = explicit_type {
+            explicit
+        } else if let Some(init) = initial_value {
+            infer_type(init)
+        } else {
+            "object".into()
+        };
+
+        let state_info = UseStateInfo {
+            name: state_name.clone(),
+            setter: setter_name,
+            initial_value: initial_value_expr,
+            state_type: state_type
+        };
+
+        // Add to appropriate collection based on hook type
+        if hook_type == "useState" {
+            component.use_state.push(state_info);
+            component.state_types.insert(state_name.clone(), "server".into());
+        } else {
+            component.use_client_state.push(state_info);
+            component.state_types.insert(state_name.clone(), "client".into());
+        }
+    }
+}
+
+/**
+ * Extract useProtectedState (lifted but parent cannot access)
+ */
+pub fn extract_use_protected_state(
+    call_expr: &CallExpression,
+    parent: &VariableDeclarator,
+    component: &mut Component
+) {
+    // Check if parent has array pattern destructuring
+    if let Pattern::ArrayPattern(array_pattern) = &parent.id {
+        let elements = &array_pattern.elements;
+
+        if elements.is_empty() {
+            return;
+        }
+
+        let state_var = elements.get(0);
+        let setter_var = if elements.len() > 1 {
+            elements.get(1)
+        } else {
+            None
+        };
+
+        // Handle read-only state (no setter)
+        if state_var.is_none() {
+            println!("[useProtectedState] Skipping invalid destructuring (no state variable)");
+            return;
+        }
+
+        let state_name = if let Some(Pattern::Identifier(id)) = state_var {
+            id.name.clone()
+        } else {
+            return;
+        };
+
+        let setter_name = if let Some(Some(Pattern::Identifier(id))) = setter_var {
+            Some(id.name.clone())
+        } else {
+            None
+        };
+
+        let initial_value = call_expr.arguments.get(0);
+
+        // Check if there's a generic type parameter
+        let explicit_type = if let Some(type_params) = &call_expr.type_parameters {
+            if let Some(type_param) = type_params.params.get(0) {
+                let csharp_type = ts_type_to_csharp_type(type_param);
+                println!("[useProtectedState] Found explicit type parameter for '{}': {}", state_name, csharp_type);
+                Some(csharp_type)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let initial_value_expr = if let Some(init) = initial_value {
+            generate_csharp_expression(init)
+        } else {
+            "null".into()
+        };
+
+        let state_type = if let Some(explicit) = explicit_type {
+            explicit
+        } else if let Some(init) = initial_value {
+            infer_type(init)
+        } else {
+            "object".into()
+        };
+
+        let state_info = UseProtectedStateInfo {
+            name: state_name.clone(),
+            setter: setter_name,
+            initial_value: initial_value_expr,
+            state_type: state_type,
+            is_protected: true  // Key flag marking this as protected
+        };
+
+        component.use_protected_state.push(state_info);
+        component.state_types.insert(state_name.clone(), "protected".into());
+
+        println!("[useProtectedState] ✅ Extracted protected state: {} (type: {})", state_name, state_info.state_type);
+    }
+}
+
+/**
+ * Extract useEffect
+ */
+pub fn extract_use_effect(call_expr: &CallExpression, component: &mut Component) {
+    let callback = call_expr.arguments.get(0);
+    let dependencies = call_expr.arguments.get(1);
+
+    // Server-side C# effect
+    component.use_effect.push(UseEffectInfo {
+        body: callback.cloned(),
+        dependencies: dependencies.cloned()
+    });
+
+    // Client-side JavaScript effect
+    if let Some(cb) = callback {
+        let effect_index = component.client_effects.len();
+
+        // Analyze hook usage in effect
+        let hook_calls = analyze_hook_usage(cb);
+
+        // Transform callback
+        let transformed = transform_effect_callback(cb, &hook_calls);
+
+        // Generate JS code
+        let js_code = codegen::generate(&transformed);
+
+        component.client_effects.push(ClientEffect {
+            name: format!("Effect_{}", effect_index),
+            js_code,
+            dependencies: dependencies.cloned(),
+            hook_calls
+        });
+    }
+}
+
+/**
+ * Extract useRef
+ */
+pub fn extract_use_ref(
+    call_expr: &CallExpression,
+    parent: &VariableDeclarator,
+    component: &mut Component
+) {
+    if let Pattern::Identifier(id) = &parent.id {
+        let ref_name = id.name.clone();
+        let initial_value = call_expr.arguments.get(0);
+
+        let initial_value_expr = if let Some(init) = initial_value {
+            generate_csharp_expression(init)
+        } else {
+            "null".into()
+        };
+
+        component.use_ref.push(UseRefInfo {
+            name: ref_name,
+            initial_value: initial_value_expr
+        });
+    }
+}
+
+/**
+ * Extract useMarkdown
+ */
+pub fn extract_use_markdown(
+    call_expr: &CallExpression,
+    parent: &VariableDeclarator,
+    component: &mut Component
+) {
+    if let Pattern::ArrayPattern(array_pattern) = &parent.id {
+        let elements = &array_pattern.elements;
+
+        if elements.len() < 2 {
+            return;
+        }
+
+        let content_var = elements.get(0);
+        let setter_var = elements.get(1);
+
+        if content_var.is_none() || setter_var.is_none() {
+            return;
+        }
+
+        let content_name = if let Some(Pattern::Identifier(id)) = content_var {
+            id.name.clone()
+        } else {
+            return;
+        };
+
+        let setter_name = if let Some(Pattern::Identifier(id)) = setter_var {
+            id.name.clone()
+        } else {
+            return;
+        };
+
+        let initial_value = call_expr.arguments.get(0);
+        let initial_value_expr = if let Some(init) = initial_value {
+            generate_csharp_expression(init)
+        } else {
+            "".into()
+        };
+
+        component.use_markdown.push(UseMarkdownInfo {
+            name: content_name.clone(),
+            setter: setter_name,
+            initial_value: initial_value_expr
+        });
+
+        // Track as markdown state type
+        component.state_types.insert(content_name, "markdown".into());
+    }
+}
+
+/**
+ * Extract useRazorMarkdown - markdown with Razor syntax
+ */
+pub fn extract_use_razor_markdown(
+    call_expr: &CallExpression,
+    parent: &VariableDeclarator,
+    component: &mut Component
+) {
+    if let Pattern::ArrayPattern(array_pattern) = &parent.id {
+        let elements = &array_pattern.elements;
+
+        if elements.len() < 2 {
+            return;
+        }
+
+        let content_var = elements.get(0);
+        let setter_var = elements.get(1);
+
+        if content_var.is_none() || setter_var.is_none() {
+            return;
+        }
+
+        let content_name = if let Some(Pattern::Identifier(id)) = content_var {
+            id.name.clone()
+        } else {
+            return;
+        };
+
+        let setter_name = if let Some(Pattern::Identifier(id)) = setter_var {
+            id.name.clone()
+        } else {
+            return;
+        };
+
+        let initial_value = call_expr.arguments.get(0);
+
+        // Extract raw markdown string (for Razor conversion)
+        let raw_markdown = if let Some(Expression::StringLiteral(lit)) = initial_value {
+            lit.value.clone()
+        } else if let Some(Expression::TemplateLiteral(tmpl)) = initial_value {
+            // Template literal - extract raw string
+            tmpl.quasis.iter()
+                .map(|q| q.value.raw.clone())
+                .collect::<Vec<_>>()
+                .join("")
+        } else {
+            "".into()
+        };
+
+        component.use_razor_markdown.push(UseRazorMarkdownInfo {
+            name: content_name.clone(),
+            setter: setter_name,
+            initial_value: raw_markdown, // Store raw markdown for Razor conversion
+            has_razor_syntax: true, // Will be determined by Razor detection later
+            referenced_variables: vec![] // Will be populated by Razor variable extraction
+        });
+
+        // Track as razor-markdown state type
+        component.state_types.insert(content_name, "razor-markdown".into());
+    }
+}
+
+/**
+ * Extract useTemplate
+ */
+pub fn extract_use_template(call_expr: &CallExpression, component: &mut Component) {
+    let template_name_arg = call_expr.arguments.get(0);
+    let template_props_arg = call_expr.arguments.get(1);
+
+    if let Some(Expression::StringLiteral(template_name)) = template_name_arg {
+        let mut props = HashMap::new();
+
+        // Extract template props if provided
+        if let Some(Expression::ObjectExpression(obj)) = template_props_arg {
+            for prop in &obj.properties {
+                if let ObjectProperty::Property(p) = prop {
+                    if let Expression::Identifier(key) = &p.key {
+                        let prop_name = key.name.clone();
+                        let prop_value = match &p.value {
+                            Expression::StringLiteral(lit) => lit.value.clone(),
+                            Expression::NumericLiteral(num) => num.value.to_string(),
+                            Expression::BooleanLiteral(bool_lit) => bool_lit.value.to_string(),
+                            _ => "".into()
+                        };
+
+                        props.insert(prop_name, prop_value);
+                    }
+                }
+            }
+        }
+
+        component.use_template = Some(UseTemplateInfo {
+            name: template_name.value.clone(),
+            props
+        });
+    }
+}
+
+/**
+ * Extract useValidation
+ */
+pub fn extract_use_validation(
+    call_expr: &CallExpression,
+    parent: &VariableDeclarator,
+    component: &mut Component
+) {
+    if let Pattern::Identifier(id) = &parent.id {
+        let field_name = id.name.clone();
+        let field_key_arg = call_expr.arguments.get(0);
+        let validation_rules_arg = call_expr.arguments.get(1);
+
+        let field_key = if let Some(Expression::StringLiteral(lit)) = field_key_arg {
+            lit.value.clone()
+        } else {
+            field_name.clone()
+        };
+
+        let mut rules = HashMap::new();
+
+        // Extract validation rules from the object
+        if let Some(Expression::ObjectExpression(obj)) = validation_rules_arg {
+            for prop in &obj.properties {
+                if let ObjectProperty::Property(p) = prop {
+                    if let Expression::Identifier(key) = &p.key {
+                        let rule_name = key.name.clone();
+
+                        let rule_value = match &p.value {
+                            Expression::StringLiteral(lit) => Some(lit.value.clone()),
+                            Expression::NumericLiteral(num) => Some(num.value.to_string()),
+                            Expression::BooleanLiteral(bool_lit) => Some(bool_lit.value.to_string()),
+                            Expression::RegExpLiteral(regex) => {
+                                let flags = regex.flags.as_ref().map(|f| f.as_str()).unwrap_or("");
+                                Some(format!("/{}/{}", regex.pattern, flags))
+                            }
+                            _ => None
+                        };
+
+                        if let Some(value) = rule_value {
+                            rules.insert(rule_name, value);
+                        }
+                    }
+                }
+            }
+        }
+
+        let validation_info = UseValidationInfo {
+            name: field_name,
+            field_key,
+            rules
+        };
+
+        component.use_validation.push(validation_info);
+    }
+}
+
+/**
+ * Extract useModal
+ */
+pub fn extract_use_modal(
+    call_expr: &CallExpression,
+    parent: &VariableDeclarator,
+    component: &mut Component
+) {
+    if let Pattern::Identifier(id) = &parent.id {
+        let modal_name = id.name.clone();
+
+        component.use_modal.push(UseModalInfo {
+            name: modal_name
+        });
+    }
+}
+
+/**
+ * Extract useToggle
+ */
+pub fn extract_use_toggle(
+    call_expr: &CallExpression,
+    parent: &VariableDeclarator,
+    component: &mut Component
+) {
+    if let Pattern::ArrayPattern(array_pattern) = &parent.id {
+        let elements = &array_pattern.elements;
+
+        if elements.len() < 2 {
+            return;
+        }
+
+        let state_var = elements.get(0);
+        let toggle_func = elements.get(1);
+
+        if state_var.is_none() || toggle_func.is_none() {
+            return;
+        }
+
+        let state_name = if let Some(Pattern::Identifier(id)) = state_var {
+            id.name.clone()
+        } else {
+            return;
+        };
+
+        let toggle_func_name = if let Some(Pattern::Identifier(id)) = toggle_func {
+            id.name.clone()
+        } else {
+            return;
+        };
+
+        let initial_value = call_expr.arguments.get(0);
+        let initial_value_expr = if let Some(init) = initial_value {
+            generate_csharp_expression(init)
+        } else {
+            "false".into()
+        };
+
+        let toggle_info = UseToggleInfo {
+            name: state_name,
+            toggle_func: toggle_func_name,
+            initial_value: initial_value_expr
+        };
+
+        component.use_toggle.push(toggle_info);
+    }
+}
+
+/**
+ * Extract useDropdown
+ */
+pub fn extract_use_dropdown(
+    call_expr: &CallExpression,
+    parent: &VariableDeclarator,
+    component: &mut Component
+) {
+    if let Pattern::Identifier(id) = &parent.id {
+        let dropdown_name = id.name.clone();
+        let route_arg = call_expr.arguments.get(0);
+
+        let route_reference = if let Some(Expression::MemberExpression(_)) = route_arg {
+            if let Some(route) = route_arg {
+                Some(generate_csharp_expression(route))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        component.use_dropdown.push(UseDropdownInfo {
+            name: dropdown_name,
+            route: route_reference
+        });
+    }
+}
+
+/**
+ * Extract usePub
+ */
+pub fn extract_use_pub(
+    call_expr: &CallExpression,
+    parent: &VariableDeclarator,
+    component: &mut Component
+) {
+    if let Pattern::Identifier(id) = &parent.id {
+        let pub_name = id.name.clone();
+        let channel_arg = call_expr.arguments.get(0);
+
+        let channel = if let Some(Expression::StringLiteral(lit)) = channel_arg {
+            Some(lit.value.clone())
+        } else {
+            None
+        };
+
+        component.use_pub.push(UsePubInfo {
+            name: pub_name,
+            channel
+        });
+    }
+}
+
+/**
+ * Extract useSub
+ */
+pub fn extract_use_sub(
+    call_expr: &CallExpression,
+    parent: &VariableDeclarator,
+    component: &mut Component
+) {
+    if let Pattern::Identifier(id) = &parent.id {
+        let sub_name = id.name.clone();
+        let channel_arg = call_expr.arguments.get(0);
+        let callback = call_expr.arguments.get(1);
+
+        let channel = if let Some(Expression::StringLiteral(lit)) = channel_arg {
+            Some(lit.value.clone())
+        } else {
+            None
+        };
+
+        let has_callback = callback.is_some();
+
+        component.use_sub.push(UseSubInfo {
+            name: sub_name,
+            channel,
+            has_callback
+        });
+    }
+}
+
+/**
+ * Extract useMicroTask
+ */
+pub fn extract_use_micro_task(call_expr: &CallExpression, component: &mut Component) {
+    let callback = call_expr.arguments.get(0);
+
+    component.use_micro_task.push(UseMicroTaskInfo {
+        body: callback.cloned()
+    });
+}
+
+/**
+ * Extract useMacroTask
+ */
+pub fn extract_use_macro_task(call_expr: &CallExpression, component: &mut Component) {
+    let callback = call_expr.arguments.get(0);
+    let delay_arg = call_expr.arguments.get(1);
+
+    let delay = if let Some(Expression::NumericLiteral(num)) = delay_arg {
+        num.value as i32
+    } else {
+        0
+    };
+
+    component.use_macro_task.push(UseMacroTaskInfo {
+        body: callback.cloned(),
+        delay
+    });
+}
+
+/**
+ * Extract useSignalR
+ */
+pub fn extract_use_signal_r(
+    call_expr: &CallExpression,
+    parent: &VariableDeclarator,
+    component: &mut Component
+) {
+    if let Pattern::Identifier(id) = &parent.id {
+        let signal_r_name = id.name.clone();
+        let hub_url_arg = call_expr.arguments.get(0);
+        let on_message = call_expr.arguments.get(1);
+
+        let hub_url = if let Some(Expression::StringLiteral(lit)) = hub_url_arg {
+            Some(lit.value.clone())
+        } else {
+            None
+        };
+
+        let has_on_message = on_message.is_some();
+
+        component.use_signal_r.push(UseSignalRInfo {
+            name: signal_r_name,
+            hub_url,
+            has_on_message
+        });
+    }
+}
+
+/**
+ * Extract usePredictHint
+ */
+pub fn extract_use_predict_hint(call_expr: &CallExpression, component: &mut Component) {
+    let hint_id_arg = call_expr.arguments.get(0);
+    let predicted_state = call_expr.arguments.get(1);
+
+    let hint_id = if let Some(Expression::StringLiteral(lit)) = hint_id_arg {
+        Some(lit.value.clone())
+    } else {
+        None
+    };
+
+    component.use_predict_hint.push(UsePredictHintInfo {
+        hint_id,
+        predicted_state: predicted_state.cloned()
+    });
+}
+
+/**
+ * Extract useServerTask
+ */
+pub fn extract_use_server_task(
+    call_expr: &CallExpression,
+    parent: &VariableDeclarator,
+    component: &mut Component
+) {
+    if let Pattern::Identifier(id) = &parent.id {
+        let task_name = id.name.clone();
+        let async_function_arg = call_expr.arguments.get(0);
+        let options_arg = call_expr.arguments.get(1);
+
+        // Validate async function
+        let (is_async, is_generator, params_list, function_body) = match async_function_arg {
+            Some(Expression::ArrowFunctionExpression(arrow)) => {
+                (arrow.is_async, arrow.is_generator, arrow.params.clone(), arrow.body.clone())
+            }
+            Some(Expression::FunctionExpression(func)) => {
+                (func.is_async, func.is_generator, func.params.clone(), func.body.clone())
+            }
+            _ => {
+                println!("[useServerTask] First argument must be an async function");
+                return;
+            }
+        };
+
+        if !is_async {
+            println!("[useServerTask] Function must be async");
+            return;
+        }
+
+        // Check if streaming (async function*)
+        let mut is_streaming = is_generator;
+
+        // Extract parameters
+        let mut parameters = vec![];
+        for param in params_list {
+            if let Pattern::Identifier(id) = param {
+                parameters.push(ServerTaskParameter {
+                    name: id.name.clone(),
+                    param_type: "object".into() // Would extract from type annotation
+                });
+            }
+        }
+
+        // Extract options
+        let mut estimated_chunks = None;
+        let mut runtime = "csharp".into();
+        let mut parallel = false;
+
+        if let Some(Expression::ObjectExpression(obj)) = options_arg {
+            for prop in &obj.properties {
+                if let ObjectProperty::Property(p) = prop {
+                    if let Expression::Identifier(key) = &p.key {
+                        match key.name.as_str() {
+                            "stream" => {
+                                if let Expression::BooleanLiteral(b) = &p.value {
+                                    is_streaming = b.value;
+                                }
+                            }
+                            "estimatedChunks" => {
+                                if let Expression::NumericLiteral(num) = &p.value {
+                                    estimated_chunks = Some(num.value as i32);
+                                }
+                            }
+                            "runtime" => {
+                                if let Expression::StringLiteral(s) = &p.value {
+                                    runtime = s.value.clone();
+                                }
+                            }
+                            "parallel" => {
+                                if let Expression::BooleanLiteral(b) = &p.value {
+                                    parallel = b.value;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+
+        component.use_server_task.push(UseServerTaskInfo {
+            name: task_name,
+            async_function: async_function_arg.cloned(),
+            parameters,
+            is_streaming,
+            estimated_chunks,
+            return_type: "object".into(), // Would extract from return type
+            runtime,
+            parallel
+        });
+    }
+}
+
+/**
+ * Extract usePaginatedServerTask
+ */
+pub fn extract_use_paginated_server_task(
+    call_expr: &CallExpression,
+    parent: &VariableDeclarator,
+    component: &mut Component
+) {
+    if let Pattern::Identifier(id) = &parent.id {
+        let task_name = id.name.clone();
+        let fetch_function_arg = call_expr.arguments.get(0);
+        let options_arg = call_expr.arguments.get(1);
+
+        // Validate fetch function
+        let is_async = match fetch_function_arg {
+            Some(Expression::ArrowFunctionExpression(arrow)) => arrow.is_async,
+            Some(Expression::FunctionExpression(func)) => func.is_async,
+            _ => {
+                println!("[usePaginatedServerTask] First argument must be an async function");
+                return;
+            }
+        };
+
+        if !is_async {
+            println!("[usePaginatedServerTask] Function must be async");
+            return;
+        }
+
+        // Extract fetch function parameters
+        let parameters = vec![
+            ServerTaskParameter { name: "page".into(), param_type: "int".into() },
+            ServerTaskParameter { name: "pageSize".into(), param_type: "int".into() },
+            ServerTaskParameter { name: "filters".into(), param_type: "object".into() }
+        ];
+
+        // Extract options
+        let mut runtime = "csharp".into();
+        let mut parallel = false;
+        let mut page_size = 20;
+        let mut get_total_count_fn: Option<Expression> = None;
+
+        if let Some(Expression::ObjectExpression(obj)) = options_arg {
+            for prop in &obj.properties {
+                if let ObjectProperty::Property(p) = prop {
+                    if let Expression::Identifier(key) = &p.key {
+                        match key.name.as_str() {
+                            "runtime" => {
+                                if let Expression::StringLiteral(s) = &p.value {
+                                    runtime = s.value.clone();
+                                }
+                            }
+                            "parallel" => {
+                                if let Expression::BooleanLiteral(b) = &p.value {
+                                    parallel = b.value;
+                                }
+                            }
+                            "pageSize" => {
+                                if let Expression::NumericLiteral(num) = &p.value {
+                                    page_size = num.value as i32;
+                                }
+                            }
+                            "getTotalCount" => {
+                                get_total_count_fn = Some(p.value.clone());
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+
+        // 1. Add fetch task
+        let fetch_task_name = format!("{}_fetch", task_name);
+        component.use_server_task.push(UseServerTaskInfo {
+            name: fetch_task_name.clone(),
+            async_function: fetch_function_arg.cloned(),
+            parameters: parameters.clone(),
+            is_streaming: false,
+            estimated_chunks: None,
+            return_type: "List<object>".into(),
+            runtime: runtime.clone(),
+            parallel
+        });
+
+        // 2. Add count task (if getTotalCount provided)
+        let mut count_task_name = None;
+        if let Some(count_fn) = get_total_count_fn {
+            let count_name = format!("{}_count", task_name);
+            let count_parameters = vec![
+                ServerTaskParameter { name: "filters".into(), param_type: "object".into() }
+            ];
+
+            component.use_server_task.push(UseServerTaskInfo {
+                name: count_name.clone(),
+                async_function: Some(count_fn),
+                parameters: count_parameters,
+                is_streaming: false,
+                estimated_chunks: None,
+                return_type: "int".into(),
+                runtime: runtime.clone(),
+                parallel: false
+            });
+
+            count_task_name = Some(count_name);
+        }
+
+        // Store pagination metadata
+        component.paginated_tasks.push(PaginatedTaskInfo {
+            name: task_name.clone(),
+            fetch_task_name,
+            count_task_name,
+            page_size,
+            runtime: runtime.clone(),
+            parallel
+        });
+
+        println!("[usePaginatedServerTask] Extracted pagination tasks for '{}'", task_name);
+    }
+}
+
+/**
+ * Extract useMvcState
+ *
+ * Pattern: const [value, setValue] = useMvcState<T>('propertyName', options?)
+ */
+pub fn extract_use_mvc_state(
+    call_expr: &CallExpression,
+    parent: &VariableDeclarator,
+    component: &mut Component
+) {
+    // Check for array pattern destructuring
+    if let Pattern::ArrayPattern(array_pattern) = &parent.id {
+        let elements = &array_pattern.elements;
+        let property_name_arg = call_expr.arguments.get(0);
+
+        // Extract property name (must be string literal)
+        if let Some(Expression::StringLiteral(prop_name_lit)) = property_name_arg {
+            let property_name = prop_name_lit.value.clone();
+
+            // useMvcState can return either [value] or [value, setter]
+            let state_var = elements.get(0);
+            let setter_var = if elements.len() > 1 {
+                elements.get(1)
+            } else {
+                None
+            };
+
+            let state_name = if let Some(Some(Pattern::Identifier(id))) = state_var {
+                Some(id.name.clone())
+            } else {
+                None
+            };
+
+            let setter_name = if let Some(Some(Pattern::Identifier(id))) = setter_var {
+                Some(id.name.clone())
+            } else {
+                None
+            };
+
+            // Extract TypeScript generic type: useMvcState<string>('name')
+            let mut csharp_type = if let Some(type_params) = &call_expr.type_parameters {
+                if let Some(type_param) = type_params.params.get(0) {
+                    ts_type_to_csharp_type(type_param)
+                } else {
+                    "dynamic".into()
+                }
+            } else {
+                "dynamic".into()
+            };
+
+            // TODO: Try to find the actual type from the ViewModel interface
+            // let interface_type = find_view_model_property_type(path, &property_name, component);
+            // if let Some(iface_type) = interface_type {
+            //     csharp_type = iface_type;
+            //     println!("[useMvcState] Found type for '{}' from interface: {}", property_name, csharp_type);
+            // } else {
+            //     println!("[useMvcState] Using generic type for '{}': {}", property_name, csharp_type);
+            // }
+
+            let mvc_state_info = UseMvcStateInfo {
+                name: state_name.clone(),
+                setter: setter_name,
+                property_name: property_name.clone(),
+                state_type: csharp_type
+            };
+
+            component.use_mvc_state.push(mvc_state_info);
+
+            // Track as MVC state type
+            if let Some(name) = state_name {
+                component.state_types.insert(name, "mvc".into());
+            }
+        } else {
+            println!("[useMvcState] Property name must be a string literal");
+        }
+    }
+}
+
+/**
+ * Extract useMvcViewModel
+ *
+ * Pattern: const viewModel = useMvcViewModel<TViewModel>()
+ *
+ * This hook provides read-only access to the entire MVC ViewModel.
+ */
+pub fn extract_use_mvc_view_model(
+    call_expr: &CallExpression,
+    parent: &VariableDeclarator,
+    component: &mut Component
+) {
+    if let Pattern::Identifier(id) = &parent.id {
+        let view_model_var_name = id.name.clone();
+
+        component.use_mvc_view_model.push(UseMvcViewModelInfo {
+            name: view_model_var_name
+        });
+
+        // Note: This is primarily for documentation/tracking purposes.
+        // The actual ViewModel access happens client-side via window.__MINIMACT_VIEWMODEL__
+    }
+}
+
+/**
+ * Extract custom hook call (e.g., useCounter('counter1', 0))
+ * Custom hooks are treated as child components with lifted state
+ */
+fn extract_custom_hook_call(
+    call_expr: &CallExpression,
+    parent: &VariableDeclarator,
+    component: &mut Component,
+    hook_name: &Str
+) {
+    // Must be: const [x, y, z, ui] = useCounter('namespace', ...params)
+    if let Pattern::ArrayPattern(array_pattern) = &parent.id {
+        let args = &call_expr.arguments;
+
+        if args.is_empty() {
+            return;
+        }
+
+        // First argument must be namespace (string literal)
+        let namespace_arg = args.get(0);
+        if let Some(Expression::StringLiteral(ns_lit)) = namespace_arg {
+            let namespace = ns_lit.value.clone();
+
+            // Remaining params become InitialState
+            let hook_params: Vec<Str> = args.iter()
+                .skip(1)
+                .map(|arg| codegen::generate(arg))
+                .collect();
+
+            // Extract destructured variables
+            let elements = &array_pattern.elements;
+
+            // Get hook metadata from imported hooks or inline hook
+            let hook_metadata = component.imported_hook_metadata
+                .as_ref()
+                .and_then(|m| m.get(hook_name));
+
+            if hook_metadata.is_some() {
+                println!("[Custom Hook] Using imported metadata for {}", hook_name);
+            } else {
+                println!("[Custom Hook] No metadata found for {}, assuming last return value is UI", hook_name);
+            }
+
+            // Use returnValues from metadata to identify UI variable
+            let ui_var_name = if let Some(metadata) = hook_metadata {
+                // Find the JSX return value
+                if let Some(return_values) = &metadata.return_values {
+                    let jsx_return_index = return_values.iter()
+                        .position(|rv| rv.value_type == "jsx");
+
+                    if let Some(index) = jsx_return_index {
+                        if let Some(Some(Pattern::Identifier(id))) = elements.get(index) {
+                            let ui_name = id.name.clone();
+                            println!("[Custom Hook] Found UI variable from metadata at index {}: {}", index, ui_name);
+                            Some(ui_name)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                // Fallback: Assume last element is UI (old behavior)
+                if !elements.is_empty() {
+                    if let Some(Some(Pattern::Identifier(id))) = elements.last() {
+                        let ui_name = id.name.clone();
+                        println!("[Custom Hook] Using fallback: assuming last element is UI: {}", ui_name);
+                        Some(ui_name)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            };
+
+            if ui_var_name.is_none() {
+                println!("[Custom Hook] {} could not identify UI variable", hook_name);
+                return;
+            }
+
+            let class_name = if let Some(metadata) = hook_metadata {
+                metadata.class_name.clone()
+            } else {
+                format!("{}Hook", capitalize(hook_name))
+            };
+
+            // Extract all return values
+            let return_values: Vec<Str> = elements.iter()
+                .filter_map(|elem| {
+                    if let Some(Pattern::Identifier(id)) = elem {
+                        Some(id.name.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            let custom_hook_info = CustomHookInfo {
+                hook_name: hook_name.clone(),
+                class_name,
+                namespace,
+                ui_var_name: ui_var_name.unwrap(),
+                params: hook_params,
+                return_values,
+                metadata: hook_metadata.cloned()
+            };
+
+            component.custom_hooks.push(custom_hook_info);
+
+            println!("[Custom Hook] Found {}('{}') → UI in {{{}}}", hook_name, namespace, custom_hook_info.ui_var_name);
+        } else {
+            println!("[Custom Hook] {} first argument must be a string literal (namespace)", hook_name);
+        }
+    }
+}
+
+/**
+ * Analyze which hooks are used in a function body
+ * Returns array like: ["useState", "useRef", "useEffect"]
+ */
+pub fn analyze_hook_usage(callback: &Expression) -> Vec<Str> {
+    let mut hooks = HashSet::new();
+
+    // TODO: Implement full AST traversal to find hook calls
+    // For now, this is a simplified version
+    // In the full implementation, we would:
+    // 1. Traverse all CallExpressions in the callback
+    // 2. Check if callee is an Identifier starting with "use" and matches /^use[A-Z]/
+    // 3. Add the hook name to the set
+
+    // Placeholder: return empty for now
+    hooks.into_iter().collect()
+}
+
+/**
+ * Transform effect callback:
+ * - Arrow function → Regular function (for .bind() compatibility)
+ * - Inject hook mappings at top: const useState = this.useState;
+ * - Preserve async if present
+ * - Preserve cleanup return value
+ */
+pub fn transform_effect_callback(
+    callback: &Expression,
+    hook_calls: &Vec<Str>
+) -> FunctionExpression {
+    // Extract function body and params based on callback type
+    let (params, function_body, is_async) = match callback {
+        Expression::ArrowFunctionExpression(arrow) => {
+            (arrow.params.clone(), arrow.body.clone(), arrow.is_async)
+        }
+        Expression::FunctionExpression(func) => {
+            (func.params.clone(), func.body.clone(), func.is_async)
+        }
+        _ => {
+            // Not a function - return empty placeholder
+            return FunctionExpression {
+                params: vec![],
+                body: BlockStatement { body: vec![] },
+                is_async: false,
+                is_generator: false
+            };
+        }
+    };
+
+    // Ensure body is a block statement
+    let mut body_statements = if let Expression::BlockStatement(block) = function_body {
+        block.body.clone()
+    } else {
+        // Wrap expression in return statement
+        vec![Statement::ReturnStatement(ReturnStatement {
+            argument: Some(function_body)
+        })]
+    };
+
+    // Build hook mapping statements
+    // const useState = this.useState;
+    // const useRef = this.useRef;
+    let mut hook_mappings = vec![];
+    for hook_name in hook_calls {
+        hook_mappings.push(Statement::VariableDeclaration(VariableDeclaration {
+            kind: "const".into(),
+            declarations: vec![VariableDeclarator {
+                id: Pattern::Identifier(Identifier {
+                    name: hook_name.clone()
+                }),
+                init: Some(Expression::MemberExpression(MemberExpression {
+                    object: Box::new(Expression::ThisExpression(ThisExpression {})),
+                    property: Box::new(Expression::Identifier(Identifier {
+                        name: hook_name.clone()
+                    }))
+                }))
+            }]
+        }));
+    }
+
+    // Prepend hook mappings to function body
+    let mut new_body_statements = hook_mappings;
+    new_body_statements.extend(body_statements);
+
+    // Return regular function expression
+    FunctionExpression {
+        params,
+        body: BlockStatement {
+            body: new_body_statements
+        },
+        is_async,
+        is_generator: false
+    }
+}
+
+/**
+ * Transform event handler:
+ * - Arrow function → Regular function
+ * - Inject hook mappings at top
+ * - Preserve event parameter (e)
+ * - Preserve async if present
+ */
+pub fn transform_handler_function(
+    body: &Expression,
+    params: &Vec<Pattern>,
+    hook_calls: &Vec<Str>
+) -> FunctionExpression {
+    // Ensure body is a block statement
+    let body_statements = if let Expression::BlockStatement(block) = body {
+        block.body.clone()
+    } else {
+        // Wrap expression in expression statement
+        vec![Statement::ExpressionStatement(ExpressionStatement {
+            expression: body.clone()
+        })]
+    };
+
+    // Build hook mappings
+    // const useState = this.useState;
+    let mut hook_mappings = vec![];
+    for hook_name in hook_calls {
+        hook_mappings.push(Statement::VariableDeclaration(VariableDeclaration {
+            kind: "const".into(),
+            declarations: vec![VariableDeclarator {
+                id: Pattern::Identifier(Identifier {
+                    name: hook_name.clone()
+                }),
+                init: Some(Expression::MemberExpression(MemberExpression {
+                    object: Box::new(Expression::ThisExpression(ThisExpression {})),
+                    property: Box::new(Expression::Identifier(Identifier {
+                        name: hook_name.clone()
+                    }))
+                }))
+            }]
+        }));
+    }
+
+    // Prepend hook mappings
+    let mut new_body_statements = hook_mappings;
+    new_body_statements.extend(body_statements);
+
+    // Return regular function
+    FunctionExpression {
+        params: params.clone(),
+        body: BlockStatement {
+            body: new_body_statements
+        },
+        is_async: false,  // Handlers are typically not async
+        is_generator: false
+    }
+}
+
+fn capitalize(s: &Str) -> Str {
+    if s.is_empty() {
+        return s.clone();
+    }
+
+    let first = s.chars().next().unwrap();
+    let rest = &s[1..];
+
+    format!("{}{}", first.to_uppercase(), rest)
+}
