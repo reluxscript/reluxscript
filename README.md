@@ -132,7 +132,7 @@ ReluxScript follows the **"vector intersection" principle**: only features that 
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/reluxscript.git
+git clone https://github.com/reluxscript/reluxscript.git
 cd reluxscript
 
 # Build the compiler
