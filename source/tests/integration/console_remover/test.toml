@@ -1,0 +1,13 @@
+[test]
+name = "console-remover"
+description = "Plugin that removes console.log statements"
+
+[plugin]
+source = "plugin.lux"
+
+[input]
+source = "input.js"
+
+[expected]
+# Expected output after transformation
+source = "expected.js"

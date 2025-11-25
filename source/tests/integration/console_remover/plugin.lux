@@ -1,0 +1,14 @@
+/// Plugin that removes console.log statements
+plugin RemoveConsole {
+    fn visit_call_expression(node: &mut CallExpression, ctx: &Context) {
+        if let Callee::MemberExpression(ref member) = node.callee {
+            if let Expression::Identifier(ref obj) = *member.object {
+                if let Expression::Identifier(ref prop) = *member.property {
+                    if obj.name == "console" && prop.name == "log" {
+                        ctx.remove();
+                    }
+                }
+            }
+        }
+    }
+}

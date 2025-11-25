@@ -1,0 +1,38 @@
+[package]
+name = "reluxscript-test-watcher"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Windows service framework
+windows-service = "0.7"
+
+# File watching
+notify = "6.1"
+
+# Windows notifications
+winrt-notification = "0.5"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Process execution
+tokio-process = "0.2"
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# Error handling
+anyhow = "1.0"
+
+# Serialization for config
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.52", features = [
+    "Win32_Foundation",
+    "Win32_System_Services",
+    "Win32_Security",
+] }

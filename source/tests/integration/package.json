@@ -1,0 +1,15 @@
+{
+  "name": "reluxscript-integration-tests",
+  "version": "1.0.0",
+  "description": "Integration test harness for ReluxScript",
+  "private": true,
+  "scripts": {
+    "install-deps": "npm install"
+  },
+  "dependencies": {
+    "@babel/core": "^7.23.0",
+    "@babel/parser": "^7.23.0",
+    "@babel/generator": "^7.23.0"
+  },
+  "devDependencies": {}
+}

@@ -1695,7 +1695,65 @@ impl SwcGenerator {
     }
 
     fn gen_if_let_stmt(&mut self, if_stmt: &IfStmt, pattern: &Pattern) {
-        // Generate if-let pattern matching for SWC/Rust
+        // Check if this is a nested enum pattern that needs desugaring
+        // e.g., Callee::MemberExpression -> Callee::Expr + Expr::Member
+        if let Pattern::Variant { name, inner } = pattern {
+            if name == "Callee::MemberExpression" {
+                // Desugar into nested if-lets:
+                // if let Callee::Expr(__callee_expr) = &node.callee {
+                //     if let Expr::Member(ref member) = __callee_expr.as_ref() {
+                self.emit_indent();
+                self.emit("if let Callee::Expr(__callee_expr) = &");
+                self.gen_expr(&if_stmt.condition);
+                self.emit(" {\n");
+                self.indent += 1;
+
+                self.emit_indent();
+                self.emit("if let Expr::Member(");
+                if let Some(inner_pat) = inner {
+                    self.gen_pattern(inner_pat);
+                } else {
+                    self.emit("_");
+                }
+                self.emit(") = __callee_expr.as_ref() {\n");
+
+                self.indent += 1;
+                self.type_env.push_scope();
+
+                // Register the binding in type environment
+                if let Some(inner_pat) = inner {
+                    if let Pattern::Ref { pattern: inner_ident, .. } = inner_pat.as_ref() {
+                        if let Pattern::Ident(binding) = inner_ident.as_ref() {
+                            let member_type = TypeContext::narrowed("MemberExpression", "MemberExpr");
+                            self.type_env.define(binding, member_type);
+                        }
+                    }
+                }
+
+                self.gen_block(&if_stmt.then_branch);
+
+                self.type_env.pop_scope();
+                self.indent -= 1;
+                self.emit_indent();
+                self.emit("}\n");
+
+                self.indent -= 1;
+
+                // Handle else branch
+                if let Some(else_block) = &if_stmt.else_branch {
+                    self.emit_indent();
+                    self.emit("} else {\n");
+                    self.indent += 1;
+                    self.gen_block(else_block);
+                    self.indent -= 1;
+                }
+
+                self.emit_line("}");
+                return;
+            }
+        }
+
+        // Standard if-let pattern matching for SWC/Rust
         self.emit_indent();
         self.emit("if let ");
         self.gen_pattern(pattern);
