@@ -11,10 +11,21 @@
 </p>
 
 <p align="center">
+  <a href="https://crates.io/crates/reluxscript"><img src="https://img.shields.io/crates/v/reluxscript.svg" alt="Crates.io"></a>
+  <a href="https://crates.io/crates/reluxscript"><img src="https://img.shields.io/crates/d/reluxscript.svg" alt="Downloads"></a>
+  <a href="https://github.com/reluxscript/reluxscript/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
+  <a href="https://docs.reluxscript.com"><img src="https://img.shields.io/badge/docs-latest-brightgreen.svg" alt="Documentation"></a>
+  <br>
+  <img src="https://img.shields.io/badge/Babel-JavaScript-F9DC3E?logo=babel&logoColor=black" alt="Babel">
+  <img src="https://img.shields.io/badge/SWC-Rust-orange?logo=rust&logoColor=white" alt="SWC">
+  <img src="https://img.shields.io/badge/targets-Babel%20%7C%20SWC-blueviolet" alt="Targets">
+</p>
+
+<p align="center">
   <a href="#quick-start">Quick Start</a> •
   <a href="#features">Features</a> •
   <a href="#examples">Examples</a> •
-  <a href="#documentation">Documentation</a> •
+  <a href="https://docs.reluxscript.com">Documentation</a> •
   <a href="#roadmap">Roadmap</a>
 </p>
 
