@@ -1,0 +1,161 @@
+{
+  "componentName": "AnimatedCounter",
+  "timestamp": "2025-11-14T20:33:35.977Z",
+  "sourceFile": "J:\\projects\\minimact\\src\\babel-plugin-minimact\\test-timeline.tsx",
+  "changes": [
+    {
+      "type": "insert",
+      "path": "1",
+      "vnode": {
+        "type": "element",
+        "tag": "div",
+        "path": "1",
+        "attributes": {},
+        "children": [
+          {
+            "type": "element",
+            "path": "1.1",
+            "tag": "h1"
+          },
+          {
+            "type": "element",
+            "path": "1.2",
+            "tag": "div"
+          }
+        ]
+      }
+    },
+    {
+      "type": "insert",
+      "path": "1.1",
+      "vnode": {
+        "type": "element",
+        "tag": "h1",
+        "path": "1.1",
+        "attributes": {
+          "style": "__DYNAMIC__"
+        },
+        "children": [
+          {
+            "type": "text",
+            "path": "1.1.1",
+            "value": "Count:"
+          },
+          {
+            "type": "expression",
+            "path": "1.1.2",
+            "value": "__DYNAMIC__"
+          }
+        ]
+      }
+    },
+    {
+      "type": "insert",
+      "path": "1.2",
+      "vnode": {
+        "type": "element",
+        "tag": "div",
+        "path": "1.2",
+        "attributes": {},
+        "children": [
+          {
+            "type": "element",
+            "path": "1.2.1",
+            "tag": "button"
+          },
+          {
+            "type": "element",
+            "path": "1.2.2",
+            "tag": "button"
+          },
+          {
+            "type": "element",
+            "path": "1.2.3",
+            "tag": "button"
+          },
+          {
+            "type": "element",
+            "path": "1.2.4",
+            "tag": "button"
+          }
+        ]
+      }
+    },
+    {
+      "type": "insert",
+      "path": "1.2.1",
+      "vnode": {
+        "type": "element",
+        "tag": "button",
+        "path": "1.2.1",
+        "attributes": {
+          "onClick": "__DYNAMIC__"
+        },
+        "children": [
+          {
+            "type": "text",
+            "path": "1.2.1.1",
+            "value": "Pause"
+          }
+        ]
+      }
+    },
+    {
+      "type": "insert",
+      "path": "1.2.2",
+      "vnode": {
+        "type": "element",
+        "tag": "button",
+        "path": "1.2.2",
+        "attributes": {
+          "onClick": "__DYNAMIC__"
+        },
+        "children": [
+          {
+            "type": "text",
+            "path": "1.2.2.1",
+            "value": "Play"
+          }
+        ]
+      }
+    },
+    {
+      "type": "insert",
+      "path": "1.2.3",
+      "vnode": {
+        "type": "element",
+        "tag": "button",
+        "path": "1.2.3",
+        "attributes": {
+          "onClick": "__DYNAMIC__"
+        },
+        "children": [
+          {
+            "type": "text",
+            "path": "1.2.3.1",
+            "value": "Stop"
+          }
+        ]
+      }
+    },
+    {
+      "type": "insert",
+      "path": "1.2.4",
+      "vnode": {
+        "type": "element",
+        "tag": "button",
+        "path": "1.2.4",
+        "attributes": {
+          "onClick": "__DYNAMIC__"
+        },
+        "children": [
+          {
+            "type": "text",
+            "path": "1.2.4.1",
+            "value": "Jump to Midpoint"
+          }
+        ]
+      }
+    }
+  ]
+}

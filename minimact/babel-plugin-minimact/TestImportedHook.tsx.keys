@@ -1,0 +1,42 @@
+import { useState } from '@minimact/core';
+import useToggle from './useToggle';
+
+/**
+ * Component that uses an imported custom hook
+ * Tests cross-file hook imports and transpilation
+ */
+export default function TestImportedHook() {
+  const [count, setCount] = useState(0);
+
+  // Use imported hook with two independent instances
+  const [isOn1, toggle1, toggleUI1] = useToggle('toggle1', false);
+  const [isOn2, toggle2, toggleUI2] = useToggle('toggle2', true);
+
+  return (
+    <div key='1' className="app">
+      <h1 key='1.1'>Imported Hook Test</h1>
+      <div key='1.2' className="counter-section">
+        <h2 key='1.2.1'>Regular State (for comparison)</h2>
+        <button key='1.2.2' onClick={() => setCount(count + 1)}>
+          Count: {count}
+        </button>
+      </div>
+      <div key='1.3' className="toggle-section">
+        <h2 key='1.3.1'>Toggle 1 (starts OFF)</h2>
+        <p key='1.3.2'>Status: {isOn1 ? 'Active' : 'Inactive'}</p>
+        <button key='1.3.3' onClick={toggle1}>External Toggle 1</button>
+        {toggleUI1}
+      </div>
+      <div key='1.4' className="toggle-section">
+        <h2 key='1.4.1'>Toggle 2 (starts ON)</h2>
+        <p key='1.4.2'>Status: {isOn2 ? 'Active' : 'Inactive'}</p>
+        <button key='1.4.3' onClick={toggle2}>External Toggle 2</button>
+        {toggleUI2}
+      </div>
+      <div key='1.5' className="combined-state">
+        <p key='1.5.1'>Both toggles on: {isOn1 && isOn2 ? 'YES' : 'NO'}</p>
+        <p key='1.5.2'>At least one on: {isOn1 || isOn2 ? 'YES' : 'NO'}</p>
+      </div>
+    </div>
+  );
+}

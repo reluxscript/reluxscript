@@ -1,0 +1,8 @@
+export function ManualKeys() {
+  return <div key="1">
+      <h1 key="1.1">First</h1>
+      <p key="1.18">Custom key (manually added)</p>
+      <p key="1.2">Last</p>
+      <span key="1.3">No key (should auto-generate)</span>
+    </div>;
+}

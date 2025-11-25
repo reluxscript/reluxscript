@@ -1,0 +1,74 @@
+{
+  "componentName": "UserProfile",
+  "timestamp": "2025-11-10T18:16:13.003Z",
+  "sourceFile": "J:\\projects\\minimact\\src\\babel-plugin-minimact\\LiftedState_01_LoadingOverlay.tsx",
+  "changes": [
+    {
+      "type": "insert",
+      "path": "1",
+      "vnode": {
+        "type": "element",
+        "tag": "div",
+        "path": "1",
+        "attributes": {
+          "className": "user-profile"
+        },
+        "children": [
+          {
+            "type": "element",
+            "path": "1.1",
+            "tag": "h3"
+          },
+          {
+            "type": "element",
+            "path": "1.2",
+            "tag": "button"
+          },
+          {
+            "type": "expression",
+            "path": "1.3",
+            "value": "__DYNAMIC__"
+          }
+        ]
+      }
+    },
+    {
+      "type": "insert",
+      "path": "1.1",
+      "vnode": {
+        "type": "element",
+        "tag": "h3",
+        "path": "1.1",
+        "attributes": {},
+        "children": [
+          {
+            "type": "text",
+            "path": "1.1.1",
+            "value": "User Profile"
+          }
+        ]
+      }
+    },
+    {
+      "type": "insert",
+      "path": "1.2",
+      "vnode": {
+        "type": "element",
+        "tag": "button",
+        "path": "1.2",
+        "attributes": {
+          "id": "refresh-profile-btn",
+          "type": "button",
+          "onClick": "__DYNAMIC__"
+        },
+        "children": [
+          {
+            "type": "text",
+            "path": "1.2.1",
+            "value": "Refresh Profile"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,249 @@
+{
+  "component": "ConditionalTest",
+  "version": "1.0",
+  "generatedAt": 1762825981111,
+  "templates": {
+    "1.1.1": {
+      "template": "Conditional Element Test",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.2.1.1": {
+      "template": "myState1 is true",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "2",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.3.1.1.1": {
+      "template": "SomeNestedDOMElementsHere",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.3.1.2.1": {
+      "template": "{0}",
+      "bindings": [
+        "myState3"
+      ],
+      "slots": [
+        0
+      ],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "2"
+      ],
+      "type": "dynamic"
+    },
+    "1.4.1.1": {
+      "template": "Active State",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "4",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.4.2.1": {
+      "template": "Inactive State",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "4",
+        "2",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.5.1": {
+      "template": "Toggle myState1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "5",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.@key": {
+      "template": "1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.1.@key": {
+      "template": "1.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.5.@key": {
+      "template": "1.5",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "5"
+      ],
+      "type": "attribute-static"
+    }
+  },
+  "conditionalElements": {
+    "1.2": {
+      "type": "conditional-element",
+      "conditionExpression": "myState1",
+      "conditionBindings": [
+        "state_0"
+      ],
+      "evaluable": true,
+      "branches": {
+        "true": {
+          "type": "element",
+          "tag": "div",
+          "hexPath": "1.2.1",
+          "attributes": {
+            "key": "1.2.1"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "myState1 is true",
+              "hexPath": "1.2.1.1"
+            }
+          ]
+        },
+        "false": null
+      },
+      "operator": "&&"
+    },
+    "1.3": {
+      "type": "conditional-element",
+      "conditionExpression": "myState1 && !myState2",
+      "conditionBindings": [
+        "state_0",
+        "state_1"
+      ],
+      "evaluable": true,
+      "branches": {
+        "true": {
+          "type": "element",
+          "tag": "div",
+          "hexPath": "1.3.1",
+          "attributes": {
+            "key": "1.3.1",
+            "className": "nested-content"
+          },
+          "children": [
+            {
+              "type": "element",
+              "tag": "span",
+              "hexPath": "1.3.1.1",
+              "attributes": {
+                "key": "1.3.1.1"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "value": "SomeNestedDOMElementsHere",
+                  "hexPath": "1.3.1.1.1"
+                }
+              ]
+            },
+            {
+              "type": "element",
+              "tag": "span",
+              "hexPath": "1.3.1.2",
+              "attributes": {
+                "key": "1.3.1.2"
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "binding": "myState3",
+                  "hexPath": "1.3.1.2.1"
+                }
+              ]
+            }
+          ]
+        },
+        "false": null
+      },
+      "operator": "&&"
+    },
+    "1.4": {
+      "type": "conditional-element",
+      "conditionExpression": "myState1",
+      "conditionBindings": [
+        "state_0"
+      ],
+      "evaluable": true,
+      "branches": {
+        "true": {
+          "type": "element",
+          "tag": "div",
+          "hexPath": "1.4.1",
+          "attributes": {
+            "key": "1.4.1",
+            "className": "active"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Active State",
+              "hexPath": "1.4.1.1"
+            }
+          ]
+        },
+        "false": {
+          "type": "element",
+          "tag": "div",
+          "hexPath": "1.4.2",
+          "attributes": {
+            "key": "1.4.2",
+            "className": "inactive"
+          },
+          "children": [
+            {
+              "type": "text",
+              "value": "Inactive State",
+              "hexPath": "1.4.2.1"
+            }
+          ]
+        }
+      },
+      "operator": "?"
+    }
+  }
+}

@@ -1,0 +1,433 @@
+{
+  "component": "TestImportedHook",
+  "version": "1.0",
+  "generatedAt": 1763086118294,
+  "templates": {
+    "1.1.1": {
+      "template": "Imported Hook Test",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.2.1.1": {
+      "template": "Regular State (for comparison)",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "2",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.2.2.1": {
+      "template": "Count: {0}",
+      "bindings": [
+        "count"
+      ],
+      "slots": [
+        18
+      ],
+      "path": [
+        "1",
+        "2",
+        "2"
+      ],
+      "type": "dynamic"
+    },
+    "1.3.4": {
+      "template": "{0}",
+      "bindings": [
+        "toggleUI1"
+      ],
+      "slots": [
+        0
+      ],
+      "path": [
+        "1",
+        "3"
+      ],
+      "type": "dynamic"
+    },
+    "1.3.1.1": {
+      "template": "Toggle 1 (starts OFF)",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.3.2.1": {
+      "template": "Status: {0}",
+      "bindings": [
+        "isOn1"
+      ],
+      "slots": [
+        8
+      ],
+      "path": [
+        "1",
+        "3",
+        "2"
+      ],
+      "type": "conditional",
+      "conditionalTemplates": {
+        "true": "Active",
+        "false": "Inactive"
+      }
+    },
+    "1.3.3.1": {
+      "template": "External Toggle 1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "3",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.4.4": {
+      "template": "{0}",
+      "bindings": [
+        "toggleUI2"
+      ],
+      "slots": [
+        0
+      ],
+      "path": [
+        "1",
+        "4"
+      ],
+      "type": "dynamic"
+    },
+    "1.4.1.1": {
+      "template": "Toggle 2 (starts ON)",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "4",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.4.2.1": {
+      "template": "Status: {0}",
+      "bindings": [
+        "isOn2"
+      ],
+      "slots": [
+        8
+      ],
+      "path": [
+        "1",
+        "4",
+        "2"
+      ],
+      "type": "conditional",
+      "conditionalTemplates": {
+        "true": "Active",
+        "false": "Inactive"
+      }
+    },
+    "1.4.3.1": {
+      "template": "External Toggle 2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "4",
+        "3",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.5.1.1": {
+      "template": "Both toggles on: {0}",
+      "bindings": [
+        "__complex__"
+      ],
+      "slots": [],
+      "path": [
+        "1",
+        "5",
+        "1"
+      ],
+      "type": "dynamic"
+    },
+    "1.5.2.1": {
+      "template": "At least one on: {0}",
+      "bindings": [
+        "__complex__"
+      ],
+      "slots": [],
+      "path": [
+        "1",
+        "5",
+        "2"
+      ],
+      "type": "dynamic"
+    },
+    "1.@key": {
+      "template": "1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.@className": {
+      "template": "app",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.1.@key": {
+      "template": "1.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.2.@key": {
+      "template": "1.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.2.@className": {
+      "template": "counter-section",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.2.1.@key": {
+      "template": "1.2.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "2",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.2.2.@key": {
+      "template": "1.2.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "2",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.@key": {
+      "template": "1.3",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.@className": {
+      "template": "toggle-section",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.1.@key": {
+      "template": "1.3.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.2.@key": {
+      "template": "1.3.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.3.@key": {
+      "template": "1.3.3",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "3"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.3.@onClick": {
+      "template": "{0}",
+      "bindings": [
+        "toggle1"
+      ],
+      "slots": [
+        0
+      ],
+      "path": [
+        "1",
+        "3",
+        "3"
+      ],
+      "type": "attribute-dynamic"
+    },
+    "1.4.@key": {
+      "template": "1.4",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "4"
+      ],
+      "type": "attribute-static"
+    },
+    "1.4.@className": {
+      "template": "toggle-section",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "4"
+      ],
+      "type": "attribute-static"
+    },
+    "1.4.1.@key": {
+      "template": "1.4.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "4",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.4.2.@key": {
+      "template": "1.4.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "4",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.4.3.@key": {
+      "template": "1.4.3",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "4",
+        "3"
+      ],
+      "type": "attribute-static"
+    },
+    "1.4.3.@onClick": {
+      "template": "{0}",
+      "bindings": [
+        "toggle2"
+      ],
+      "slots": [
+        0
+      ],
+      "path": [
+        "1",
+        "4",
+        "3"
+      ],
+      "type": "attribute-dynamic"
+    },
+    "1.5.@key": {
+      "template": "1.5",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "5"
+      ],
+      "type": "attribute-static"
+    },
+    "1.5.@className": {
+      "template": "combined-state",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "5"
+      ],
+      "type": "attribute-static"
+    },
+    "1.5.1.@key": {
+      "template": "1.5.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "5",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.5.2.@key": {
+      "template": "1.5.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "5",
+        "2"
+      ],
+      "type": "attribute-static"
+    }
+  }
+}

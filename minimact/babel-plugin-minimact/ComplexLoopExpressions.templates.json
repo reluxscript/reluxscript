@@ -1,0 +1,78 @@
+{
+  "component": "ComplexLoopExpressions",
+  "version": "1.0",
+  "generatedAt": 1762146079788,
+  "templates": {
+    "[0].h1[0].text[0]": {
+      "template": "Complex Loop Expression Tests",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].p[0].text[0]": {
+      "template": "Testing binary operations, method calls, and complex expressions in .map() bodies",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[1].h3[0].text[0]": {
+      "template": "Test 12: Ternary with Method Call",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[1].p[0].text[0]": {
+      "template": "Expected: All text in UPPERCASE",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[1].h2[0].text[0]": {
+      "template": "✅ Guaranteed Working Workarounds",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[1].[2].h3[0].text[0]": {
+      "template": "Workaround 3: Pre-compute Complex Calculation",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        2,
+        0,
+        0
+      ],
+      "type": "static"
+    }
+  }
+}

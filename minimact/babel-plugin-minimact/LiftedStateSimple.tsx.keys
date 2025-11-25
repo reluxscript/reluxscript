@@ -1,0 +1,75 @@
+// Simple Lifted State Example
+// Demonstrates parent reading and writing child state
+
+import { Component, state, setState } from '@minimact/core';
+
+// Child component: Counter
+// Uses regular useState - but parent can access its state!
+export function Counter() {
+  const [count, setCount] = useState(0);
+
+  return (
+    <div key='1' className="counter">
+      <h3 key='1.1'>Counter</h3>
+      <p key='1.2' id="counter-display">Count: {count}</p>
+      <button
+        key='1.3'
+        id="child-increment-btn"
+        type="button"
+        onClick={() => setCount(count + 1)}>
+        Child Increment
+      </button>
+    </div>
+  );
+}
+
+// Parent component: App
+// Can read and modify child's state directly!
+export default function App() {
+  // Read child state using state["ComponentName.key"]
+  const counterValue = state["Counter.count"];
+
+  // Parent can modify child state using setState("ComponentName.key", value)
+  const handleParentReset = () => {
+    setState("Counter.count", 0);
+  };
+
+  const handleParentSetTo10 = () => {
+    setState("Counter.count", 10);
+  };
+
+  return (
+    <div key='1' id="app-root">
+      <h1 key='1.1'>Lifted State - Simple Example</h1>
+      {/* Parent observes child state */}
+      <div key='1.2' className="parent-display">
+        <p key='1.2.1'>Parent sees counter value: <span key='1.2.1.2' id="parent-sees">{counterValue}</span></p>
+      </div>
+      {/* Parent controls for child state */}
+      <div key='1.3' className="parent-controls">
+        <button
+          key='1.3.1'
+          id="parent-reset-btn"
+          type="button"
+          onClick={handleParentReset}>
+          Parent: Reset to 0
+        </button>
+        <button
+          key='1.3.2'
+          id="parent-set10-btn"
+          type="button"
+          onClick={handleParentSetTo10}>
+          Parent: Set to 10
+        </button>
+      </div>
+      {/* Child component wrapped with Component element */}
+      <Component key='1.4' name="Counter" state={{ count: 0 }}>
+        <Counter key='1.4.1' />
+      </Component>
+      {/* Status for testing */}
+      <div key='1.5' id="status" className="status">
+        <p key='1.5.1'>Counter Value: <span key='1.5.1.2' id="status-value">{counterValue}</span></p>
+      </div>
+    </div>
+  );
+}

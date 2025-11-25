@@ -1,0 +1,45 @@
+{
+  "componentName": "Index",
+  "timestamp": "2025-11-10T15:32:36.881Z",
+  "sourceFile": "J:\\projects\\minimact\\src\\babel-plugin-minimact\\MyIndex.tsx",
+  "changes": [
+    {
+      "type": "hook-added",
+      "hookType": "useState",
+      "varName": "viewCount",
+      "index": 1
+    },
+    {
+      "type": "hook-added",
+      "hookType": "useEffect",
+      "index": 2
+    },
+    {
+      "type": "hook-added",
+      "hookType": "useEffect",
+      "index": 3
+    },
+    {
+      "type": "hook-added",
+      "hookType": "useEffect",
+      "index": 4
+    },
+    {
+      "type": "hook-added",
+      "hookType": "useEffect",
+      "index": 5
+    },
+    {
+      "type": "hook-added",
+      "hookType": "useRef",
+      "varName": "modalRef",
+      "index": 6
+    },
+    {
+      "type": "hook-added",
+      "hookType": "useRef",
+      "varName": "timerRef",
+      "index": 7
+    }
+  ]
+}

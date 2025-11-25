@@ -1,0 +1,93 @@
+{
+  "component": "MultiplePlugins",
+  "version": "1.0",
+  "generatedAt": 1762146078564,
+  "templates": {
+    "[0].h1[0].text[0]": {
+      "template": "Multiple Plugin Test Cases",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].p[0].text[0]": {
+      "template": "⚠️ Plugin matching uses \"first match wins\" logic - verify each plugin renders correctly!",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[1].h3[0].text[0]": {
+      "template": "Test 7: Plugin with Version Specifier",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[1].[2].[3].h4[0].text[0]": {
+      "template": "Products",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        2,
+        3,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[1].p[0].text[0]": {
+      "template": "Expected: Each chart shows different data (Sales, Revenue, Products)",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[1].p[0].text[1]": {
+      "template": "ℹ️ Note: Plugin names must be static string literals. Dynamic names like name={0} are not supported.",
+      "bindings": [
+        "__complex__"
+      ],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        0,
+        1
+      ],
+      "type": "dynamic"
+    },
+    "[0].[1].p[0].text[2]": {
+      "template": "are not supported.",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        0,
+        2
+      ],
+      "type": "static"
+    }
+  }
+}

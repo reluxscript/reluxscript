@@ -1,0 +1,1798 @@
+{
+  "component": "CounterPage",
+  "version": "1.0",
+  "generatedAt": 1762588414793,
+  "templates": {
+    "1.1.1.1": {
+      "template": "🔢 {0}",
+      "bindings": [
+        "viewModel.pageTitle"
+      ],
+      "slots": [
+        3
+      ],
+      "path": [
+        "1",
+        "1",
+        "1"
+      ],
+      "type": "dynamic"
+    },
+    "1.1.2.1": {
+      "template": "{0}",
+      "bindings": [
+        "viewModel.description"
+      ],
+      "slots": [
+        0
+      ],
+      "path": [
+        "1",
+        "1",
+        "2"
+      ],
+      "type": "dynamic"
+    },
+    "1.1.3.1.1": {
+      "template": "👤 {0}",
+      "bindings": [
+        "userName"
+      ],
+      "slots": [
+        3
+      ],
+      "path": [
+        "1",
+        "1",
+        "3",
+        "1"
+      ],
+      "type": "dynamic"
+    },
+    "1.1.3.2.1": {
+      "template": "Last reset: {0}",
+      "bindings": [
+        "__complex__"
+      ],
+      "slots": [],
+      "path": [
+        "1",
+        "1",
+        "3",
+        "2"
+      ],
+      "type": "dynamic"
+    },
+    "1.2.1.1": {
+      "template": "{0}",
+      "bindings": [
+        "count"
+      ],
+      "slots": [
+        0
+      ],
+      "path": [
+        "1",
+        "2",
+        "1"
+      ],
+      "type": "dynamic"
+    },
+    "1.2.2.1": {
+      "template": "Current Count",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "2",
+        "2",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.3.1.1": {
+      "template": "- {0}",
+      "bindings": [
+        "step"
+      ],
+      "slots": [
+        23
+      ],
+      "path": [
+        "1",
+        "3",
+        "1"
+      ],
+      "type": "dynamic"
+    },
+    "1.3.2.1": {
+      "template": "+ {0}",
+      "bindings": [
+        "step"
+      ],
+      "slots": [
+        23
+      ],
+      "path": [
+        "1",
+        "3",
+        "2"
+      ],
+      "type": "dynamic"
+    },
+    "1.4.1.1": {
+      "template": "Step Size:",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "4",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.5.1.1.1": {
+      "template": "Reset to 0",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "5",
+        "1",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.6.1.2.1": {
+      "template": "Show History",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "6",
+        "1",
+        "2",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.7.1.1.1": {
+      "template": "📜 History",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "7",
+        "1",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.7.1.2.1.1": {
+      "template": "No changes yet. Try clicking the buttons!",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "7",
+        "1",
+        "2",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.8.1.1": {
+      "template": "ℹ️ How This Works",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.8.2.1.1.1": {
+      "template": "❌ Immutable (Server Authority)",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "1",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.8.2.1.2.1.2": {
+      "template": "- User identity",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "1",
+        "2",
+        "1",
+        "2"
+      ],
+      "type": "static"
+    },
+    "1.8.2.1.2.1.1.1": {
+      "template": "userName",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "1",
+        "2",
+        "1",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.8.2.1.2.2.2": {
+      "template": "- Permission",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "1",
+        "2",
+        "2",
+        "2"
+      ],
+      "type": "static"
+    },
+    "1.8.2.1.2.2.1.1": {
+      "template": "canReset",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "1",
+        "2",
+        "2",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.8.2.1.2.3.2": {
+      "template": "- Server timestamp",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "1",
+        "2",
+        "3",
+        "2"
+      ],
+      "type": "static"
+    },
+    "1.8.2.1.2.3.1.1": {
+      "template": "lastResetTime",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "1",
+        "2",
+        "3",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.8.2.1.3.1": {
+      "template": "These values come from the server and cannot be modified from the client.\n                            No setter is returned from",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "1",
+        "3",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.8.2.1.3.3": {
+      "template": ".",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "1",
+        "3",
+        "3"
+      ],
+      "type": "static"
+    },
+    "1.8.2.1.3.2.1": {
+      "template": "useMvcState()",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "1",
+        "3",
+        "2",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.8.2.2.1.1": {
+      "template": "✅ Mutable (Client Control)",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "2",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.8.2.2.2.1.2": {
+      "template": "- Counter value",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "2",
+        "2",
+        "1",
+        "2"
+      ],
+      "type": "static"
+    },
+    "1.8.2.2.2.1.1.1": {
+      "template": "[Mutable] initialCount",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "2",
+        "2",
+        "1",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.8.2.2.2.2.2": {
+      "template": "- Step size",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "2",
+        "2",
+        "2",
+        "2"
+      ],
+      "type": "static"
+    },
+    "1.8.2.2.2.2.1.1": {
+      "template": "[Mutable] initialStep",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "2",
+        "2",
+        "2",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.8.2.2.2.3.2": {
+      "template": "- UI toggle",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "2",
+        "2",
+        "3",
+        "2"
+      ],
+      "type": "static"
+    },
+    "1.8.2.2.2.3.1.1": {
+      "template": "[Mutable] initialShowHistory",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "2",
+        "2",
+        "3",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.8.2.2.3.1": {
+      "template": "These values can be modified by the client and automatically sync to the server\n                            via SignalR. Changes are validated server-side.",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "2",
+        "3",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.8.3.1.1": {
+      "template": "🔄 Sync Strategies",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "3",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.8.3.2.1.3": {
+      "template": "- Syncs instantly on every change",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "3",
+        "2",
+        "1",
+        "3"
+      ],
+      "type": "static"
+    },
+    "1.8.3.2.1.1.1": {
+      "template": "count:",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "3",
+        "2",
+        "1",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.8.3.2.1.2.1": {
+      "template": "immediate",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "3",
+        "2",
+        "1",
+        "2",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.8.3.2.2.3": {
+      "template": "- Waits 300ms after typing",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "3",
+        "2",
+        "2",
+        "3"
+      ],
+      "type": "static"
+    },
+    "1.8.3.2.2.1.1": {
+      "template": "step:",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "3",
+        "2",
+        "2",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.8.3.2.2.2.1": {
+      "template": "debounced (300ms)",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "3",
+        "2",
+        "2",
+        "2",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.8.3.2.3.3": {
+      "template": "(default)",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "3",
+        "2",
+        "3",
+        "3"
+      ],
+      "type": "static"
+    },
+    "1.8.3.2.3.1.1": {
+      "template": "showHistory:",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "3",
+        "2",
+        "3",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.8.3.2.3.2.1": {
+      "template": "immediate",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "3",
+        "2",
+        "3",
+        "2",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.9.1.1": {
+      "template": "🔍 Debug: View ViewModel JSON",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "9",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.9.2.1": {
+      "template": "{0}",
+      "bindings": [
+        "__complex__"
+      ],
+      "slots": [],
+      "path": [
+        "1",
+        "9",
+        "2"
+      ],
+      "type": "dynamic"
+    },
+    "1.9.3.1": {
+      "template": "Mutability Metadata:",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "9",
+        "3",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.9.4.1": {
+      "template": "{0}",
+      "bindings": [
+        "__complex__"
+      ],
+      "slots": [],
+      "path": [
+        "1",
+        "9",
+        "4"
+      ],
+      "type": "dynamic"
+    },
+    "1.@key": {
+      "template": "1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.@className": {
+      "template": "page-container",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.1.@key": {
+      "template": "1.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.1.@className": {
+      "template": "page-header",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.1.1.@key": {
+      "template": "1.1.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "1",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.1.2.@key": {
+      "template": "1.1.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "1",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.1.2.@className": {
+      "template": "description",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "1",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.1.3.@key": {
+      "template": "1.1.3",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "1",
+        "3"
+      ],
+      "type": "attribute-static"
+    },
+    "1.1.3.@className": {
+      "template": "user-info",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "1",
+        "3"
+      ],
+      "type": "attribute-static"
+    },
+    "1.1.3.1.@key": {
+      "template": "1.1.3.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "1",
+        "3",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.1.3.1.@className": {
+      "template": "user-badge",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "1",
+        "3",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.1.3.2.@key": {
+      "template": "1.1.3.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "1",
+        "3",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.1.3.2.@className": {
+      "template": "timestamp",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "1",
+        "3",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.2.@key": {
+      "template": "1.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.2.@className": {
+      "template": "counter-display",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.2.1.@key": {
+      "template": "1.2.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "2",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.2.1.@className": {
+      "template": "count-value",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "2",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.2.2.@key": {
+      "template": "1.2.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "2",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.2.2.@className": {
+      "template": "count-label",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "2",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.@key": {
+      "template": "1.3",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.@className": {
+      "template": "counter-controls",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.1.@key": {
+      "template": "1.3.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.1.@className": {
+      "template": "btn btn-decrement",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.1.@onClick": {
+      "template": "{0}",
+      "bindings": [
+        "handleDecrement"
+      ],
+      "slots": [
+        0
+      ],
+      "path": [
+        "1",
+        "3",
+        "1"
+      ],
+      "type": "attribute-dynamic"
+    },
+    "1.3.2.@key": {
+      "template": "1.3.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.2.@className": {
+      "template": "btn btn-increment",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.2.@onClick": {
+      "template": "{0}",
+      "bindings": [
+        "handleIncrement"
+      ],
+      "slots": [
+        0
+      ],
+      "path": [
+        "1",
+        "3",
+        "2"
+      ],
+      "type": "attribute-dynamic"
+    },
+    "1.4.@key": {
+      "template": "1.4",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "4"
+      ],
+      "type": "attribute-static"
+    },
+    "1.4.@className": {
+      "template": "step-control",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "4"
+      ],
+      "type": "attribute-static"
+    },
+    "1.4.1.@key": {
+      "template": "1.4.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "4",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.4.1.@htmlFor": {
+      "template": "step-input",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "4",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.4.2.@key": {
+      "template": "1.4.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "4",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.4.2.@id": {
+      "template": "step-input",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "4",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.4.2.@type": {
+      "template": "number",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "4",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.4.2.@value": {
+      "template": "{0}",
+      "bindings": [
+        "step"
+      ],
+      "slots": [
+        0
+      ],
+      "path": [
+        "1",
+        "4",
+        "2"
+      ],
+      "type": "attribute-dynamic"
+    },
+    "1.4.2.@min": {
+      "template": "1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "4",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.4.2.@className": {
+      "template": "step-input",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "4",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.6.@key": {
+      "template": "1.6",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "6"
+      ],
+      "type": "attribute-static"
+    },
+    "1.6.@className": {
+      "template": "history-toggle",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "6"
+      ],
+      "type": "attribute-static"
+    },
+    "1.6.1.@key": {
+      "template": "1.6.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "6",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.6.1.1.@key": {
+      "template": "1.6.1.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "6",
+        "1",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.6.1.1.@type": {
+      "template": "checkbox",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "6",
+        "1",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.6.1.1.@checked": {
+      "template": "{0}",
+      "bindings": [
+        "showHistory"
+      ],
+      "slots": [
+        0
+      ],
+      "path": [
+        "1",
+        "6",
+        "1",
+        "1"
+      ],
+      "type": "attribute-dynamic"
+    },
+    "1.6.1.2.@key": {
+      "template": "1.6.1.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "6",
+        "1",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.@key": {
+      "template": "1.8",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.@className": {
+      "template": "info-panel",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.1.@key": {
+      "template": "1.8.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.2.@key": {
+      "template": "1.8.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.2.@className": {
+      "template": "info-grid",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.2.1.@key": {
+      "template": "1.8.2.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.2.1.@className": {
+      "template": "info-item",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.2.1.1.@key": {
+      "template": "1.8.2.1.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "1",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.2.1.2.@key": {
+      "template": "1.8.2.1.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "1",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.2.1.2.1.@key": {
+      "template": "1.8.2.1.2.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "1",
+        "2",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.2.1.2.1.1.@key": {
+      "template": "1.8.2.1.2.1.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "1",
+        "2",
+        "1",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.2.1.2.2.@key": {
+      "template": "1.8.2.1.2.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "1",
+        "2",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.2.1.2.2.1.@key": {
+      "template": "1.8.2.1.2.2.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "1",
+        "2",
+        "2",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.2.1.2.3.@key": {
+      "template": "1.8.2.1.2.3",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "1",
+        "2",
+        "3"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.2.1.2.3.1.@key": {
+      "template": "1.8.2.1.2.3.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "1",
+        "2",
+        "3",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.2.1.3.@key": {
+      "template": "1.8.2.1.3",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "1",
+        "3"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.2.1.3.@className": {
+      "template": "note",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "1",
+        "3"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.2.1.3.2.@key": {
+      "template": "1.8.2.1.3.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "1",
+        "3",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.2.2.@key": {
+      "template": "1.8.2.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.2.2.@className": {
+      "template": "info-item",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.2.2.1.@key": {
+      "template": "1.8.2.2.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "2",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.2.2.2.@key": {
+      "template": "1.8.2.2.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "2",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.2.2.2.1.@key": {
+      "template": "1.8.2.2.2.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "2",
+        "2",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.2.2.2.1.1.@key": {
+      "template": "1.8.2.2.2.1.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "2",
+        "2",
+        "1",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.2.2.2.2.@key": {
+      "template": "1.8.2.2.2.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "2",
+        "2",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.2.2.2.2.1.@key": {
+      "template": "1.8.2.2.2.2.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "2",
+        "2",
+        "2",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.2.2.2.3.@key": {
+      "template": "1.8.2.2.2.3",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "2",
+        "2",
+        "3"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.2.2.2.3.1.@key": {
+      "template": "1.8.2.2.2.3.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "2",
+        "2",
+        "3",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.2.2.3.@key": {
+      "template": "1.8.2.2.3",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "2",
+        "3"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.2.2.3.@className": {
+      "template": "note",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "2",
+        "2",
+        "3"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.3.@key": {
+      "template": "1.8.3",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "3"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.3.@className": {
+      "template": "sync-info",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "3"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.3.1.@key": {
+      "template": "1.8.3.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "3",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.3.2.@key": {
+      "template": "1.8.3.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "3",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.3.2.1.@key": {
+      "template": "1.8.3.2.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "3",
+        "2",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.3.2.1.1.@key": {
+      "template": "1.8.3.2.1.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "3",
+        "2",
+        "1",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.3.2.1.2.@key": {
+      "template": "1.8.3.2.1.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "3",
+        "2",
+        "1",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.3.2.2.@key": {
+      "template": "1.8.3.2.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "3",
+        "2",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.3.2.2.1.@key": {
+      "template": "1.8.3.2.2.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "3",
+        "2",
+        "2",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.3.2.2.2.@key": {
+      "template": "1.8.3.2.2.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "3",
+        "2",
+        "2",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.3.2.3.@key": {
+      "template": "1.8.3.2.3",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "3",
+        "2",
+        "3"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.3.2.3.1.@key": {
+      "template": "1.8.3.2.3.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "3",
+        "2",
+        "3",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.8.3.2.3.2.@key": {
+      "template": "1.8.3.2.3.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "3",
+        "2",
+        "3",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.9.@key": {
+      "template": "1.9",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "9"
+      ],
+      "type": "attribute-static"
+    },
+    "1.9.@className": {
+      "template": "debug-panel",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "9"
+      ],
+      "type": "attribute-static"
+    },
+    "1.9.1.@key": {
+      "template": "1.9.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "9",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.9.2.@key": {
+      "template": "1.9.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "9",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.9.3.@key": {
+      "template": "1.9.3",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "9",
+        "3"
+      ],
+      "type": "attribute-static"
+    },
+    "1.9.3.@style": {
+      "template": "margin-top: 1rem",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "9",
+        "3"
+      ],
+      "type": "attribute-static"
+    },
+    "1.9.4.@key": {
+      "template": "1.9.4",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "9",
+        "4"
+      ],
+      "type": "attribute-static"
+    }
+  }
+}

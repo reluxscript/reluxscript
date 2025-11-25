@@ -1,0 +1,50 @@
+import { useState } from '@minimact/core';
+import { useTimeline, useTimelineState } from '@minimact/timeline';
+
+/**
+ * Test component for timeline integration
+ * This should generate Timeline attributes in C#
+ */
+export function AnimatedCounter() {
+  const [count, setCount] = useState(0);
+  const [color, setColor] = useState('blue');
+  const [opacity, setOpacity] = useState(1.0);
+
+  // Create timeline with 5 second duration, repeating
+  const timeline = useTimeline({
+    duration: 5000,
+    repeat: true,
+    easing: 'ease-in-out'
+  });
+
+  // Bind state to timeline
+  useTimelineState(timeline, 'count', setCount, true); // interpolate numbers
+  useTimelineState(timeline, 'color', setColor); // snap strings
+  useTimelineState(timeline, 'opacity', setOpacity, true); // interpolate opacity
+
+  // Define keyframes
+  timeline.keyframes([
+    { time: 0, state: { count: 0, color: 'blue', opacity: 1.0 }, label: 'start' },
+    { time: 1250, state: { count: 25, color: 'green', opacity: 0.8 } },
+    { time: 2500, state: { count: 50, color: 'red', opacity: 0.6 }, label: 'midpoint' },
+    { time: 3750, state: { count: 75, color: 'purple', opacity: 0.8 } },
+    { time: 5000, state: { count: 100, color: 'blue', opacity: 1.0 }, label: 'end' }
+  ]);
+
+  // Auto-play on mount
+  timeline.play();
+
+  return (
+    <div key='1'>
+      <h1 key='1.1' style={{ color, opacity }}>
+        Count: {count}
+      </h1>
+      <div key='1.2'>
+        <button key='1.2.1' onClick={() => timeline.pause()}>Pause</button>
+        <button key='1.2.2' onClick={() => timeline.play()}>Play</button>
+        <button key='1.2.3' onClick={() => timeline.stop()}>Stop</button>
+        <button key='1.2.4' onClick={() => timeline.seek(2500)}>Jump to Midpoint</button>
+      </div>
+    </div>
+  );
+}

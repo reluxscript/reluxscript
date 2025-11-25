@@ -1,0 +1,13 @@
+{
+  "componentName": "Counter",
+  "timestamp": "2025-11-10T19:20:32.070Z",
+  "sourceFile": "J:\\projects\\minimact\\src\\babel-plugin-minimact\\LiftedStateSimple.tsx",
+  "changes": [
+    {
+      "type": "hook-removed",
+      "hookType": "useState",
+      "varName": "message",
+      "index": 1
+    }
+  ]
+}

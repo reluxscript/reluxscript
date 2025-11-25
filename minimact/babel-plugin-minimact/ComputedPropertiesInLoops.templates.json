@@ -1,0 +1,104 @@
+{
+  "component": "ComputedPropertiesInLoops",
+  "version": "1.0",
+  "generatedAt": 1762146077375,
+  "templates": {
+    "[0].h1[0].text[0]": {
+      "template": "Computed Properties in Loops (EXPECTED TO FAIL)",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].p[0].text[0]": {
+      "template": "⚠️ These patterns are NOT supported by the babel plugin!",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[1].h3[0].text[0]": {
+      "template": "Test Controls",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[1].p[0].text[0]": {
+      "template": "Status: ❌ NOT SUPPORTED",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[1].h2[0].text[0]": {
+      "template": "✅ Working Workarounds",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[1].[2].h3[0].text[0]": {
+      "template": "Workaround 4: Transform Data First",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        2,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[1].[2].p[0].text[0]": {
+      "template": "Status: ✅ WORKS",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        2,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[1].[0].option[0].text[0]": {
+      "template": "Stock",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        0,
+        0,
+        0
+      ],
+      "type": "static"
+    }
+  }
+}

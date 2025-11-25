@@ -1,0 +1,17 @@
+{
+  "component": "TestComponent",
+  "version": "1.0",
+  "generatedAt": 1761781771497,
+  "templates": {
+    "div[0].text[0]": {
+      "template": "Hello World",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        0
+      ],
+      "type": "static"
+    }
+  }
+}

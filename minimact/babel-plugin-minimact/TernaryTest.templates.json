@@ -1,0 +1,132 @@
+{
+  "component": "TernaryTest",
+  "version": "1.0",
+  "generatedAt": 1762013283855,
+  "templates": {
+    "[0].h1[0].text[0]": {
+      "template": "Ternary Expression Test",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "div[0].text[0]": {
+      "template": "{0}\n      \n\n      {1}\n      \n\n      {2}\n      \n\n      {3}",
+      "bindings": [
+        "__complex__",
+        "__complex__",
+        "__complex__",
+        "__complex__"
+      ],
+      "slots": [],
+      "path": [
+        0,
+        0
+      ],
+      "type": "dynamic"
+    },
+    "[0].button[0].text[0]": {
+      "template": "{0} Details",
+      "bindings": [
+        "isExpanded"
+      ],
+      "slots": [
+        9
+      ],
+      "path": [
+        0,
+        0,
+        0
+      ],
+      "type": "conditional",
+      "conditionalTemplates": {
+        "true": "Hide",
+        "false": "Show"
+      }
+    },
+    "[0].button[0].text[1]": {
+      "template": "Details",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        0,
+        1
+      ],
+      "type": "static"
+    },
+    "div[0].text[1]": {
+      "template": "{0}\n      \n\n      {1}\n      \n\n      {2}\n      \n\n      {3}",
+      "bindings": [
+        "__complex__",
+        "__complex__",
+        "__complex__",
+        "__complex__"
+      ],
+      "slots": [],
+      "path": [
+        0,
+        1
+      ],
+      "type": "dynamic"
+    },
+    "[0].p[0].text[0]": {
+      "template": "Total:",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].p[0].text[1]": {
+      "template": "Total: {0}",
+      "bindings": [
+        "__complex__"
+      ],
+      "slots": [],
+      "path": [
+        0,
+        0,
+        1
+      ],
+      "type": "dynamic"
+    },
+    "div[0].text[2]": {
+      "template": "{0}\n      \n\n      {1}\n      \n\n      {2}\n      \n\n      {3}",
+      "bindings": [
+        "__complex__",
+        "__complex__",
+        "__complex__",
+        "__complex__"
+      ],
+      "slots": [],
+      "path": [
+        0,
+        2
+      ],
+      "type": "dynamic"
+    },
+    "div[0].text[3]": {
+      "template": "{0}\n      \n\n      {1}\n      \n\n      {2}\n      \n\n      {3}",
+      "bindings": [
+        "__complex__",
+        "__complex__",
+        "__complex__",
+        "__complex__"
+      ],
+      "slots": [],
+      "path": [
+        0,
+        3
+      ],
+      "type": "dynamic"
+    }
+  }
+}

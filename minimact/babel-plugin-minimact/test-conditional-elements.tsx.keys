@@ -1,0 +1,31 @@
+import { useState } from '@minimact/core';
+
+export function ConditionalTest() {
+  const [myState1, setMyState1] = useState(false);
+  const [myState2, setMyState2] = useState(false);
+  const [myState3, setMyState3] = useState('Hello World');
+
+  return (
+    <div key='1'>
+      <h1 key='1.1'>Conditional Element Test</h1>
+      {/* Simple conditional */}
+      {myState1 && <div key='1.2.1'>myState1 is true</div>}
+      {/* Complex conditional */}
+      {myState1 && !myState2 && (
+        <div key='1.3.1' className="nested-content">
+          <span key='1.3.1.1'>SomeNestedDOMElementsHere</span>
+          <span key='1.3.1.2'>{myState3}</span>
+        </div>
+      )}
+      {/* Ternary with elements */}
+      {myState1 ? (
+        <div key='1.4.1' className="active">Active State</div>
+      ) : (
+        <div key='1.4.2' className="inactive">Inactive State</div>
+      )}
+      <button key='1.5' onClick={() => setMyState1(!myState1)}>
+        Toggle myState1
+      </button>
+    </div>
+  );
+}

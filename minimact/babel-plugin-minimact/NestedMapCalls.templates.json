@@ -1,0 +1,30 @@
+{
+  "component": "NestedMapCalls",
+  "version": "1.0",
+  "generatedAt": 1762146076143,
+  "templates": {
+    "[0].h1[0].text[0]": {
+      "template": "Nested .map() Test Cases",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[1].h3[0].text[0]": {
+      "template": "Test 6: Nested with Inline Calculations",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        0,
+        0
+      ],
+      "type": "static"
+    }
+  }
+}

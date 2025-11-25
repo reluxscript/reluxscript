@@ -1,0 +1,32 @@
+{
+  "component": "ProductPage",
+  "version": "1.0",
+  "generatedAt": 1762063363696,
+  "templates": {
+    "div[0].text[0]": {
+      "template": "{0}",
+      "bindings": [
+        "description"
+      ],
+      "slots": [
+        7
+      ],
+      "path": [
+        0,
+        0
+      ],
+      "type": "dynamic"
+    },
+    "[0].button[0].text[0]": {
+      "template": "Add to Cart",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        0,
+        0
+      ],
+      "type": "static"
+    }
+  }
+}

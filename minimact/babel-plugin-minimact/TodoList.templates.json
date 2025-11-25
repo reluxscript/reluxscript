@@ -1,0 +1,52 @@
+{
+  "component": "TodoList",
+  "version": "1.0",
+  "generatedAt": 1762358861648,
+  "templates": {
+    "[0].h1[0].text[0]": {
+      "template": "My Todos",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].button[0].text[0]": {
+      "template": "Add Todo",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "div[0].@className": {
+      "template": "todo-list",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0
+      ],
+      "type": "attribute-static"
+    },
+    "[0].button[0].@onClick": {
+      "template": "{0}",
+      "bindings": [
+        "addTodo"
+      ],
+      "slots": [
+        0
+      ],
+      "path": [
+        0,
+        2
+      ],
+      "type": "attribute-dynamic"
+    }
+  }
+}

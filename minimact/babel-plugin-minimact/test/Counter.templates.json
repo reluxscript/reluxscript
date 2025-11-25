@@ -1,0 +1,55 @@
+{
+  "component": "Counter",
+  "version": "1.0",
+  "generatedAt": 1761486572869,
+  "templates": {
+    "[0].h1[0].text[0]": {
+      "template": "Counter Example",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].p[0].text[0]": {
+      "template": "Current count:",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].p[0].text[1]": {
+      "template": "Current count: {0}",
+      "bindings": [
+        "count"
+      ],
+      "slots": [
+        15
+      ],
+      "path": [
+        0,
+        0,
+        1
+      ],
+      "type": "dynamic"
+    },
+    "[0].button[0].text[0]": {
+      "template": "Reset",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        0,
+        0
+      ],
+      "type": "static"
+    }
+  }
+}

@@ -1,0 +1,11 @@
+import { useState } from '@minimact/core';
+export default function Counter() {
+  const [count, setCount] = useState(0);
+  return <div key="1" id="counter-root">
+      <span key="1.1" id="counter-value">{count}</span>
+      <p key="1.18">This is a new element!</p>
+      <button key="1.2" id="increment-btn" type="button" onClick={() => setCount(count + 1)}>
+        Increment
+      </button>
+    </div>;
+}

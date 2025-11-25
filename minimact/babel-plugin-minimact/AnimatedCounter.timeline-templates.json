@@ -1,0 +1,98 @@
+{
+  "component": "AnimatedCounter",
+  "timelineId": "AnimatedCounter_Timeline",
+  "duration": 5000,
+  "repeat": true,
+  "repeatCount": -1,
+  "easing": "ease-in-out",
+  "stateBindings": {
+    "count": {
+      "interpolate": true,
+      "type": "unknown",
+      "setterName": "setCount"
+    },
+    "color": {
+      "interpolate": false,
+      "type": "unknown",
+      "setterName": "setColor"
+    },
+    "opacity": {
+      "interpolate": true,
+      "type": "unknown",
+      "setterName": "setOpacity"
+    }
+  },
+  "keyframes": [
+    {
+      "time": 0,
+      "label": "start",
+      "state": {
+        "count": 0,
+        "color": "blue",
+        "opacity": 1
+      },
+      "easing": null,
+      "affectedPaths": [
+        "1.1.1",
+        "1.1.@style"
+      ]
+    },
+    {
+      "time": 1250,
+      "label": null,
+      "state": {
+        "count": 25,
+        "color": "green",
+        "opacity": 0.8
+      },
+      "easing": null,
+      "affectedPaths": [
+        "1.1.1",
+        "1.1.@style"
+      ]
+    },
+    {
+      "time": 2500,
+      "label": "midpoint",
+      "state": {
+        "count": 50,
+        "color": "red",
+        "opacity": 0.6
+      },
+      "easing": null,
+      "affectedPaths": [
+        "1.1.1",
+        "1.1.@style"
+      ]
+    },
+    {
+      "time": 3750,
+      "label": null,
+      "state": {
+        "count": 75,
+        "color": "purple",
+        "opacity": 0.8
+      },
+      "easing": null,
+      "affectedPaths": [
+        "1.1.1",
+        "1.1.@style"
+      ]
+    },
+    {
+      "time": 5000,
+      "label": "end",
+      "state": {
+        "count": 100,
+        "color": "blue",
+        "opacity": 1
+      },
+      "easing": null,
+      "affectedPaths": [
+        "1.1.1",
+        "1.1.@style"
+      ]
+    }
+  ],
+  "generatedAt": 1763152415976
+}

@@ -1,0 +1,46 @@
+{
+  "componentName": "Index",
+  "timestamp": "2025-11-10T15:47:09.486Z",
+  "hooks": [
+    {
+      "type": "useState",
+      "varName": "activeExample",
+      "index": 0
+    },
+    {
+      "type": "useState",
+      "varName": "viewCount",
+      "index": 1
+    },
+    {
+      "type": "useEffect",
+      "depsCount": 1,
+      "index": 2
+    },
+    {
+      "type": "useEffect",
+      "depsCount": 0,
+      "index": 3
+    },
+    {
+      "type": "useEffect",
+      "depsCount": 1,
+      "index": 4
+    },
+    {
+      "type": "useEffect",
+      "depsCount": -1,
+      "index": 5
+    },
+    {
+      "type": "useRef",
+      "varName": "modalRef",
+      "index": 6
+    },
+    {
+      "type": "useRef",
+      "varName": "timerRef",
+      "index": 7
+    }
+  ]
+}

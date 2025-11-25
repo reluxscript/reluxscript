@@ -1,0 +1,60 @@
+{
+  "component": "FileManagerPage",
+  "version": "1.0",
+  "generatedAt": 1762123221733,
+  "templates": {
+    "[0].style[0].text[0]": {
+      "template": "{0}",
+      "bindings": [
+        "__complex__"
+      ],
+      "slots": [],
+      "path": [
+        0,
+        0,
+        0
+      ],
+      "type": "dynamic"
+    },
+    "[0].[1].h1[0].text[0]": {
+      "template": "📁 Minimact File Manager",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[1].[2].button[0].text[0]": {
+      "template": "⬆️ Up",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        2,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[1].[2].span[0].text[0]": {
+      "template": "{0}",
+      "bindings": [
+        "__complex__"
+      ],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        2,
+        0,
+        0
+      ],
+      "type": "dynamic"
+    }
+  }
+}

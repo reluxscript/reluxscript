@@ -1,0 +1,52 @@
+{
+  "name": "@minimact/babel-plugin",
+  "version": "0.1.0",
+  "description": "Babel plugin to transform JSX/TSX React components to C# Minimact components",
+  "main": "index.cjs",
+  "browser": "dist/minimact-babel-plugin.js",
+  "module": "dist/minimact-babel-plugin.esm.js",
+  "files": [
+    "dist",
+    "index.cjs",
+    "src"
+  ],
+  "keywords": [
+    "babel-plugin",
+    "minimact",
+    "react",
+    "csharp",
+    "jsx",
+    "tsx"
+  ],
+  "author": "Minimact Team",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "clean": "rimraf dist",
+    "build": "npm run clean && rollup -c",
+    "watch": "rollup -c -w",
+    "dev": "rollup -c -w",
+    "prepublish": "npm run build"
+  },
+  "peerDependencies": {
+    "@babel/core": "^7.0.0"
+  },
+  "dependencies": {
+    "@babel/generator": "^7.28.5",
+    "@babel/types": "^7.0.0",
+    "recast": "^0.23.11"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.24.0",
+    "@babel/preset-react": "^7.24.0",
+    "@babel/preset-typescript": "^7.24.0",
+    "@rollup/plugin-commonjs": "^25.0.0",
+    "@rollup/plugin-json": "^6.0.0",
+    "@rollup/plugin-node-resolve": "^15.0.0",
+    "@rollup/plugin-replace": "^6.0.2",
+    "rimraf": "^6.0.1",
+    "rollup": "^3.29.0"
+  }
+}

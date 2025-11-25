@@ -1,0 +1,21 @@
+{
+  "componentName": "AnimatedCounter",
+  "timestamp": "2025-11-14T20:33:35.977Z",
+  "hooks": [
+    {
+      "type": "useState",
+      "varName": "count",
+      "index": 0
+    },
+    {
+      "type": "useState",
+      "varName": "color",
+      "index": 1
+    },
+    {
+      "type": "useState",
+      "varName": "opacity",
+      "index": 2
+    }
+  ]
+}

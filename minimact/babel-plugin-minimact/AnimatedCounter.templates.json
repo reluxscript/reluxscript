@@ -1,0 +1,158 @@
+{
+  "component": "AnimatedCounter",
+  "version": "1.0",
+  "generatedAt": 1763152415975,
+  "templates": {
+    "1.1.1": {
+      "template": "Count: {0}",
+      "bindings": [
+        "count"
+      ],
+      "slots": [
+        16
+      ],
+      "path": [
+        "1",
+        "1"
+      ],
+      "type": "dynamic"
+    },
+    "1.2.1.1": {
+      "template": "Pause",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "2",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.2.2.1": {
+      "template": "Play",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "2",
+        "2",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.2.3.1": {
+      "template": "Stop",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "2",
+        "3",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.2.4.1": {
+      "template": "Jump to Midpoint",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "2",
+        "4",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.@key": {
+      "template": "1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.1.@key": {
+      "template": "1.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.1.@style": {
+      "template": "color: {0}; opacity: {1}",
+      "bindings": [
+        "color",
+        "opacity"
+      ],
+      "slots": [
+        7,
+        21
+      ],
+      "path": [
+        "1",
+        "1"
+      ],
+      "type": "attribute-dynamic"
+    },
+    "1.2.@key": {
+      "template": "1.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.2.1.@key": {
+      "template": "1.2.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "2",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.2.2.@key": {
+      "template": "1.2.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "2",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.2.3.@key": {
+      "template": "1.2.3",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "2",
+        "3"
+      ],
+      "type": "attribute-static"
+    },
+    "1.2.4.@key": {
+      "template": "1.2.4",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "2",
+        "4"
+      ],
+      "type": "attribute-static"
+    }
+  }
+}

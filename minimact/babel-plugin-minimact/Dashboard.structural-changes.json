@@ -1,0 +1,370 @@
+{
+  "componentName": "Dashboard",
+  "timestamp": "2025-11-10T18:16:13.005Z",
+  "sourceFile": "J:\\projects\\minimact\\src\\babel-plugin-minimact\\LiftedState_01_LoadingOverlay.tsx",
+  "changes": [
+    {
+      "type": "insert",
+      "path": "1",
+      "vnode": {
+        "type": "element",
+        "tag": "div",
+        "path": "1",
+        "attributes": {
+          "id": "dashboard-root"
+        },
+        "children": [
+          {
+            "type": "element",
+            "path": "1.1",
+            "tag": "h1"
+          },
+          {
+            "type": "expression",
+            "path": "1.2",
+            "value": "__DYNAMIC__"
+          },
+          {
+            "type": "expression",
+            "path": "1.3",
+            "value": "__DYNAMIC__"
+          },
+          {
+            "type": "element",
+            "path": "1.4",
+            "tag": "Component"
+          },
+          {
+            "type": "element",
+            "path": "1.5",
+            "tag": "Component"
+          },
+          {
+            "type": "element",
+            "path": "1.6",
+            "tag": "Component"
+          },
+          {
+            "type": "expression",
+            "path": "1.7",
+            "value": "__DYNAMIC__"
+          },
+          {
+            "type": "element",
+            "path": "1.8",
+            "tag": "div"
+          }
+        ]
+      }
+    },
+    {
+      "type": "insert",
+      "path": "1.1",
+      "vnode": {
+        "type": "element",
+        "tag": "h1",
+        "path": "1.1",
+        "attributes": {},
+        "children": [
+          {
+            "type": "text",
+            "path": "1.1.1",
+            "value": "Dashboard"
+          }
+        ]
+      }
+    },
+    {
+      "type": "insert",
+      "path": "1.3",
+      "vnode": {
+        "type": "element",
+        "tag": "Component",
+        "path": "1.3",
+        "attributes": {
+          "name": "UserProfile",
+          "state": "__DYNAMIC__"
+        },
+        "children": [
+          {
+            "type": "element",
+            "path": "1.3.1",
+            "tag": "UserProfile"
+          }
+        ]
+      }
+    },
+    {
+      "type": "insert",
+      "path": "1.3.1",
+      "vnode": {
+        "type": "element",
+        "tag": "UserProfile",
+        "path": "1.3.1",
+        "attributes": {},
+        "children": []
+      }
+    },
+    {
+      "type": "insert",
+      "path": "1.4",
+      "vnode": {
+        "type": "element",
+        "tag": "Component",
+        "path": "1.4",
+        "attributes": {
+          "name": "ShoppingCart",
+          "state": "__DYNAMIC__"
+        },
+        "children": [
+          {
+            "type": "element",
+            "path": "1.4.1",
+            "tag": "ShoppingCart"
+          }
+        ]
+      }
+    },
+    {
+      "type": "insert",
+      "path": "1.4.1",
+      "vnode": {
+        "type": "element",
+        "tag": "ShoppingCart",
+        "path": "1.4.1",
+        "attributes": {},
+        "children": []
+      }
+    },
+    {
+      "type": "insert",
+      "path": "1.5",
+      "vnode": {
+        "type": "element",
+        "tag": "Component",
+        "path": "1.5",
+        "attributes": {
+          "name": "ContactForm",
+          "state": "__DYNAMIC__"
+        },
+        "children": [
+          {
+            "type": "element",
+            "path": "1.5.1",
+            "tag": "ContactForm"
+          }
+        ]
+      }
+    },
+    {
+      "type": "insert",
+      "path": "1.5.1",
+      "vnode": {
+        "type": "element",
+        "tag": "ContactForm",
+        "path": "1.5.1",
+        "attributes": {},
+        "children": []
+      }
+    },
+    {
+      "type": "insert",
+      "path": "1.6",
+      "vnode": {
+        "type": "element",
+        "tag": "div",
+        "path": "1.6",
+        "attributes": {
+          "id": "status",
+          "className": "status"
+        },
+        "children": [
+          {
+            "type": "element",
+            "path": "1.6.1",
+            "tag": "p"
+          },
+          {
+            "type": "element",
+            "path": "1.6.2",
+            "tag": "p"
+          },
+          {
+            "type": "element",
+            "path": "1.6.3",
+            "tag": "p"
+          },
+          {
+            "type": "element",
+            "path": "1.6.4",
+            "tag": "p"
+          }
+        ]
+      }
+    },
+    {
+      "type": "insert",
+      "path": "1.6.1",
+      "vnode": {
+        "type": "element",
+        "tag": "p",
+        "path": "1.6.1",
+        "attributes": {},
+        "children": [
+          {
+            "type": "text",
+            "path": "1.6.1.1",
+            "value": "User Loading:"
+          },
+          {
+            "type": "element",
+            "path": "1.6.1.2",
+            "tag": "span"
+          }
+        ]
+      }
+    },
+    {
+      "type": "insert",
+      "path": "1.6.1.2",
+      "vnode": {
+        "type": "element",
+        "tag": "span",
+        "path": "1.6.1.2",
+        "attributes": {
+          "id": "user-loading"
+        },
+        "children": [
+          {
+            "type": "expression",
+            "path": "1.6.1.2.1",
+            "value": "__DYNAMIC__"
+          }
+        ]
+      }
+    },
+    {
+      "type": "insert",
+      "path": "1.6.2",
+      "vnode": {
+        "type": "element",
+        "tag": "p",
+        "path": "1.6.2",
+        "attributes": {},
+        "children": [
+          {
+            "type": "text",
+            "path": "1.6.2.1",
+            "value": "Cart Loading:"
+          },
+          {
+            "type": "element",
+            "path": "1.6.2.2",
+            "tag": "span"
+          }
+        ]
+      }
+    },
+    {
+      "type": "insert",
+      "path": "1.6.2.2",
+      "vnode": {
+        "type": "element",
+        "tag": "span",
+        "path": "1.6.2.2",
+        "attributes": {
+          "id": "cart-loading"
+        },
+        "children": [
+          {
+            "type": "expression",
+            "path": "1.6.2.2.1",
+            "value": "__DYNAMIC__"
+          }
+        ]
+      }
+    },
+    {
+      "type": "insert",
+      "path": "1.6.3",
+      "vnode": {
+        "type": "element",
+        "tag": "p",
+        "path": "1.6.3",
+        "attributes": {},
+        "children": [
+          {
+            "type": "text",
+            "path": "1.6.3.1",
+            "value": "Form Loading:"
+          },
+          {
+            "type": "element",
+            "path": "1.6.3.2",
+            "tag": "span"
+          }
+        ]
+      }
+    },
+    {
+      "type": "insert",
+      "path": "1.6.3.2",
+      "vnode": {
+        "type": "element",
+        "tag": "span",
+        "path": "1.6.3.2",
+        "attributes": {
+          "id": "form-loading"
+        },
+        "children": [
+          {
+            "type": "expression",
+            "path": "1.6.3.2.1",
+            "value": "__DYNAMIC__"
+          }
+        ]
+      }
+    },
+    {
+      "type": "insert",
+      "path": "1.6.4",
+      "vnode": {
+        "type": "element",
+        "tag": "p",
+        "path": "1.6.4",
+        "attributes": {},
+        "children": [
+          {
+            "type": "text",
+            "path": "1.6.4.1",
+            "value": "Any Loading:"
+          },
+          {
+            "type": "element",
+            "path": "1.6.4.2",
+            "tag": "span"
+          }
+        ]
+      }
+    },
+    {
+      "type": "insert",
+      "path": "1.6.4.2",
+      "vnode": {
+        "type": "element",
+        "tag": "span",
+        "path": "1.6.4.2",
+        "attributes": {
+          "id": "any-loading"
+        },
+        "children": [
+          {
+            "type": "expression",
+            "path": "1.6.4.2.1",
+            "value": "__DYNAMIC__"
+          }
+        ]
+      }
+    }
+  ]
+}

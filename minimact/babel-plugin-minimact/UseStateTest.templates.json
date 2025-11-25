@@ -1,0 +1,56 @@
+{
+  "component": "UseStateTest",
+  "version": "1.0",
+  "generatedAt": 1762358865195,
+  "templates": {
+    "[0].h1[0].text[0]": {
+      "template": "Count: {0}",
+      "bindings": [
+        "count"
+      ],
+      "slots": [
+        7
+      ],
+      "path": [
+        0,
+        0,
+        0
+      ],
+      "type": "dynamic"
+    },
+    "[0].p[0].text[0]": {
+      "template": "Name: {0}",
+      "bindings": [
+        "name"
+      ],
+      "slots": [
+        6
+      ],
+      "path": [
+        0,
+        0,
+        0
+      ],
+      "type": "dynamic"
+    },
+    "[0].p[1].text[0]": {
+      "template": "Active: {0}",
+      "bindings": [
+        "isActive"
+      ],
+      "slots": [
+        8
+      ],
+      "path": [
+        0,
+        1,
+        0
+      ],
+      "type": "conditional",
+      "conditionalTemplates": {
+        "true": "Yes",
+        "false": "No"
+      }
+    }
+  }
+}

@@ -1,0 +1,300 @@
+{
+  "component": "InteractiveForm",
+  "version": "1.0",
+  "generatedAt": 1762358864034,
+  "templates": {
+    "[0].[0].label[0].text[0]": {
+      "template": "Name:",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[1].label[0].text[0]": {
+      "template": "Email:",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[2].button[0].text[0]": {
+      "template": "Submit",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        2,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[2].button[1].text[0]": {
+      "template": "Cancel",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        2,
+        1,
+        0
+      ],
+      "type": "static"
+    },
+    "form[0].@onSubmit": {
+      "template": "{0}",
+      "bindings": [
+        "handleSubmit"
+      ],
+      "slots": [
+        0
+      ],
+      "path": [
+        0
+      ],
+      "type": "attribute-dynamic"
+    },
+    "form[0].@className": {
+      "template": "form",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0
+      ],
+      "type": "attribute-static"
+    },
+    "[0].div[0].@className": {
+      "template": "form-group",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        0
+      ],
+      "type": "attribute-static"
+    },
+    "[0].[0].label[0].@htmlFor": {
+      "template": "name",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        0,
+        0
+      ],
+      "type": "attribute-static"
+    },
+    "[0].[0].input[0].@id": {
+      "template": "name",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        0,
+        1
+      ],
+      "type": "attribute-static"
+    },
+    "[0].[0].input[0].@type": {
+      "template": "text",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        0,
+        1
+      ],
+      "type": "attribute-static"
+    },
+    "[0].[0].input[0].@onChange": {
+      "template": "{0}",
+      "bindings": [
+        "handleNameChange"
+      ],
+      "slots": [
+        0
+      ],
+      "path": [
+        0,
+        0,
+        1
+      ],
+      "type": "attribute-dynamic"
+    },
+    "[0].[0].input[0].@onBlur": {
+      "template": "{0}",
+      "bindings": [
+        "validateName"
+      ],
+      "slots": [
+        0
+      ],
+      "path": [
+        0,
+        0,
+        1
+      ],
+      "type": "attribute-dynamic"
+    },
+    "[0].[0].input[0].@onFocus": {
+      "template": "{0}",
+      "bindings": [
+        "clearError"
+      ],
+      "slots": [
+        0
+      ],
+      "path": [
+        0,
+        0,
+        1
+      ],
+      "type": "attribute-dynamic"
+    },
+    "[0].div[1].@className": {
+      "template": "form-group",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1
+      ],
+      "type": "attribute-static"
+    },
+    "[0].[1].label[0].@htmlFor": {
+      "template": "email",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        0
+      ],
+      "type": "attribute-static"
+    },
+    "[0].[1].input[0].@id": {
+      "template": "email",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        1
+      ],
+      "type": "attribute-static"
+    },
+    "[0].[1].input[0].@type": {
+      "template": "email",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        1
+      ],
+      "type": "attribute-static"
+    },
+    "[0].[1].input[0].@onChange": {
+      "template": "{0}",
+      "bindings": [
+        "handleEmailChange"
+      ],
+      "slots": [
+        0
+      ],
+      "path": [
+        0,
+        1,
+        1
+      ],
+      "type": "attribute-dynamic"
+    },
+    "[0].[1].input[0].@onBlur": {
+      "template": "{0}",
+      "bindings": [
+        "validateEmail"
+      ],
+      "slots": [
+        0
+      ],
+      "path": [
+        0,
+        1,
+        1
+      ],
+      "type": "attribute-dynamic"
+    },
+    "[0].div[2].@className": {
+      "template": "actions",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        2
+      ],
+      "type": "attribute-static"
+    },
+    "[0].[2].button[0].@type": {
+      "template": "submit",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        2,
+        0
+      ],
+      "type": "attribute-static"
+    },
+    "[0].[2].button[0].@onClick": {
+      "template": "{0}",
+      "bindings": [
+        "handleClick"
+      ],
+      "slots": [
+        0
+      ],
+      "path": [
+        0,
+        2,
+        0
+      ],
+      "type": "attribute-dynamic"
+    },
+    "[0].[2].button[1].@type": {
+      "template": "button",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        2,
+        1
+      ],
+      "type": "attribute-static"
+    },
+    "[0].[2].button[1].@onClick": {
+      "template": "{0}",
+      "bindings": [
+        "handleCancel"
+      ],
+      "slots": [
+        0
+      ],
+      "path": [
+        0,
+        2,
+        1
+      ],
+      "type": "attribute-dynamic"
+    }
+  }
+}

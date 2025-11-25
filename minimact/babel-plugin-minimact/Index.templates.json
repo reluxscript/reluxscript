@@ -1,0 +1,628 @@
+{
+  "component": "Index",
+  "version": "1.0",
+  "generatedAt": 1762789629485,
+  "templates": {
+    "1.1.1": {
+      "template": "Minimact Hook Examples",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.2.1": {
+      "template": "This project includes examples for 3 hooks.\n        Select an example below to see the code in action.",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "2",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.2.1.1": {
+      "template": "Page views: {0} | Timer ref: {1}",
+      "bindings": [
+        "viewCount",
+        "timerRef.current"
+      ],
+      "slots": [
+        21,
+        38
+      ],
+      "path": [
+        "1",
+        "2",
+        "1"
+      ],
+      "type": "dynamic"
+    },
+    "1.3.1.1.1": {
+      "template": "Core Hooks",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.3.1.2.1.1.1": {
+      "template": "useState",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "2",
+        "1",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.3.1.2.1.2.1": {
+      "template": "Manage component state with instant updates and template prediction",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "2",
+        "1",
+        "2",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.3.1.2.2.1.1": {
+      "template": "useEffect",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "2",
+        "2",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.3.1.2.2.2.1": {
+      "template": "Run side effects after component renders (timers, subscriptions, etc.)",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "2",
+        "2",
+        "2",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.3.1.2.3.1.1": {
+      "template": "useRef",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "2",
+        "3",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.3.1.2.3.2.1": {
+      "template": "Create mutable refs that persist across renders without triggering updates",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "2",
+        "3",
+        "2",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.4.1.1.1.1": {
+      "template": "Close",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "4",
+        "1",
+        "1",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.4.1.1.2.1": {
+      "template": "Active Example: {0}",
+      "bindings": [
+        "activeExample"
+      ],
+      "slots": [
+        16
+      ],
+      "path": [
+        "1",
+        "4",
+        "1",
+        "1",
+        "2"
+      ],
+      "type": "dynamic"
+    },
+    "1.4.1.1.3.1": {
+      "template": "This is where the example component would render.\n              Check the source file in",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "4",
+        "1",
+        "1",
+        "3",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.4.1.1.3.3": {
+      "template": "for the full implementation.",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "4",
+        "1",
+        "1",
+        "3",
+        "3"
+      ],
+      "type": "static"
+    },
+    "1.4.1.1.3.2.1": {
+      "template": "Pages/Examples/",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "4",
+        "1",
+        "1",
+        "3",
+        "2",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.@key": {
+      "template": "1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.@style": {
+      "template": "padding: 20px; font-family: system-ui, sans-serif; max-width: 1200px; margin: 0 auto",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.1.@key": {
+      "template": "1.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.1.@style": {
+      "template": "margin-bottom: 10px",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.2.@key": {
+      "template": "1.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.2.@style": {
+      "template": "color: #666; margin-bottom: 10px",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.2.1.@key": {
+      "template": "1.2.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "2",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.2.1.@style": {
+      "template": "color: #999; font-size: 14px; margin-bottom: 30px",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "2",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.@key": {
+      "template": "1.3",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.@style": {
+      "template": "display: grid; gap: 30px",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.1.@key": {
+      "template": "1.3.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.1.1.@key": {
+      "template": "1.3.1.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.1.1.@style": {
+      "template": "font-size: 20px; margin-bottom: 16px; color: #333",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.1.2.@key": {
+      "template": "1.3.1.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.1.2.@style": {
+      "template": "display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.1.2.1.@key": {
+      "template": "1.3.1.2.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "2",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.1.2.1.@style": {
+      "template": "padding: 12px 16px; border: 1px solid #ddd; border-radius: 6px; background: white; cursor: pointer; text-align: left; transition: all 0.2s",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "2",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.1.2.1.1.@key": {
+      "template": "1.3.1.2.1.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "2",
+        "1",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.1.2.1.1.@style": {
+      "template": "font-weight: 600; color: #333; font-family: monospace; font-size: 14px",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "2",
+        "1",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.1.2.1.2.@key": {
+      "template": "1.3.1.2.1.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "2",
+        "1",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.1.2.1.2.@style": {
+      "template": "font-size: 12px; color: #666; margin-top: 4px",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "2",
+        "1",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.1.2.2.@key": {
+      "template": "1.3.1.2.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "2",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.1.2.2.@style": {
+      "template": "padding: 12px 16px; border: 1px solid #ddd; border-radius: 6px; background: white; cursor: pointer; text-align: left; transition: all 0.2s",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "2",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.1.2.2.1.@key": {
+      "template": "1.3.1.2.2.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "2",
+        "2",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.1.2.2.1.@style": {
+      "template": "font-weight: 600; color: #333; font-family: monospace; font-size: 14px",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "2",
+        "2",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.1.2.2.2.@key": {
+      "template": "1.3.1.2.2.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "2",
+        "2",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.1.2.2.2.@style": {
+      "template": "font-size: 12px; color: #666; margin-top: 4px",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "2",
+        "2",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.1.2.3.@key": {
+      "template": "1.3.1.2.3",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "2",
+        "3"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.1.2.3.@style": {
+      "template": "padding: 12px 16px; border: 1px solid #ddd; border-radius: 6px; background: white; cursor: pointer; text-align: left; transition: all 0.2s",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "2",
+        "3"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.1.2.3.1.@key": {
+      "template": "1.3.1.2.3.1",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "2",
+        "3",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.1.2.3.1.@style": {
+      "template": "font-weight: 600; color: #333; font-family: monospace; font-size: 14px",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "2",
+        "3",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.1.2.3.2.@key": {
+      "template": "1.3.1.2.3.2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "2",
+        "3",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.3.1.2.3.2.@style": {
+      "template": "font-size: 12px; color: #666; margin-top: 4px",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "2",
+        "3",
+        "2"
+      ],
+      "type": "attribute-static"
+    }
+  }
+}

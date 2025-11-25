@@ -1,0 +1,754 @@
+{
+  "component": "RealWorldPatterns",
+  "version": "1.0",
+  "generatedAt": 1762207564804,
+  "templates": {
+    "[0].h1[0].text[0]": {
+      "template": "Real-World Common Patterns",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[0].h3[0].text[0]": {
+      "template": "Pattern 1: Template Literals with Multiple Expressions",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[0].p[0].text[0]": {
+      "template": "Expected: John Doe, Jane Smith",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[1].h3[0].text[0]": {
+      "template": "Pattern 2: Template Literals + Method Calls",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[1].p[0].text[0]": {
+      "template": "Expected: Name: JOHN, Name: JANE",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[2].h3[0].text[0]": {
+      "template": "Pattern 3: Template Literals + Calculations",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        2,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[2].p[0].text[0]": {
+      "template": "Expected: Widget: $29.99 x 5 = $149.95",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        2,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[3].h3[0].text[0]": {
+      "template": "Pattern 4: Template Literals + toFixed()",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        3,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[3].p[0].text[0]": {
+      "template": "Expected: Total: $149.95, Total: $149.97",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        3,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[4].h3[0].text[0]": {
+      "template": "Pattern 5: Ternary in Template Literal",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        4,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[4].p[0].text[0]": {
+      "template": "Expected: John (Active), Jane (Inactive)",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        4,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[5].h3[0].text[0]": {
+      "template": "Pattern 6: Array.length Property",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        5,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[5].p[0].text[0]": {
+      "template": "Total users: {0}",
+      "bindings": [
+        "users.length"
+      ],
+      "slots": [
+        13
+      ],
+      "path": [
+        0,
+        5,
+        0,
+        0
+      ],
+      "type": "dynamic"
+    },
+    "[0].[5].p[1].text[0]": {
+      "template": "Total products: {0}",
+      "bindings": [
+        "products.length"
+      ],
+      "slots": [
+        16
+      ],
+      "path": [
+        0,
+        5,
+        1,
+        0
+      ],
+      "type": "dynamic"
+    },
+    "[0].[5].p[2].text[0]": {
+      "template": "Expected: 2, 2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        5,
+        2,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[6].h3[0].text[0]": {
+      "template": "Pattern 7: Comparison in Ternary",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        6,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[6].p[0].text[0]": {
+      "template": "Expected: Senior, Junior",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        6,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[7].h3[0].text[0]": {
+      "template": "Pattern 8: Property Concatenation",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        7,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[7].p[0].text[0]": {
+      "template": "Expected: John Doe, Jane Smith",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        7,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[8].h3[0].text[0]": {
+      "template": "Pattern 9: Nullish Coalescing",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        8,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[8].p[0].text[0]": {
+      "template": "{0}",
+      "bindings": [
+        "__complex__"
+      ],
+      "slots": [],
+      "path": [
+        0,
+        8,
+        0,
+        0
+      ],
+      "type": "dynamic"
+    },
+    "[0].[8].p[1].text[0]": {
+      "template": "Expected: No search term, john@example.com, jane@example.com",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        8,
+        1,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[9].h3[0].text[0]": {
+      "template": "Pattern 10: String + Number",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        9,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[9].p[0].text[0]": {
+      "template": "Count: {0}",
+      "bindings": [
+        "count"
+      ],
+      "slots": [
+        7
+      ],
+      "path": [
+        0,
+        9,
+        0,
+        0
+      ],
+      "type": "dynamic"
+    },
+    "[0].[9].p[1].text[0]": {
+      "template": "Next: {0}",
+      "bindings": [
+        "count"
+      ],
+      "slots": [
+        6
+      ],
+      "path": [
+        0,
+        9,
+        1,
+        0
+      ],
+      "type": "dynamic"
+    },
+    "[0].[9].p[2].text[0]": {
+      "template": "Expected: Count: 42, Next: 43, User #1, User #2",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        9,
+        2,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[10].h3[0].text[0]": {
+      "template": "Pattern 11: Percentage Display",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        10,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[11].h3[0].text[0]": {
+      "template": "Pattern 12: Template with Fallback",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        11,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[12].h3[0].text[0]": {
+      "template": "Pattern 13: Nested/Multiple Ternaries",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        12,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[13].h3[0].text[0]": {
+      "template": "Pattern 14: Array Index Access",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        13,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[13].p[0].text[0]": {
+      "template": "First user: {0}",
+      "bindings": [
+        "users.firstName"
+      ],
+      "slots": [
+        12
+      ],
+      "path": [
+        0,
+        13,
+        0,
+        0
+      ],
+      "type": "dynamic"
+    },
+    "[0].[13].p[1].text[0]": {
+      "template": "Second user: {0}",
+      "bindings": [
+        "users.firstName"
+      ],
+      "slots": [
+        13
+      ],
+      "path": [
+        0,
+        13,
+        1,
+        0
+      ],
+      "type": "dynamic"
+    },
+    "[0].[14].h3[0].text[0]": {
+      "template": "Pattern 15: Math Operations",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        14,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[15].h3[0].text[0]": {
+      "template": "Pattern 16: Padded Numbers",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        15,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[16].h3[0].text[0]": {
+      "template": "Pattern 17: Boolean Display",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        16,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[17].h3[0].text[0]": {
+      "template": "Pattern 18: String Truncation",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        17,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].div[0].@className": {
+      "template": "test-case",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        0
+      ],
+      "type": "attribute-static"
+    },
+    "[0].[0].p[0].@className": {
+      "template": "expected",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        0,
+        0
+      ],
+      "type": "attribute-static"
+    },
+    "[0].div[1].@className": {
+      "template": "test-case",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1
+      ],
+      "type": "attribute-static"
+    },
+    "[0].[1].p[0].@className": {
+      "template": "expected",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        0
+      ],
+      "type": "attribute-static"
+    },
+    "[0].div[2].@className": {
+      "template": "test-case",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        2
+      ],
+      "type": "attribute-static"
+    },
+    "[0].[2].p[0].@className": {
+      "template": "expected",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        2,
+        0
+      ],
+      "type": "attribute-static"
+    },
+    "[0].div[3].@className": {
+      "template": "test-case",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        3
+      ],
+      "type": "attribute-static"
+    },
+    "[0].[3].p[0].@className": {
+      "template": "expected",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        3,
+        0
+      ],
+      "type": "attribute-static"
+    },
+    "[0].div[4].@className": {
+      "template": "test-case",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        4
+      ],
+      "type": "attribute-static"
+    },
+    "[0].[4].p[0].@className": {
+      "template": "expected",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        4,
+        0
+      ],
+      "type": "attribute-static"
+    },
+    "[0].div[5].@className": {
+      "template": "test-case",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        5
+      ],
+      "type": "attribute-static"
+    },
+    "[0].[5].p[2].@className": {
+      "template": "expected",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        5,
+        2
+      ],
+      "type": "attribute-static"
+    },
+    "[0].div[6].@className": {
+      "template": "test-case",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        6
+      ],
+      "type": "attribute-static"
+    },
+    "[0].[6].p[0].@className": {
+      "template": "expected",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        6,
+        0
+      ],
+      "type": "attribute-static"
+    },
+    "[0].div[7].@className": {
+      "template": "test-case",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        7
+      ],
+      "type": "attribute-static"
+    },
+    "[0].[7].p[0].@className": {
+      "template": "expected",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        7,
+        0
+      ],
+      "type": "attribute-static"
+    },
+    "[0].div[8].@className": {
+      "template": "test-case",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        8
+      ],
+      "type": "attribute-static"
+    },
+    "[0].[8].p[1].@className": {
+      "template": "expected",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        8,
+        1
+      ],
+      "type": "attribute-static"
+    },
+    "[0].div[9].@className": {
+      "template": "test-case",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        9
+      ],
+      "type": "attribute-static"
+    },
+    "[0].[9].p[2].@className": {
+      "template": "expected",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        9,
+        2
+      ],
+      "type": "attribute-static"
+    },
+    "[0].div[10].@className": {
+      "template": "test-case",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        10
+      ],
+      "type": "attribute-static"
+    },
+    "[0].div[11].@className": {
+      "template": "test-case",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        11
+      ],
+      "type": "attribute-static"
+    },
+    "[0].div[12].@className": {
+      "template": "test-case",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        12
+      ],
+      "type": "attribute-static"
+    },
+    "[0].div[13].@className": {
+      "template": "test-case",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        13
+      ],
+      "type": "attribute-static"
+    },
+    "[0].div[14].@className": {
+      "template": "test-case",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        14
+      ],
+      "type": "attribute-static"
+    },
+    "[0].div[15].@className": {
+      "template": "test-case",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        15
+      ],
+      "type": "attribute-static"
+    },
+    "[0].div[16].@className": {
+      "template": "test-case",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        16
+      ],
+      "type": "attribute-static"
+    },
+    "[0].div[17].@className": {
+      "template": "test-case",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        17
+      ],
+      "type": "attribute-static"
+    }
+  }
+}

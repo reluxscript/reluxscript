@@ -1,0 +1,111 @@
+{
+  "component": "EventHandlerEdgeCases",
+  "version": "1.0",
+  "generatedAt": 1762146080979,
+  "templates": {
+    "[0].h1[0].text[0]": {
+      "template": "Event Handler Edge Cases",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[1].h3[0].text[0]": {
+      "template": "Test 16: Curried Handler (Double Arrow)",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[1].button[0].text[0]": {
+      "template": "Optional Chaining Test",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[1].button[0].text[1]": {
+      "template": "Conditional Increment (Count: {0})",
+      "bindings": [
+        "count"
+      ],
+      "slots": [
+        41
+      ],
+      "path": [
+        0,
+        1,
+        0,
+        1
+      ],
+      "type": "dynamic"
+    },
+    "[0].[1].button[0].text[2]": {
+      "template": ")",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        0,
+        2
+      ],
+      "type": "static"
+    },
+    "[0].[1].p[0].text[0]": {
+      "template": "⚠️ Curried functions may not transpile correctly",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "[0].[1].p[0].text[1]": {
+      "template": "Total Tasks: {0}",
+      "bindings": [
+        "tasks.length"
+      ],
+      "slots": [
+        13
+      ],
+      "path": [
+        0,
+        1,
+        0,
+        1
+      ],
+      "type": "dynamic"
+    },
+    "[0].[1].[0].button[0].text[0]": {
+      "template": "Submit",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        1,
+        0,
+        0,
+        0
+      ],
+      "type": "static"
+    }
+  }
+}

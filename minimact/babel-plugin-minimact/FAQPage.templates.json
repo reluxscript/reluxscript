@@ -1,0 +1,30 @@
+{
+  "component": "FAQPage",
+  "version": "1.0",
+  "generatedAt": 1761505724710,
+  "templates": {
+    "[0].h1[0].text[0]": {
+      "template": "FAQs",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        0,
+        0,
+        0
+      ],
+      "type": "static"
+    },
+    "div[0].text[0]": {
+      "template": "{0}",
+      "bindings": [
+        "__complex__"
+      ],
+      "slots": [],
+      "path": [
+        0,
+        0
+      ],
+      "type": "dynamic"
+    }
+  }
+}

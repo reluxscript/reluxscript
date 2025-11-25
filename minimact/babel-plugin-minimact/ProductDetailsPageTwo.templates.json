@@ -1,0 +1,668 @@
+{
+  "component": "ProductDetailsPageTwo",
+  "version": "1.0",
+  "generatedAt": 1762469144858,
+  "templates": {
+    "1.1.1": {
+      "template": "{0}950040830",
+      "bindings": [
+        "productName"
+      ],
+      "slots": [
+        0
+      ],
+      "path": [
+        "1",
+        "1"
+      ],
+      "type": "dynamic"
+    },
+    "1.2.1.2": {
+      "template": "This should NEVER appear in DOM!",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "2",
+        "1",
+        "2"
+      ],
+      "type": "static"
+    },
+    "1.2.1.1.1": {
+      "template": "FALSE CONDITIONAL:",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "2",
+        "1",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.3.1.2": {
+      "template": "Product: {0}, Price: ${1}, Qty: {2}",
+      "bindings": [
+        "productName",
+        "price",
+        "quantity"
+      ],
+      "slots": [
+        21,
+        34,
+        44
+      ],
+      "path": [
+        "1",
+        "3",
+        "1"
+      ],
+      "type": "transform",
+      "transform": {
+        "method": "toFixed",
+        "args": [
+          2
+        ]
+      }
+    },
+    "1.3.1.1.1": {
+      "template": "Debug Info:",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.3.1.8.1": {
+      "template": "Hide",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "3",
+        "1",
+        "8",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.4.1": {
+      "template": "{0} Debug Info",
+      "bindings": [
+        "showDebugInfo"
+      ],
+      "slots": [
+        9
+      ],
+      "path": [
+        "1",
+        "4"
+      ],
+      "type": "conditional",
+      "conditionalTemplates": {
+        "true": "Hide",
+        "false": "Show"
+      }
+    },
+    "1.5.1.1": {
+      "template": "${0}",
+      "bindings": [
+        "price"
+      ],
+      "slots": [
+        12
+      ],
+      "path": [
+        "1",
+        "5",
+        "1"
+      ],
+      "type": "transform",
+      "transform": {
+        "method": "toFixed",
+        "args": [
+          2
+        ]
+      }
+    },
+    "1.5.2.1": {
+      "template": "Logged in as: {0}",
+      "bindings": [
+        "viewModel.userEmail"
+      ],
+      "slots": [
+        25
+      ],
+      "path": [
+        "1",
+        "5",
+        "2"
+      ],
+      "type": "nullable",
+      "nullable": true
+    },
+    "1.6.1.1": {
+      "template": "Quantity112:",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "6",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.6.2.1.1": {
+      "template": "-",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "6",
+        "2",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.6.2.2.1": {
+      "template": "{0}",
+      "bindings": [
+        "quantity"
+      ],
+      "slots": [
+        0
+      ],
+      "path": [
+        "1",
+        "6",
+        "2",
+        "2"
+      ],
+      "type": "dynamic"
+    },
+    "1.6.2.3.1": {
+      "template": "+",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "6",
+        "2",
+        "3",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.7.1.1": {
+      "template": "Color:",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "7",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.7.2.1.1": {
+      "template": "Black",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "7",
+        "2",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.7.2.2.1": {
+      "template": "White",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "7",
+        "2",
+        "2",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.7.2.3.1": {
+      "template": "Red",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "7",
+        "2",
+        "3",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.7.2.4.1": {
+      "template": "Blue",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "7",
+        "2",
+        "4",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.8.1.1.1": {
+      "template": "Admin Controls",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "1",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.8.1.2.1": {
+      "template": "Edit Product",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "1",
+        "2",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.8.1.3.1": {
+      "template": "Delete Product",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "8",
+        "1",
+        "3",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.9.1.1": {
+      "template": "{0} Details",
+      "bindings": [
+        "isExpanded"
+      ],
+      "slots": [
+        11
+      ],
+      "path": [
+        "1",
+        "9",
+        "1"
+      ],
+      "type": "conditional",
+      "conditionalTemplates": {
+        "true": "Hide",
+        "false": "Show"
+      }
+    },
+    "1.9.2.1.1.1": {
+      "template": "Product Specifications",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "9",
+        "2",
+        "1",
+        "1",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.9.2.1.2.1": {
+      "template": "This is where detailed product information would go.",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "9",
+        "2",
+        "1",
+        "2",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.a.1.1": {
+      "template": "Total: ${0}",
+      "bindings": [
+        "cartTotal"
+      ],
+      "slots": [
+        8
+      ],
+      "path": [
+        "1",
+        "a",
+        "1"
+      ],
+      "type": "transform",
+      "transform": {
+        "method": "toFixed",
+        "args": [
+          2
+        ]
+      }
+    },
+    "1.b.1": {
+      "template": "Add to Cart",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "b",
+        "1"
+      ],
+      "type": "static"
+    },
+    "1.@style": {
+      "template": "padding: 20px; font-family: system-ui, sans-serif; max-width: 800px; margin: 0 auto",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.4.@style": {
+      "template": "margin-bottom: 16px; padding: 8px 12px; background-color: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "4"
+      ],
+      "type": "attribute-static"
+    },
+    "1.5.@style": {
+      "template": "margin-bottom: 20px",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "5"
+      ],
+      "type": "attribute-static"
+    },
+    "1.5.1.@style": {
+      "template": "font-size: 32px; font-weight: bold; color: #2563eb",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "5",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.5.2.@style": {
+      "template": "color: #6b7280; font-size: 14px",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "5",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.6.@style": {
+      "template": "margin-bottom: 20px",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "6"
+      ],
+      "type": "attribute-static"
+    },
+    "1.6.1.@style": {
+      "template": "display: block; margin-bottom: 890px; font-weight: 500",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "6",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.6.2.@style": {
+      "template": "display: flex; gap: 10px; align-items: center",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "6",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.6.2.1.@style": {
+      "template": "padding: 8px 16px; background-color: #e5e7eb; border: none; border-radius: 4px; cursor: pointer",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "6",
+        "2",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.6.2.2.@style": {
+      "template": "font-size: 20px; font-weight: bold; min-width: 40px; text-align: center",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "6",
+        "2",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.6.2.3.@style": {
+      "template": "padding: 8px 16px; background-color: #e5e7eb; border: none; border-radius: 4px; cursor: pointer",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "6",
+        "2",
+        "3"
+      ],
+      "type": "attribute-static"
+    },
+    "1.7.@style": {
+      "template": "margin-bottom: 20px",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "7"
+      ],
+      "type": "attribute-static"
+    },
+    "1.7.1.@style": {
+      "template": "display: block; margin-bottom: 8px; font-weight: 500",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "7",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.7.2.@value": {
+      "template": "{0}",
+      "bindings": [
+        "color"
+      ],
+      "slots": [
+        0
+      ],
+      "path": [
+        "1",
+        "7",
+        "2"
+      ],
+      "type": "attribute-dynamic"
+    },
+    "1.7.2.@style": {
+      "template": "padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 14px",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "7",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.7.2.1.@value": {
+      "template": "Black",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "7",
+        "2",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.7.2.2.@value": {
+      "template": "White",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "7",
+        "2",
+        "2"
+      ],
+      "type": "attribute-static"
+    },
+    "1.7.2.3.@value": {
+      "template": "Red",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "7",
+        "2",
+        "3"
+      ],
+      "type": "attribute-static"
+    },
+    "1.7.2.4.@value": {
+      "template": "Blue",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "7",
+        "2",
+        "4"
+      ],
+      "type": "attribute-static"
+    },
+    "1.9.@style": {
+      "template": "margin-bottom: 20px",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "9"
+      ],
+      "type": "attribute-static"
+    },
+    "1.9.1.@style": {
+      "template": "padding: 8px 16px; background-color: #f3f4f6; border: 1px solid #d1d5db; border-radius: 4px; cursor: pointer",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "9",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.a.@style": {
+      "template": "padding: 16px; background-color: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; margin-bottom: 20px",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "a"
+      ],
+      "type": "attribute-static"
+    },
+    "1.a.1.@style": {
+      "template": "font-size: 18px",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "a",
+        "1"
+      ],
+      "type": "attribute-static"
+    },
+    "1.b.@onClick": {
+      "template": "{0}",
+      "bindings": [
+        "handleAddToCart"
+      ],
+      "slots": [
+        0
+      ],
+      "path": [
+        "1",
+        "b"
+      ],
+      "type": "attribute-dynamic"
+    },
+    "1.b.@style": {
+      "template": "padding: 12px 24px; background-color: #10b981; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; width: 100%",
+      "bindings": [],
+      "slots": [],
+      "path": [
+        "1",
+        "b"
+      ],
+      "type": "attribute-static"
+    }
+  }
+}

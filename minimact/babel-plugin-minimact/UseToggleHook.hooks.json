@@ -1,0 +1,10 @@
+{
+  "componentName": "UseToggleHook",
+  "timestamp": "2025-11-14T02:08:38.293Z",
+  "hooks": [
+    {
+      "type": "useState",
+      "index": 0
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "componentName": "ConditionalTest",
+  "timestamp": "2025-11-11T01:53:01.112Z",
+  "hooks": [
+    {
+      "type": "useState",
+      "varName": "myState1",
+      "index": 0
+    },
+    {
+      "type": "useState",
+      "varName": "myState2",
+      "index": 1
+    },
+    {
+      "type": "useState",
+      "varName": "myState3",
+      "index": 2
+    }
+  ]
+}
