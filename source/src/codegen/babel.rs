@@ -1004,6 +1004,38 @@ impl BabelGenerator {
                 }
             }
             Stmt::For(for_stmt) => {
+                // Check if we're iterating over a range (e.g., for i in 0..10)
+                if let Expr::Range(range) = &for_stmt.iter {
+                    // Generate C-style for loop: for (let i = start; i < end; i++)
+                    let var_name = if let Pattern::Ident(name) = &for_stmt.pattern {
+                        name.clone()
+                    } else {
+                        "i".to_string()
+                    };
+
+                    self.emit_indent();
+                    self.emit(&format!("for (let {} = ", var_name));
+                    if let Some(start) = &range.start {
+                        self.gen_expr(start);
+                    } else {
+                        self.emit("0");
+                    }
+                    self.emit(&format!("; {} < ", var_name));
+                    if let Some(end) = &range.end {
+                        self.gen_expr(end);
+                    } else {
+                        self.emit("Infinity");
+                    }
+                    self.emit(&format!("; {}++) {{\n", var_name));
+                    self.indent += 1;
+                    self.loop_depth += 1;
+                    self.gen_block(&for_stmt.body);
+                    self.loop_depth -= 1;
+                    self.indent -= 1;
+                    self.emit_line("}");
+                    return;
+                }
+
                 // Check if we're iterating over a node property (e.g., node.body or &node.body)
                 // This is needed for proper path tracking when using traverse inside the loop
 
@@ -2382,10 +2414,28 @@ impl BabelGenerator {
                 // If empty (like .clone()), we skip the member access entirely
             }
             Expr::Index(idx) => {
-                self.gen_expr(&idx.object);
-                self.emit("[");
-                self.gen_expr(&idx.index);
-                self.emit("]");
+                // Check if this is a slice with range syntax
+                if let Expr::Range(range) = idx.index.as_ref() {
+                    // Convert name[start..end] to name.slice(start, end)
+                    self.gen_expr(&idx.object);
+                    self.emit(".slice(");
+                    if let Some(start) = &range.start {
+                        self.gen_expr(start);
+                    } else {
+                        self.emit("0");
+                    }
+                    if let Some(end) = &range.end {
+                        self.emit(", ");
+                        self.gen_expr(end);
+                    }
+                    self.emit(")");
+                } else {
+                    // Regular index access
+                    self.gen_expr(&idx.object);
+                    self.emit("[");
+                    self.gen_expr(&idx.index);
+                    self.emit("]");
+                }
             }
             Expr::StructInit(init) => {
                 // Check if this is an AST node type that should use Babel builders
@@ -2550,10 +2600,10 @@ impl BabelGenerator {
                 }
             }
             Expr::Block(block) => {
-                // Block expression: generate an IIFE
+                // Block expression: generate an IIFE with implicit return
                 self.emit("(() => {\n");
                 self.indent += 1;
-                self.gen_block(block);
+                self.gen_block_with_implicit_return(block);
                 self.indent -= 1;
                 self.emit_indent();
                 self.emit("})()");

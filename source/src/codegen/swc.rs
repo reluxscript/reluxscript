@@ -24,6 +24,10 @@ pub struct SwcGenerator {
     uses_parser: bool,
     /// Whether codegen module is used (needs swc_ecma_codegen imports)
     uses_codegen: bool,
+    /// Associated functions (no self parameter) - need Self:: prefix when called
+    associated_functions: std::collections::HashSet<String>,
+    /// Whether we're generating a writer (uses Visit) vs plugin (uses VisitMut)
+    is_writer: bool,
 }
 
 impl SwcGenerator {
@@ -39,6 +43,8 @@ impl SwcGenerator {
             uses_json: false,
             uses_parser: false,
             uses_codegen: false,
+            associated_functions: std::collections::HashSet::new(),
+            is_writer: false,
         }
     }
 
@@ -480,6 +486,9 @@ impl SwcGenerator {
     }
 
     fn gen_writer(&mut self, writer: &WriterDecl) {
+        // Mark that we're generating a writer (uses Visit, not VisitMut)
+        self.is_writer = true;
+
         // Separate items by type
         let mut pre_hook: Option<&FnDecl> = None;
         let mut exit_hook: Option<&FnDecl> = None;
@@ -732,6 +741,12 @@ impl SwcGenerator {
 
     fn gen_helper_function(&mut self, f: &FnDecl) {
         let pub_str = if f.is_pub { "pub " } else { "" };
+
+        // Check if this is an associated function (no self parameter)
+        let has_self = f.params.iter().any(|p| p.name == "self");
+        if !has_self {
+            self.associated_functions.insert(f.name.clone());
+        }
 
         // Generate type parameters: <F, T>
         let type_params = if !f.type_params.is_empty() {
@@ -1213,9 +1228,15 @@ impl SwcGenerator {
                 format!("{}<{}>", name, args.join(", "))
             }
             Type::Named(name) => {
-                // Map ReluxScript AST types to SWC types
-                // Don't lowercase - preserve original case for user-defined types
-                self.reluxscript_to_swc_type(name)
+                // Handle special types
+                match name.as_str() {
+                    "CodeBuilder" => "String".to_string(),
+                    _ => {
+                        // Map ReluxScript AST types to SWC types
+                        // Don't lowercase - preserve original case for user-defined types
+                        self.reluxscript_to_swc_type(name)
+                    }
+                }
             }
             Type::Array { element } => {
                 format!("Vec<{}>", self.type_to_rust(element))
@@ -1256,11 +1277,19 @@ impl SwcGenerator {
                     "Vec" => "Vec::new()".to_string(),
                     "HashMap" => "HashMap::new()".to_string(),
                     "HashSet" => "HashSet::new()".to_string(),
+                    "Option" => "None".to_string(),
                     _ => format!("{}::new()", name),
                 }
             }
             Type::Optional(_) => "None".to_string(),
             Type::Array { .. } => "Vec::new()".to_string(),
+            Type::Named(name) => {
+                // Handle special types
+                match name.as_str() {
+                    "CodeBuilder" => "String::new()".to_string(),
+                    _ => "Default::default()".to_string(),
+                }
+            }
             _ => "Default::default()".to_string(),
         }
     }
@@ -2137,7 +2166,21 @@ impl SwcGenerator {
                 self.emit(" }");
             }
             Pattern::Variant { name, inner } => {
-                self.emit(name);
+                // Map ReluxScript type names to SWC types (e.g., Expression::Identifier -> Expr::Ident)
+                let swc_name = if name.contains("::") {
+                    let parts: Vec<&str> = name.split("::").collect();
+                    if parts.len() == 2 {
+                        let enum_name = self.reluxscript_to_swc_type(parts[0]);
+                        let variant_name = self.reluxscript_to_swc_type(parts[1]);
+                        format!("{}::{}", enum_name, variant_name)
+                    } else {
+                        name.clone()
+                    }
+                } else {
+                    // Handle standalone variant names (Some, None, Ok, Err)
+                    name.clone()
+                };
+                self.emit(&swc_name);
                 if let Some(inner_pat) = inner {
                     self.emit("(");
                     self.gen_pattern(inner_pat);
@@ -2218,6 +2261,20 @@ impl SwcGenerator {
                 if let Expr::Ident(ident) = call.callee.as_ref() {
                     if ident.name == "matches!" && call.args.len() >= 2 {
                         self.gen_matches_macro(&call.args[0], &call.args[1]);
+                        return;
+                    }
+                    // Check if this is a call to an associated function (needs Self:: prefix)
+                    if self.associated_functions.contains(&ident.name) {
+                        self.emit("Self::");
+                        self.emit(&ident.name);
+                        self.emit("(");
+                        for (i, arg) in call.args.iter().enumerate() {
+                            if i > 0 {
+                                self.emit(", ");
+                            }
+                            self.gen_expr(arg);
+                        }
+                        self.emit(")");
                         return;
                     }
                     // Check for format! macro - pass through as-is
@@ -2354,16 +2411,24 @@ impl SwcGenerator {
                 // Check for visitor traversal methods
                 if let Expr::Member(mem) = call.callee.as_ref() {
                     let prop = &mem.property;
-                    // visit_children(self) -> n.visit_mut_children_with(self)
+                    // visit_children(self) -> n.visit_children_with(self) for writers, n.visit_mut_children_with(self) for plugins
                     if prop == "visit_children" {
                         self.gen_expr(&mem.object);
-                        self.emit(".visit_mut_children_with(self)");
+                        if self.is_writer {
+                            self.emit(".visit_children_with(self)");
+                        } else {
+                            self.emit(".visit_mut_children_with(self)");
+                        }
                         return;
                     }
-                    // visit_with(self) -> n.visit_mut_with(self)
+                    // visit_with(self) -> n.visit_with(self) for writers, n.visit_mut_with(self) for plugins
                     if prop == "visit_with" {
                         self.gen_expr(&mem.object);
-                        self.emit(".visit_mut_with(self)");
+                        if self.is_writer {
+                            self.emit(".visit_with(self)");
+                        } else {
+                            self.emit(".visit_mut_with(self)");
+                        }
                         return;
                     }
                 }
@@ -2410,6 +2475,20 @@ impl SwcGenerator {
                         self.emit("self");
                         return;
                     }
+                    // Special case: self.state in writers becomes self (State is flattened)
+                    if obj_ident.name == "self" && mem.property == "state" {
+                        self.emit("self");
+                        return;
+                    }
+                }
+                // Special case: self.state.builder becomes self (nested member access)
+                if let Expr::Member(inner_mem) = mem.object.as_ref() {
+                    if let Expr::Ident(obj_ident) = inner_mem.object.as_ref() {
+                        if obj_ident.name == "self" && inner_mem.property == "state" && mem.property == "builder" {
+                            self.emit("self");
+                            return;
+                        }
+                    }
                 }
 
                 // Simple member access
@@ -2455,10 +2534,29 @@ impl SwcGenerator {
                 self.emit(swc_field);
             }
             Expr::Index(idx) => {
-                self.gen_expr(&idx.object);
-                self.emit("[");
-                self.gen_expr(&idx.index);
-                self.emit("]");
+                // Check if this is a slice with range syntax
+                if let Expr::Range(range) = idx.index.as_ref() {
+                    // Convert name[start..end] to &name[start..end]
+                    self.emit("&");
+                    self.gen_expr(&idx.object);
+                    self.emit("[");
+                    if let Some(start) = &range.start {
+                        self.gen_expr(start);
+                    } else {
+                        self.emit("0");
+                    }
+                    self.emit("..");
+                    if let Some(end) = &range.end {
+                        self.gen_expr(end);
+                    }
+                    self.emit("]");
+                } else {
+                    // Regular index access
+                    self.gen_expr(&idx.object);
+                    self.emit("[");
+                    self.gen_expr(&idx.index);
+                    self.emit("]");
+                }
             }
             Expr::StructInit(init) => {
                 // Map ReluxScript AST types to SWC types

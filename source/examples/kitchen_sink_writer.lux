@@ -125,12 +125,19 @@ writer KitchenSinkWriter {
     fn extract_state_var(&mut self) {
         // Mark component as having state
         if let Some(component_name) = &self.state.current_component {
-            for component in &mut self.state.components {
-                if component.name == Self::sanitize_name(component_name) {
-                    component.has_state = true;
-                    break;
+            let sanitized = Self::sanitize_name(component_name);
+            let updated_components = self.state.components.iter().map(|c| {
+                if c.name == sanitized {
+                    ComponentMetadata {
+                        name: c.name.clone(),
+                        has_state: true,
+                        has_effects: c.has_effects,
+                    }
+                } else {
+                    c.clone()
                 }
-            }
+            }).collect();
+            self.state.components = updated_components;
         }
 
         // Emit private field
@@ -141,12 +148,19 @@ writer KitchenSinkWriter {
     fn extract_effect(&mut self) {
         // Mark component as having effects
         if let Some(component_name) = &self.state.current_component {
-            for component in &mut self.state.components {
-                if component.name == Self::sanitize_name(component_name) {
-                    component.has_effects = true;
-                    break;
+            let sanitized = Self::sanitize_name(component_name);
+            let updated_components = self.state.components.iter().map(|c| {
+                if c.name == sanitized {
+                    ComponentMetadata {
+                        name: c.name.clone(),
+                        has_state: c.has_state,
+                        has_effects: true,
+                    }
+                } else {
+                    c.clone()
                 }
-            }
+            }).collect();
+            self.state.components = updated_components;
         }
 
         // Emit lifecycle method

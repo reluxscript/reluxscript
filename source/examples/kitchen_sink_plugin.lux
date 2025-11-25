@@ -247,4 +247,10 @@ plugin KitchenSinkPlugin {
         let _first_hook = get_first_hook(stats).unwrap_or("none".into());
         Ok(())
     }
+
+    // === Ternary Expression Test ===
+
+    fn get_hook_label(count: i32) -> Str {
+        if count > 0 { "hooks" } else { "no hooks" }
+    }
 }
