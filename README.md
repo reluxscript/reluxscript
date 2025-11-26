@@ -1,7 +1,7 @@
 # ReluxScript
 
 <p align="center">
-  <img src="./assets/lux-image-4.png" alt="ReluxScript Logo" width="250">
+  <img src="./assets/lux-image-4.png" alt="ReluxScript Logo" width="251">
 </p>
 
 <p align="center">
