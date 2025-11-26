@@ -1,0 +1,10 @@
+// Test matches! macro expansion
+
+plugin TestMatches {
+    fn visit_call_expression(node: &CallExpression, ctx: &Context) {
+        // Test simple matches!
+        if matches!(node.callee, Callee::MemberExpression(_)) {
+            // Found member expression callee
+        }
+    }
+}

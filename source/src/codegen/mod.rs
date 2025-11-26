@@ -12,6 +12,7 @@ pub mod swc_metadata;
 pub mod decorated_ast;
 pub mod swc_decorator;
 pub mod swc_rewriter;
+pub mod swc_emit;
 
 pub use babel::BabelGenerator;
 pub use swc::SwcGenerator;
@@ -21,6 +22,7 @@ pub use swc_metadata::*;
 pub use decorated_ast::*;
 pub use swc_decorator::SwcDecorator;
 pub use swc_rewriter::SwcRewriter;
+pub use swc_emit::SwcEmitter;
 
 /// Target platform for code generation
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,14 +48,15 @@ pub fn generate(program: &crate::parser::Program, target: Target) -> GeneratedCo
     };
 
     let swc = if target == Target::Swc || target == Target::Both {
-        // NEW 3-STAGE PIPELINE: Decorate → Rewrite → Generate
+        // NEW 3-STAGE PIPELINE: Decorate → Rewrite → Emit
         let mut decorator = SwcDecorator::new();
         let decorated_program = decorator.decorate_program(program);
 
         let mut rewriter = SwcRewriter::new();
         let rewritten_program = rewriter.rewrite_program(decorated_program);
 
-        Some(SwcGenerator::new().generate_decorated(&rewritten_program))
+        let mut emitter = SwcEmitter::new();
+        Some(emitter.emit_program(&rewritten_program))
     } else {
         None
     };
@@ -74,14 +77,15 @@ pub fn generate_with_types(
     };
 
     let swc = if target == Target::Swc || target == Target::Both {
-        // NEW 3-STAGE PIPELINE: Decorate (with types) → Rewrite → Generate
+        // NEW 3-STAGE PIPELINE: Decorate (with types) → Rewrite → Emit
         let mut decorator = SwcDecorator::with_semantic_types(type_env);
         let decorated_program = decorator.decorate_program(program);
 
         let mut rewriter = SwcRewriter::new();
         let rewritten_program = rewriter.rewrite_program(decorated_program);
 
-        Some(SwcGenerator::new().generate_decorated(&rewritten_program))
+        let mut emitter = SwcEmitter::new();
+        Some(emitter.emit_program(&rewritten_program))
     } else {
         None
     };

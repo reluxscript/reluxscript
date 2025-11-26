@@ -149,6 +149,13 @@ pub enum FieldAccessor {
         /// Inner accessor for the unwrapped value
         inner: Box<FieldAccessor>,
     },
+
+    /// Replace entire member expression with a different expression
+    /// Example: self.builder → self (in writers)
+    Replace {
+        /// Replacement expression to emit
+        with: String,
+    },
 }
 
 /// Metadata for if-let statement patterns

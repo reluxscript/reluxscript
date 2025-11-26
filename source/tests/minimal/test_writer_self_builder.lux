@@ -1,0 +1,20 @@
+// Test writer field replacements: self.builder → self, self.state → self
+
+writer TestWriter {
+    struct Data {
+        value: Str,
+    }
+
+    fn pre() {
+        self.state.value = "initialized";
+    }
+
+    fn visit_identifier(node: &Identifier, ctx: &Context) {
+        self.builder.write("name: ");
+        self.builder.write(node.name);
+    }
+
+    fn exit() {
+        self.builder.write("done");
+    }
+}

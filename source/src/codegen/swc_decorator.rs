@@ -34,6 +34,10 @@ pub struct SwcDecorator {
     /// Semantic type environment from semantic analysis pass
     /// Contains all type information already computed
     semantic_type_env: Option<crate::semantic::TypeEnv>,
+
+    /// Whether we're currently in a writer context
+    /// (affects field replacements like self.builder → self)
+    is_writer: bool,
 }
 
 impl SwcDecorator {
@@ -42,6 +46,7 @@ impl SwcDecorator {
             type_env: HashMap::new(),
             current_params: HashMap::new(),
             semantic_type_env: None,
+            is_writer: false,
         }
     }
 
@@ -51,6 +56,7 @@ impl SwcDecorator {
             type_env: HashMap::new(),
             current_params: HashMap::new(),
             semantic_type_env: Some(semantic_type_env),
+            is_writer: false,
         }
     }
 
@@ -102,9 +108,11 @@ impl SwcDecorator {
     fn decorate_top_level_decl(&mut self, decl: &TopLevelDecl) -> DecoratedTopLevelDecl {
         match decl {
             TopLevelDecl::Plugin(plugin) => {
+                self.is_writer = false;
                 DecoratedTopLevelDecl::Plugin(self.decorate_plugin_decl(plugin))
             }
             TopLevelDecl::Writer(writer) => {
+                self.is_writer = true;
                 DecoratedTopLevelDecl::Writer(self.decorate_writer_decl(writer))
             }
             TopLevelDecl::Interface(_) | TopLevelDecl::Module(_) => {
@@ -646,8 +654,24 @@ impl SwcDecorator {
                 let decorated_object = Box::new(self.decorate_expr(&mem.object));
                 let object_type = &decorated_object.metadata.swc_type;
 
+                // Check for writer-specific field replacements (self.builder → self)
+                let is_self_builder = self.is_writer &&
+                    matches!(&decorated_object.kind, DecoratedExprKind::Ident { name, .. } if name == "self") &&
+                    (mem.property == "builder" || mem.property == "state");
+
                 // Look up the field in SWC schema
-                let field_metadata = if let Some(mapping) = get_typed_field_mapping(object_type, &mem.property) {
+                let field_metadata = if is_self_builder {
+                    // In writers, self.builder and self.state should be replaced with just "self"
+                    SwcFieldMetadata {
+                        swc_field_name: mem.property.clone(),
+                        accessor: FieldAccessor::Replace {
+                            with: "self".to_string(),
+                        },
+                        field_type: "WriterContext".to_string(),
+                        source_field: Some(mem.property.clone()),
+                        span: Some(mem.span),
+                    }
+                } else if let Some(mapping) = get_typed_field_mapping(object_type, &mem.property) {
                     // We have precise mapping!
                     SwcFieldMetadata {
                         swc_field_name: mapping.swc_field.to_string(),
@@ -759,14 +783,19 @@ impl SwcDecorator {
                 let left = Box::new(self.decorate_expr(&bin.left));
                 let right = Box::new(self.decorate_expr(&bin.right));
 
+                // Check if we need to deref for string comparisons
+                // e.g., obj.sym (JsWord) compared to "string" needs &*obj.sym
+                let left_needs_deref = self.needs_sym_deref(&left, &right, bin.op);
+                let right_needs_deref = self.needs_sym_deref(&right, &left, bin.op);
+
                 DecoratedExpr {
                     kind: DecoratedExprKind::Binary {
                         left,
                         op: bin.op,
                         right,
                         binary_metadata: SwcBinaryMetadata {
-                            left_needs_deref: false,
-                            right_needs_deref: false,
+                            left_needs_deref,
+                            right_needs_deref,
                             span: Some(bin.span),
                         },
                     },
@@ -1176,6 +1205,28 @@ impl SwcDecorator {
         } else {
             UnwrapStrategy::None
         }
+    }
+
+    /// Check if an expression needs &* deref for string comparison
+    /// e.g., obj.sym (JsWord) == "console" needs &*obj.sym == "console"
+    fn needs_sym_deref(&self, expr: &DecoratedExpr, other: &DecoratedExpr, op: BinaryOp) -> bool {
+        use crate::parser::BinaryOp;
+
+        // Only for equality/inequality comparisons
+        if !matches!(op, BinaryOp::Eq | BinaryOp::NotEq) {
+            return false;
+        }
+
+        // Check if expr is JsWord/Atom type (from identifier.sym access)
+        let is_jsword = expr.metadata.swc_type == "JsWord"
+            || expr.metadata.swc_type == "Atom"
+            || expr.metadata.swc_type == "IdentName";
+
+        // Check if other side is a string literal
+        let is_string_literal = matches!(&other.kind, DecoratedExprKind::Literal(Literal::String(_)));
+
+        // If comparing JsWord to string, need &* deref
+        is_jsword && is_string_literal
     }
 
     /// Convert type annotation to type context
