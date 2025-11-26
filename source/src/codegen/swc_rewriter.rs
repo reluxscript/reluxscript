@@ -243,7 +243,12 @@ impl SwcRewriter {
         }
 
         // No desugaring needed - normal rewriting
-        let condition = self.rewrite_expr(if_stmt.condition);
+        // Strip unnecessary deref from if-let conditions
+        let mut condition = self.rewrite_expr(if_stmt.condition);
+        if if_stmt.pattern.is_some() {
+            condition = self.strip_unnecessary_deref(condition);
+        }
+
         let pattern = if_stmt.pattern.map(|p| self.rewrite_pattern(p));
         let then_branch = self.rewrite_block(if_stmt.then_branch);
         let else_branch = if_stmt.else_branch.map(|b| self.rewrite_block(b));
@@ -254,6 +259,54 @@ impl SwcRewriter {
             then_branch,
             else_branch,
             if_let_metadata: if_stmt.if_let_metadata,
+        }
+    }
+
+    /// Strip unnecessary deref (*) from expressions that return references
+    /// For example: *member.obj.as_ref() → member.obj.as_ref()
+    fn strip_unnecessary_deref(&mut self, expr: DecoratedExpr) -> DecoratedExpr {
+        match expr.kind {
+            DecoratedExprKind::Unary { op: crate::parser::UnaryOp::Deref, operand, unary_metadata } => {
+                // Check if the inner expression returns a reference
+                // If it's a method call ending in .as_ref(), it returns &T, so we don't need *
+                if self.returns_reference(&operand) {
+                    *operand
+                } else {
+                    // Keep the deref
+                    DecoratedExpr {
+                        kind: DecoratedExprKind::Unary {
+                            op: crate::parser::UnaryOp::Deref,
+                            operand,
+                            unary_metadata,
+                        },
+                        metadata: expr.metadata,
+                    }
+                }
+            }
+            _ => expr,
+        }
+    }
+
+    /// Check if an expression returns a reference or is a direct enum access
+    fn returns_reference(&self, expr: &DecoratedExpr) -> bool {
+        match &expr.kind {
+            DecoratedExprKind::Call(call) => {
+                // Check if it's a call to .as_ref()
+                if let DecoratedExprKind::Member { property, .. } = &call.callee.kind {
+                    property == "as_ref"
+                } else {
+                    false
+                }
+            }
+            DecoratedExprKind::Member { field_metadata, .. } => {
+                // Check if the accessor returns a reference OR if it's a direct enum field
+                // For example: member.prop (MemberProp enum) doesn't need *
+                matches!(field_metadata.accessor,
+                    FieldAccessor::BoxedAsRef |
+                    FieldAccessor::Direct |
+                    FieldAccessor::EnumField { .. })
+            }
+            _ => false,
         }
     }
 
@@ -497,6 +550,15 @@ impl SwcRewriter {
 
     /// Recursively rewrite expression children
     fn rewrite_expr_children(&mut self, expr: DecoratedExpr) -> DecoratedExpr {
+        // First check if this is a Deref that should be stripped
+        let expr = match expr.kind {
+            DecoratedExprKind::Unary { op: crate::parser::UnaryOp::Deref, operand, .. } if self.returns_reference(&operand) => {
+                // Strip unnecessary deref
+                *operand
+            }
+            _ => expr,
+        };
+
         let kind = match expr.kind {
             // Binary expressions
             DecoratedExprKind::Binary { left, op, right, binary_metadata } => {
@@ -710,155 +772,141 @@ impl SwcRewriter {
     // ========================================================================
 
     /// 🔧 Transform ctx.remove() into actual SWC node replacement
-    /// Generates: *node = CallExpr { callee: Callee::Expr(...), ... }
+    /// Returns a statement that replaces the node with undefined
     fn apply_context_remove(&mut self, expr: DecoratedExpr) -> DecoratedExpr {
         // Check if this is a call to ctx.remove()
         if let DecoratedExprKind::Call(ref call) = expr.kind {
             if let DecoratedExprKind::Member { ref object, ref property, .. } = call.callee.kind {
-                // Check if it's ctx.remove()
                 if let DecoratedExprKind::Ident { ref name, .. } = object.kind {
                     if name == "ctx" && property == "remove" {
-                        // Generate: *node = CallExpr { ... }
-                        // This is an assignment to *node (dereferencing node)
-
-                        // Right side: CallExpr struct initialization
-                        let call_expr_init = DecoratedExpr {
-                            kind: DecoratedExprKind::StructInit(StructInitExpr {
-                                name: "CallExpr".to_string(),
-                                fields: vec![
-                                    ("span".to_string(), DecoratedExpr {
-                                        kind: DecoratedExprKind::Ident {
-                                            name: "DUMMY_SP".to_string(),
-                                            ident_metadata: SwcIdentifierMetadata::name(),
-                                        },
-                                        metadata: Self::simple_metadata("Span"),
-                                    }),
-                                    ("callee".to_string(), DecoratedExpr {
-                                        kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
-                                            callee: DecoratedExpr {
-                                                kind: DecoratedExprKind::Ident {
-                                                    name: "Callee::Expr".to_string(),
-                                                    ident_metadata: SwcIdentifierMetadata::name(),
-                                                },
-                                                metadata: Self::simple_metadata("fn"),
-                                            },
-                                            args: vec![DecoratedExpr {
-                                                kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
-                                                    callee: DecoratedExpr {
-                                                        kind: DecoratedExprKind::Ident {
-                                                            name: "Box::new".to_string(),
-                                                            ident_metadata: SwcIdentifierMetadata::name(),
-                                                        },
-                                                        metadata: Self::simple_metadata("fn"),
-                                                    },
-                                                    args: vec![DecoratedExpr {
-                                                        kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
-                                                            callee: DecoratedExpr {
-                                                                kind: DecoratedExprKind::Ident {
-                                                                    name: "Expr::Ident".to_string(),
-                                                                    ident_metadata: SwcIdentifierMetadata::name(),
-                                                                },
-                                                                metadata: Self::simple_metadata("fn"),
-                                                            },
-                                                            args: vec![DecoratedExpr {
-                                                                kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
-                                                                    callee: DecoratedExpr {
-                                                                        kind: DecoratedExprKind::Ident {
-                                                                            name: "Ident::new".to_string(),
-                                                                            ident_metadata: SwcIdentifierMetadata::name(),
-                                                                        },
-                                                                        metadata: Self::simple_metadata("fn"),
-                                                                    },
-                                                                    args: vec![
-                                                                        DecoratedExpr {
-                                                                            kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
-                                                                                callee: DecoratedExpr {
-                                                                                    kind: DecoratedExprKind::Member {
-                                                                                        object: Box::new(DecoratedExpr {
-                                                                                            kind: DecoratedExprKind::Literal(Literal::String("undefined".to_string())),
-                                                                                            metadata: Self::simple_metadata("&str"),
-                                                                                        }),
-                                                                                        property: "into".to_string(),
-                                                                                        optional: false,
-                                                                                        computed: false,
-                                                                                        is_path: false,
-                                                                                        field_metadata: SwcFieldMetadata::direct("into".to_string(), "fn".to_string()),
-                                                                                    },
-                                                                                    metadata: Self::simple_metadata("fn"),
-                                                                                },
-                                                                                args: vec![],
-                                                                                type_args: vec![],
-                                                                                optional: false,
-                                                                                span: Span::new(0, 0, 0, 0),
-                                                                            })),
-                                                                            metadata: Self::simple_metadata("JsWord"),
-                                                                        },
-                                                                        DecoratedExpr {
-                                                                            kind: DecoratedExprKind::Ident {
-                                                                                name: "DUMMY_SP".to_string(),
-                                                                                ident_metadata: SwcIdentifierMetadata::name(),
-                                                                            },
-                                                                            metadata: Self::simple_metadata("Span"),
-                                                                        },
-                                                                    ],
-                                                                    type_args: vec![],
-                                                                    optional: false,
-                                                                    span: Span::new(0, 0, 0, 0),
-                                                                })),
-                                                                metadata: Self::simple_metadata("Ident"),
-                                                            }],
-                                                            type_args: vec![],
-                                                            optional: false,
-                                                            span: Span::new(0, 0, 0, 0),
-                                                        })),
-                                                        metadata: Self::simple_metadata("Expr"),
-                                                    }],
-                                                    type_args: vec![],
-                                                    optional: false,
-                                                    span: Span::new(0, 0, 0, 0),
-                                                })),
-                                                metadata: Self::simple_metadata("Box<Expr>"),
-                                            }],
-                                            type_args: vec![],
-                                            optional: false,
-                                            span: Span::new(0, 0, 0, 0),
-                                        })),
-                                        metadata: Self::simple_metadata("Callee"),
-                                    }),
-                                    ("args".to_string(), DecoratedExpr {
-                                        kind: DecoratedExprKind::VecInit(vec![]),
-                                        metadata: Self::simple_metadata("Vec<ExprOrSpread>"),
-                                    }),
-                                    ("type_args".to_string(), DecoratedExpr {
-                                        kind: DecoratedExprKind::Ident {
-                                            name: "None".to_string(),
-                                            ident_metadata: SwcIdentifierMetadata::name(),
-                                        },
-                                        metadata: Self::simple_metadata("Option<...>"),
-                                    }),
-                                ],
-                                span: Span::new(0, 0, 0, 0),
-                            }),
-                            metadata: Self::simple_metadata("CallExpr"),
-                        };
-
-                        // Left side: *node (dereference)
-                        let node_deref = DecoratedExpr {
-                            kind: DecoratedExprKind::Deref(Box::new(DecoratedExpr {
-                                kind: DecoratedExprKind::Ident {
-                                    name: "node".to_string(),
-                                    ident_metadata: SwcIdentifierMetadata::name(),
-                                },
-                                metadata: Self::simple_metadata("&mut CallExpr"),
-                            })),
-                            metadata: Self::simple_metadata("CallExpr"),
-                        };
-
-                        // Full assignment: *node = CallExpr { ... }
+                        // Replace with: node.callee = Callee::Expr(Box::new(Expr::Ident(Ident::new("undefined".into(), DUMMY_SP))))
                         return DecoratedExpr {
                             kind: DecoratedExprKind::Assign {
-                                left: Box::new(node_deref),
-                                right: Box::new(call_expr_init),
+                                left: Box::new(DecoratedExpr {
+                                    kind: DecoratedExprKind::Member {
+                                        object: Box::new(DecoratedExpr {
+                                            kind: DecoratedExprKind::Ident {
+                                                name: "node".to_string(),
+                                                ident_metadata: SwcIdentifierMetadata::name(),
+                                            },
+                                            metadata: Self::simple_metadata("&mut CallExpr"),
+                                        }),
+                                        property: "callee".to_string(),
+                                        optional: false,
+                                        computed: false,
+                                        is_path: false,
+                                        field_metadata: SwcFieldMetadata::direct("callee".to_string(), "Callee".to_string()),
+                                    },
+                                    metadata: Self::simple_metadata("Callee"),
+                                }),
+                                right: Box::new(DecoratedExpr {
+                                    kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                                        callee: DecoratedExpr {
+                                            kind: DecoratedExprKind::Ident {
+                                                name: "Callee::Expr".to_string(),
+                                                ident_metadata: SwcIdentifierMetadata::name(),
+                                            },
+                                            metadata: Self::simple_metadata("fn"),
+                                        },
+                                        args: vec![DecoratedExpr {
+                                            kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                                                callee: DecoratedExpr {
+                                                    kind: DecoratedExprKind::Ident {
+                                                        name: "Box::new".to_string(),
+                                                        ident_metadata: SwcIdentifierMetadata::name(),
+                                                    },
+                                                    metadata: Self::simple_metadata("fn"),
+                                                },
+                                                args: vec![DecoratedExpr {
+                                                    kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                                                        callee: DecoratedExpr {
+                                                            kind: DecoratedExprKind::Ident {
+                                                                name: "Expr::Ident".to_string(),
+                                                                ident_metadata: SwcIdentifierMetadata::name(),
+                                                            },
+                                                            metadata: Self::simple_metadata("fn"),
+                                                        },
+                                                        args: vec![DecoratedExpr {
+                                                            kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                                                                callee: DecoratedExpr {
+                                                                    kind: DecoratedExprKind::Ident {
+                                                                        name: "Ident::new".to_string(),
+                                                                        ident_metadata: SwcIdentifierMetadata::name(),
+                                                                    },
+                                                                    metadata: Self::simple_metadata("fn"),
+                                                                },
+                                                                args: vec![
+                                                                    DecoratedExpr {
+                                                                        kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                                                                            callee: DecoratedExpr {
+                                                                                kind: DecoratedExprKind::Member {
+                                                                                    object: Box::new(DecoratedExpr {
+                                                                                        kind: DecoratedExprKind::Literal(Literal::String("undefined".to_string())),
+                                                                                        metadata: Self::simple_metadata("&str"),
+                                                                                    }),
+                                                                                    property: "into".to_string(),
+                                                                                    optional: false,
+                                                                                    computed: false,
+                                                                                    is_path: false,
+                                                                                    field_metadata: SwcFieldMetadata::direct("into".to_string(), "fn".to_string()),
+                                                                                },
+                                                                                metadata: Self::simple_metadata("fn"),
+                                                                            },
+                                                                            args: vec![],
+                                                                            type_args: vec![],
+                                                                            optional: false,
+                                                                            span: Span::new(0, 0, 0, 0),
+                                                                        })),
+                                                                        metadata: Self::simple_metadata("JsWord"),
+                                                                    },
+                                                                    DecoratedExpr {
+                                                                        kind: DecoratedExprKind::Ident {
+                                                                            name: "DUMMY_SP".to_string(),
+                                                                            ident_metadata: SwcIdentifierMetadata::name(),
+                                                                        },
+                                                                        metadata: Self::simple_metadata("Span"),
+                                                                    },
+                                                                    DecoratedExpr {
+                                                                        kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                                                                            callee: DecoratedExpr {
+                                                                                kind: DecoratedExprKind::Ident {
+                                                                                    name: "SyntaxContext::empty".to_string(),
+                                                                                    ident_metadata: SwcIdentifierMetadata::name(),
+                                                                                },
+                                                                                metadata: Self::simple_metadata("fn"),
+                                                                            },
+                                                                            args: vec![],
+                                                                            type_args: vec![],
+                                                                            optional: false,
+                                                                            span: Span::new(0, 0, 0, 0),
+                                                                        })),
+                                                                        metadata: Self::simple_metadata("SyntaxContext"),
+                                                                    },
+                                                                ],
+                                                                type_args: vec![],
+                                                                optional: false,
+                                                                span: Span::new(0, 0, 0, 0),
+                                                            })),
+                                                            metadata: Self::simple_metadata("Ident"),
+                                                        }],
+                                                        type_args: vec![],
+                                                        optional: false,
+                                                        span: Span::new(0, 0, 0, 0),
+                                                    })),
+                                                    metadata: Self::simple_metadata("Expr"),
+                                                }],
+                                                type_args: vec![],
+                                                optional: false,
+                                                span: Span::new(0, 0, 0, 0),
+                                            })),
+                                            metadata: Self::simple_metadata("Box<Expr>"),
+                                        }],
+                                        type_args: vec![],
+                                        optional: false,
+                                        span: Span::new(0, 0, 0, 0),
+                                    })),
+                                    metadata: Self::simple_metadata("Callee"),
+                                }),
                             },
                             metadata: expr.metadata.clone(),
                         };

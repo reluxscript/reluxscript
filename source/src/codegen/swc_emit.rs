@@ -222,6 +222,15 @@ impl SwcEmitter {
 
         // Parameters
         sig.push('(');
+
+        // For SWC visitor methods (visit_mut_*), add &mut self as first parameter
+        if func.name.starts_with("visit_") && !self.is_writer {
+            sig.push_str("&mut self");
+            if !func.params.is_empty() {
+                sig.push_str(", ");
+            }
+        }
+
         for (i, param) in func.params.iter().enumerate() {
             if i > 0 {
                 sig.push_str(", ");

@@ -336,8 +336,8 @@ plugin {name} {{
                 return;
             }
 
-            // Generate code
-            let generated = generate(&program, target_enum);
+            // Generate code (use generate_with_types to get proper SWC mappings)
+            let generated = reluxscript::generate_with_types(&program, result.type_env.clone(), target_enum);
 
             // Create output directory
             if let Err(e) = fs::create_dir_all(&output) {

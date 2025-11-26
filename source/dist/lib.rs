@@ -8,13 +8,13 @@ use swc_ecma_visit::{VisitMut, VisitMutWith};
 pub struct RemoveConsole {}
 
 impl VisitMut for RemoveConsole {
-    fn visit_call_expression(node: &mut CallExpression, ctx: &Context) {
+    fn visit_mut_call_expr(node: &mut CallExpr) {
         if let Callee::Expr(__callee_expr) = &node.callee {
             if let Expr::Member(member) = __callee_expr.as_ref() {
-                if let Expr::Ident(&obj) = *member.obj.as_ref() {
-                    if let MemberProp::Ident(&prop) = *member.prop {
+                if let Expr::Ident(obj) = member.obj.as_ref() {
+                    if let MemberProp::Ident(prop) = member.prop {
                         if ((&*obj.sym == "console") && (&*prop.sym == "log")) {
-                            ctx.remove();
+                            node.callee = Callee::Expr(Box::new(Expr::Ident(Ident::new("undefined".into(), DUMMY_SP, SyntaxContext::empty()))));
                         }
                     }
                 }

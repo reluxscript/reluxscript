@@ -185,10 +185,29 @@ impl SwcDecorator {
         // Decorate the function body
         let decorated_body = self.decorate_block(&func.body);
 
+        // Filter out the 'ctx' parameter - SWC doesn't have context
+        let filtered_params: Vec<Param> = func.params.iter()
+            .filter(|p| p.name != "ctx")
+            .cloned()
+            .collect();
+
+        // Map visitor method names to SWC equivalents
+        let swc_name = if func.name.starts_with("visit_") {
+            self.map_visitor_method_name(&func.name)
+        } else {
+            func.name.clone()
+        };
+
+        // Map parameter types to SWC types
+        let swc_params = filtered_params.into_iter().map(|mut param| {
+            param.ty = self.map_type_to_swc(&param.ty);
+            param
+        }).collect();
+
         DecoratedFnDecl {
-            name: func.name.clone(),
-            params: func.params.clone(),
-            return_type: func.return_type.clone(),
+            name: swc_name,
+            params: swc_params,
+            return_type: func.return_type.as_ref().map(|ty| self.map_type_to_swc(ty)),
             body: decorated_body,
         }
     }
@@ -596,16 +615,10 @@ impl SwcDecorator {
                 }
             }
 
-            Pattern::Ref { is_mut, pattern: inner } => {
-                let decorated_inner = Box::new(self.decorate_pattern_with_context(inner, expected_type));
-
-                DecoratedPattern {
-                    kind: DecoratedPatternKind::Ref {
-                        is_mut: *is_mut,
-                        pattern: decorated_inner,
-                    },
-                    metadata: SwcPatternMetadata::direct("Ref".to_string()),
-                }
+            Pattern::Ref { is_mut: _, pattern: inner } => {
+                // In SWC patterns, we don't use 'ref' - just unwrap to the inner pattern
+                // Example: `ref obj` in ReluxScript becomes just `obj` in SWC
+                self.decorate_pattern_with_context(inner, expected_type)
             }
         }
     }
@@ -1249,6 +1262,48 @@ impl SwcDecorator {
                 TypeContext::from_reluxscript(name)
             }
             _ => TypeContext::unknown(),
+        }
+    }
+
+    /// Map ReluxScript visitor method names to SWC visitor method names
+    fn map_visitor_method_name(&self, relux_name: &str) -> String {
+        use crate::mapping::get_node_mapping_by_visitor;
+
+        // Try to find the mapping for this visitor method
+        if let Some(mapping) = get_node_mapping_by_visitor(relux_name) {
+            mapping.swc_visitor.to_string()
+        } else {
+            // If no mapping found, return as-is
+            relux_name.to_string()
+        }
+    }
+
+    /// Map ReluxScript type to SWC type
+    fn map_type_to_swc(&self, ty: &Type) -> Type {
+        use crate::mapping::get_node_mapping;
+
+        match ty {
+            Type::Named(name) => {
+                // Try to map the type name
+                if let Some(mapping) = get_node_mapping(name) {
+                    Type::Named(mapping.swc.to_string())
+                } else {
+                    ty.clone()
+                }
+            }
+            Type::Reference { mutable, inner } => {
+                Type::Reference {
+                    mutable: *mutable,
+                    inner: Box::new(self.map_type_to_swc(inner)),
+                }
+            }
+            Type::Container { name, type_args } => {
+                Type::Container {
+                    name: name.clone(),
+                    type_args: type_args.iter().map(|t| self.map_type_to_swc(t)).collect(),
+                }
+            }
+            _ => ty.clone(),
         }
     }
 }
