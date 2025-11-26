@@ -937,7 +937,15 @@ impl SwcEmitter {
 
     fn type_to_string(&self, ty: &Type) -> String {
         match ty {
-            Type::Primitive(name) => name.clone(),
+            Type::Primitive(name) => {
+                // Map ReluxScript/Babel types to Rust types for SWC
+                match name.as_str() {
+                    "Number" => "i32".to_string(),
+                    "Str" => "String".to_string(),
+                    "Boolean" => "bool".to_string(),
+                    _ => name.clone(),
+                }
+            }
             Type::Named(name) => name.clone(),
             Type::Reference { mutable, inner } => {
                 format!(
