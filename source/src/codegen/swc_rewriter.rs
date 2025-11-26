@@ -13,9 +13,9 @@
 //!
 //! The key principle: **Codegen receives ready-to-emit AST with no decisions to make**
 
-use crate::parser::*;
 use super::decorated_ast::*;
 use super::swc_metadata::*;
+use super::swc_decorator::{DecoratedProgram, DecoratedTopLevelDecl, DecoratedPlugin, DecoratedWriter, DecoratedPluginItem, DecoratedFnDecl, DecoratedImplBlock};
 
 /// SwcRewriter transforms DecoratedAST → DecoratedAST
 /// All semantic transformations happen here, not in codegen
@@ -232,13 +232,17 @@ impl SwcRewriter {
 
     /// 🔥 CRITICAL: Rewrite if-statements (handles pattern desugaring)
     fn rewrite_if_stmt(&mut self, if_stmt: DecoratedIfStmt) -> DecoratedIfStmt {
-        // Rewrite the condition expression
+        // Check if this is an if-let with a pattern that needs desugaring
+        if let Some(ref pattern) = if_stmt.pattern {
+            if pattern.metadata.needs_desugaring() {
+                // 🔥 DESUGAR THE ENTIRE IF-STATEMENT!
+                return self.desugar_if_let_stmt(if_stmt);
+            }
+        }
+
+        // No desugaring needed - normal rewriting
         let condition = self.rewrite_expr(if_stmt.condition);
-
-        // Rewrite the pattern if present (this is where desugaring happens!)
         let pattern = if_stmt.pattern.map(|p| self.rewrite_pattern(p));
-
-        // Rewrite branches
         let then_branch = self.rewrite_block(if_stmt.then_branch);
         let else_branch = if_stmt.else_branch.map(|b| self.rewrite_block(b));
 
@@ -248,6 +252,133 @@ impl SwcRewriter {
             then_branch,
             else_branch,
             if_let_metadata: if_stmt.if_let_metadata,
+        }
+    }
+
+    /// 🔧 DESUGAR IF-LET STATEMENT with nested pattern
+    /// Transforms: if let Callee::MemberExpression(member) = node.callee { body }
+    /// Into: if let Callee::Expr(__expr) = &node.callee { if let Expr::Member(member) = __expr.as_ref() { body } }
+    fn desugar_if_let_stmt(&mut self, if_stmt: DecoratedIfStmt) -> DecoratedIfStmt {
+        use super::swc_metadata::DesugarStrategy;
+
+        // Destructure all fields at once to avoid partial move
+        let DecoratedIfStmt {
+            condition,
+            pattern,
+            then_branch,
+            else_branch,
+            if_let_metadata: _,
+        } = if_stmt;
+
+        let pattern = pattern.unwrap(); // Safe: we checked needs_desugaring()
+
+        if let Some(DesugarStrategy::NestedIfLet {
+            outer_pattern,
+            outer_binding,
+            inner_pattern,
+            inner_binding,
+            unwrap_expr,
+        }) = &pattern.metadata.desugar_strategy {
+            // Build the OUTER if-let: if let Callee::Expr(__callee_expr) = &node.callee
+            let outer_pattern = DecoratedPattern {
+                kind: DecoratedPatternKind::Variant {
+                    name: outer_pattern.clone(),
+                    inner: Some(Box::new(DecoratedPattern {
+                        kind: DecoratedPatternKind::Ident(outer_binding.clone()),
+                        metadata: SwcPatternMetadata::direct(outer_binding.clone()),
+                    })),
+                },
+                metadata: SwcPatternMetadata::direct(format!("{}({})", outer_pattern, outer_binding)),
+            };
+
+            // Build the INNER if-let: if let Expr::Member(member) = __callee_expr.as_ref()
+            let inner_condition = DecoratedExpr {
+                kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                    callee: DecoratedExpr {
+                        kind: DecoratedExprKind::Member {
+                            object: Box::new(DecoratedExpr {
+                                kind: DecoratedExprKind::Ident {
+                                    name: outer_binding.clone(),
+                                    ident_metadata: SwcIdentifierMetadata::name(),
+                                },
+                                metadata: SwcExprMetadata {
+                                    swc_type: "Box<Expr>".to_string(),
+                                    is_boxed: true,
+                                    is_optional: false,
+                                    type_kind: crate::type_system::SwcTypeKind::WrapperEnum,
+                                    span: None,
+                                },
+                            }),
+                            property: "as_ref".to_string(),
+                            optional: false,
+                            computed: false,
+                            is_path: false,
+                            field_metadata: SwcFieldMetadata::direct("as_ref".to_string(), "fn".to_string()),
+                        },
+                        metadata: SwcExprMetadata {
+                            swc_type: "fn".to_string(),
+                            is_boxed: false,
+                            is_optional: false,
+                            type_kind: crate::type_system::SwcTypeKind::Unknown,
+                            span: None,
+                        },
+                    },
+                    args: vec![],
+                    type_args: vec![],
+                    optional: false,
+                    span: crate::lexer::Span::new(0, 0, 0, 0),
+                })),
+                metadata: SwcExprMetadata {
+                    swc_type: "&Expr".to_string(),
+                    is_boxed: false,
+                    is_optional: false,
+                    type_kind: crate::type_system::SwcTypeKind::Unknown,
+                    span: None,
+                },
+            };
+
+            let inner_pattern = DecoratedPattern {
+                kind: DecoratedPatternKind::Variant {
+                    name: inner_pattern.clone(),
+                    inner: Some(Box::new(DecoratedPattern {
+                        kind: DecoratedPatternKind::Ident(inner_binding.clone()),
+                        metadata: SwcPatternMetadata::direct(inner_binding.clone()),
+                    })),
+                },
+                metadata: SwcPatternMetadata::direct(format!("{}({})", inner_pattern, inner_binding)),
+            };
+
+            // Build the inner if-let statement
+            let inner_if_stmt = DecoratedIfStmt {
+                condition: inner_condition,
+                pattern: Some(inner_pattern),
+                then_branch: self.rewrite_block(then_branch),
+                else_branch: else_branch.map(|b| self.rewrite_block(b)),
+                if_let_metadata: None,
+            };
+
+            // Wrap inner if-let in outer if-let's then branch
+            let outer_then_branch = DecoratedBlock {
+                stmts: vec![DecoratedStmt::If(inner_if_stmt)],
+            };
+
+            // Build the outer if-let: if let Callee::Expr(__callee_expr) = &node.callee
+            DecoratedIfStmt {
+                condition: self.rewrite_expr(condition),
+                pattern: Some(outer_pattern),
+                then_branch: outer_then_branch,
+                else_branch: None, // Else goes on inner if-let, not outer
+                if_let_metadata: None,
+            }
+        } else {
+            // No desugaring strategy, shouldn't reach here - return a dummy
+            DecoratedIfStmt {
+                condition: self.rewrite_expr(condition),
+                pattern: Some(pattern),
+                then_branch: self.rewrite_block(then_branch),
+                else_branch: else_branch.map(|b| self.rewrite_block(b)),
+                if_let_metadata: None,
+            }
         }
     }
 
@@ -263,11 +394,9 @@ impl SwcRewriter {
     // PATTERNS (Desugaring happens here!)
     // ========================================================================
 
-    /// 🎯 PATTERN REWRITING - This is where desugaring happens!
+    /// 🎯 PATTERN REWRITING - Just recursively rewrite children
+    /// NOTE: Pattern desugaring is handled at the if-statement level (desugar_if_let_stmt)
     fn rewrite_pattern(&mut self, pattern: DecoratedPattern) -> DecoratedPattern {
-        // TODO Phase 2: Check metadata for desugaring strategy
-        // For now, just recursively rewrite children
-
         let kind = match pattern.kind {
             DecoratedPatternKind::Variant { name, inner } => {
                 DecoratedPatternKind::Variant {
@@ -525,8 +654,7 @@ impl SwcRewriter {
             DecoratedExprKind::Ident { .. } |
             DecoratedExprKind::Break |
             DecoratedExprKind::Continue |
-            DecoratedExprKind::Closure(_) |
-            DecoratedExprKind::Undecorated(_) => {
+            DecoratedExprKind::Closure(_) => {
                 expr.kind
             }
         };

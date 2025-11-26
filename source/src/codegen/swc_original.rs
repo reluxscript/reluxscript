@@ -1,7 +1,9 @@
 //! SWC (Rust) code generator for ReluxScript
 
 use crate::parser::*;
-use crate::mapping::{get_node_mapping, get_node_mapping_by_visitor};
+use crate::mapping::{get_node_mapping, get_node_mapping_by_visitor, get_field_mapping};
+use crate::type_system::TypeContext;
+use crate::codegen::type_context::{get_swc_variant_in_context, get_typed_field_mapping, map_reluxscript_to_swc};
 use super::swc_decorator::{DecoratedProgram, DecoratedTopLevelDecl, DecoratedPlugin, DecoratedWriter, DecoratedPluginItem, DecoratedFnDecl, DecoratedStmt, DecoratedIfStmt, DecoratedBlock};
 use super::decorated_ast::{DecoratedPattern, DecoratedPatternKind, DecoratedExpr, DecoratedExprKind};
 

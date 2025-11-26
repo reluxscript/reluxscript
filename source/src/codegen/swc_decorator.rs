@@ -434,6 +434,40 @@ impl SwcDecorator {
                 // Determine unwrap strategy based on expected_type
                 let unwrap_strategy = self.determine_unwrap_strategy(expected_type);
 
+                // 🔥 DETECT PATTERNS THAT NEED DESUGARING
+                // Callee::MemberExpression doesn't exist in SWC - needs desugaring!
+                let desugar_strategy = if name.contains("::") {
+                    let parts: Vec<&str> = name.split("::").collect();
+                    if parts.len() == 2 {
+                        let relux_enum = parts[0];
+                        let relux_variant = parts[1];
+
+                        // Detect Callee::MemberExpression
+                        if relux_enum == "Callee" && relux_variant == "MemberExpression" {
+                            // Get the inner binding name from the pattern
+                            let inner_binding = if let Some(Pattern::Ident(inner_name)) = inner.as_ref().map(|p| &**p) {
+                                inner_name.clone()
+                            } else {
+                                "member".to_string()  // Default binding name
+                            };
+
+                            Some(DesugarStrategy::NestedIfLet {
+                                outer_pattern: "Callee::Expr".to_string(),
+                                outer_binding: "__callee_expr".to_string(),
+                                inner_pattern: "Expr::Member".to_string(),
+                                inner_binding,
+                                unwrap_expr: ".as_ref()".to_string(),
+                            })
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
                 // Recursively decorate inner pattern if present
                 let decorated_inner = inner.as_ref().map(|inner_pat| {
                     // The inner type depends on the variant
@@ -460,6 +494,7 @@ impl SwcDecorator {
                         inner: None,
                         span: None,
                         source_pattern: Some(name.clone()),
+                        desugar_strategy,
                     },
                 }
             }

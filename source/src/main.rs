@@ -57,9 +57,12 @@ enum Commands {
         /// Automatically fix common issues (path-qualified if-let patterns)
         #[arg(long)]
         autofix: bool,
-        /// Dump decorated AST for SWC (debug mode)
+        /// Dump decorated AST for SWC (debug mode - before rewriting)
         #[arg(long)]
         dump_decorated_ast: bool,
+        /// Dump rewritten AST for SWC (debug mode - after rewriting)
+        #[arg(long)]
+        dump_rewritten_ast: bool,
     },
     /// Fix common issues in ReluxScript files (rewrites in-place)
     Fix {
@@ -228,7 +231,7 @@ plugin {name} {{
             }
         }
         #[cfg(feature = "codegen")]
-        Commands::Build { file, target, output, autofix, dump_decorated_ast } => {
+        Commands::Build { file, target, output, autofix, dump_decorated_ast, dump_rewritten_ast } => {
             let source = match fs::read_to_string(&file) {
                 Ok(s) => s,
                 Err(e) => {
@@ -301,9 +304,33 @@ plugin {name} {{
                 let mut decorator = SwcDecorator::with_semantic_types(result.type_env);
                 let decorated = decorator.decorate_program(&program);
 
-                println!("\n=== DECORATED AST FOR SWC ===");
+                println!("\n=== DECORATED AST FOR SWC (BEFORE REWRITING) ===");
                 println!("{:#?}", decorated);
                 println!("=== END DECORATED AST ===\n");
+
+                // Exit early - don't run codegen
+                return;
+            }
+
+            // Dump rewritten AST if requested (SWC only) - skip codegen
+            if dump_rewritten_ast {
+                if target_enum == Target::Babel {
+                    eprintln!("Error: --dump-rewritten-ast only works with --target swc");
+                    std::process::exit(1);
+                }
+
+                use reluxscript::{SwcDecorator, SwcRewriter};
+                // Use semantic type environment for decoration
+                let mut decorator = SwcDecorator::with_semantic_types(result.type_env);
+                let decorated = decorator.decorate_program(&program);
+
+                // Rewrite the decorated AST
+                let mut rewriter = SwcRewriter::new();
+                let rewritten = rewriter.rewrite_program(decorated);
+
+                println!("\n=== REWRITTEN AST FOR SWC (AFTER PATTERN DESUGARING) ===");
+                println!("{:#?}", rewritten);
+                println!("=== END REWRITTEN AST ===\n");
 
                 // Exit early - don't run codegen
                 return;

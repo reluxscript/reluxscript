@@ -25,6 +25,9 @@ pub struct SwcPatternMetadata {
 
     /// Original ReluxScript pattern (for diagnostics)
     pub source_pattern: Option<String>,
+
+    /// Desugaring strategy for patterns that don't exist in SWC
+    pub desugar_strategy: Option<DesugarStrategy>,
 }
 
 /// SWC-specific metadata for field access (member expressions)
@@ -94,6 +97,25 @@ pub enum UnwrapStrategy {
 
     /// No unwrapping needed (direct access)
     None,
+}
+
+/// Strategy for desugaring patterns that don't exist in SWC
+#[derive(Debug, Clone)]
+pub enum DesugarStrategy {
+    /// Pattern doesn't exist in SWC - needs nested if-let transformation
+    /// Example: Callee::MemberExpression → Callee::Expr + Expr::Member
+    NestedIfLet {
+        /// Outer pattern to generate (e.g., "Callee::Expr")
+        outer_pattern: String,
+        /// Outer binding variable (e.g., "__callee_expr")
+        outer_binding: String,
+        /// Inner pattern to generate (e.g., "Expr::Member")
+        inner_pattern: String,
+        /// Inner binding variable (e.g., "member")
+        inner_binding: String,
+        /// Unwrap expression (e.g., ".as_ref()")
+        unwrap_expr: String,
+    },
 }
 
 /// Strategy for accessing struct fields
@@ -176,6 +198,7 @@ impl SwcPatternMetadata {
             inner: None,
             span: None,
             source_pattern: None,
+            desugar_strategy: None,
         }
     }
 
@@ -187,6 +210,7 @@ impl SwcPatternMetadata {
             inner: None,
             span: None,
             source_pattern: None,
+            desugar_strategy: None,
         }
     }
 
@@ -198,7 +222,13 @@ impl SwcPatternMetadata {
             inner: None,
             span: None,
             source_pattern: None,
+            desugar_strategy: None,
         }
+    }
+
+    /// Check if this pattern needs desugaring
+    pub fn needs_desugaring(&self) -> bool {
+        self.desugar_strategy.is_some()
     }
 }
 

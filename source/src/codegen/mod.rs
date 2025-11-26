@@ -3,6 +3,8 @@
 //! Generates both Babel (JavaScript) and SWC (Rust) plugin code from ReluxScript AST.
 
 mod babel;
+// Temporarily using swc_stub.rs to test rewriter pipeline
+#[path = "swc_stub.rs"]
 mod swc;
 pub mod type_context;
 pub mod swc_patterns;
