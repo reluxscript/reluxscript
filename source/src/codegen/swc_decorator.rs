@@ -1004,6 +1004,10 @@ impl SwcDecorator {
                 // Container type like Vec<T>, Option<T>
                 TypeContext::from_reluxscript(name)
             }
+            Type::Named(name) => {
+                // Named type like CallExpression, MemberExpression, etc.
+                TypeContext::from_reluxscript(name)
+            }
             _ => TypeContext::unknown(),
         }
     }
