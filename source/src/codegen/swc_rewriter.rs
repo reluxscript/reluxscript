@@ -550,11 +550,41 @@ impl SwcRewriter {
 
     /// Recursively rewrite expression children
     fn rewrite_expr_children(&mut self, expr: DecoratedExpr) -> DecoratedExpr {
-        // First check if this is a Deref that should be stripped
+        // First check if this is a Deref that should be transformed
         let expr = match expr.kind {
-            DecoratedExprKind::Unary { op: crate::parser::UnaryOp::Deref, operand, .. } if self.returns_reference(&operand) => {
-                // Strip unnecessary deref
-                *operand
+            DecoratedExprKind::Unary { op: crate::parser::UnaryOp::Deref, operand, unary_metadata } => {
+                // Check if the operand returns a reference
+                if self.returns_reference(&operand) {
+                    // Check if it's a .as_ref() call - if so, just strip the deref
+                    if let DecoratedExprKind::Call(ref call) = operand.kind {
+                        if let DecoratedExprKind::Member { property, .. } = &call.callee.kind {
+                            if property == "as_ref" {
+                                // Strip the deref - .as_ref() already returns &T
+                                return self.rewrite_expr(*operand);
+                            }
+                        }
+                    }
+
+                    // Otherwise, it's a direct field access (like member.prop)
+                    // Replace *member.prop with &member.prop
+                    DecoratedExpr {
+                        kind: DecoratedExprKind::Ref {
+                            mutable: false,
+                            expr: operand,
+                        },
+                        metadata: expr.metadata.clone(),
+                    }
+                } else {
+                    // Keep the deref as-is
+                    DecoratedExpr {
+                        kind: DecoratedExprKind::Unary {
+                            op: crate::parser::UnaryOp::Deref,
+                            operand,
+                            unary_metadata,
+                        },
+                        metadata: expr.metadata,
+                    }
+                }
             }
             _ => expr,
         };
