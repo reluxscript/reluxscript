@@ -25,6 +25,24 @@ pub struct SwcEmitter {
 
     /// Whether we're in a writer context
     is_writer: bool,
+
+    /// Whether to add HashMap import
+    uses_hashmap: bool,
+
+    /// Whether to add HashSet import
+    uses_hashset: bool,
+
+    /// Whether json serialization is needed
+    uses_json: bool,
+
+    /// Whether fs module is used
+    uses_fs: bool,
+
+    /// Whether parser module is used
+    uses_parser: bool,
+
+    /// Whether codegen module is used
+    uses_codegen: bool,
 }
 
 impl SwcEmitter {
@@ -35,14 +53,48 @@ impl SwcEmitter {
             indent: 0,
             name: String::new(),
             is_writer: false,
+            uses_hashmap: false,
+            uses_hashset: false,
+            uses_json: false,
+            uses_fs: false,
+            uses_parser: false,
+            uses_codegen: false,
         }
     }
 
     /// Main entry point: emit entire program
     pub fn emit_program(&mut self, program: &DecoratedProgram) -> String {
+        // Detect what imports we need
+        self.detect_imports(program);
+
+        // Emit header with conditional imports
         self.emit_header();
+
+        // Emit the main code
         self.emit_top_level_decl(&program.decl);
+
+        // Emit helper function modules if needed
+        if self.uses_parser {
+            self.emit_line("");
+            self.emit_parser_helpers();
+        }
+
+        if self.uses_codegen {
+            self.emit_line("");
+            self.emit_codegen_helpers();
+        }
+
         std::mem::take(&mut self.output)
+    }
+
+    // ========================================================================
+    // IMPORT DETECTION
+    // ========================================================================
+
+    fn detect_imports(&mut self, program: &DecoratedProgram) {
+        // TODO: Detect HashMap/HashSet usage by walking the AST
+        // TODO: Detect json/fs/parser/codegen usage from use statements
+        // For now, these will be false - we can add detection later if needed
     }
 
     // ========================================================================
@@ -56,6 +108,39 @@ impl SwcEmitter {
         self.emit_line("use swc_common::{Span, DUMMY_SP, SyntaxContext};");
         self.emit_line("use swc_ecma_ast::*;");
         self.emit_line("use swc_ecma_visit::{VisitMut, VisitMutWith};");
+
+        // Add conditional imports
+        if self.uses_hashmap && self.uses_hashset {
+            self.emit_line("use std::collections::{HashMap, HashSet};");
+        } else if self.uses_hashmap {
+            self.emit_line("use std::collections::HashMap;");
+        } else if self.uses_hashset {
+            self.emit_line("use std::collections::HashSet;");
+        }
+
+        if self.uses_json {
+            self.emit_line("use serde::{Serialize, Deserialize};");
+            self.emit_line("use serde_json;");
+        }
+
+        if self.uses_fs {
+            self.emit_line("use std::fs;");
+            self.emit_line("use std::path::Path;");
+        }
+
+        if self.uses_parser {
+            // Parser imports needed
+            self.emit_line("use std::sync::Arc;");
+            self.emit_line("use swc_common::{SourceMap, FileName};");
+            self.emit_line("use swc_ecma_parser::{Parser, Syntax, TsConfig, EsConfig, StringInput};");
+        }
+
+        if self.uses_codegen {
+            self.emit_line("use std::sync::Arc;");
+            self.emit_line("use swc_common::SourceMap;");
+            self.emit_line("use swc_ecma_codegen::{Emitter, text_writer::JsWriter, Config as CodegenConfig};");
+        }
+
         self.emit_line("");
     }
 
@@ -1223,5 +1308,99 @@ impl SwcEmitter {
                 self.output.push_str("/* undecorated expr */");
             }
         }
+    }
+
+    // ========================================================================
+    // HELPER MODULES
+    // ========================================================================
+
+    fn emit_parser_helpers(&mut self) {
+        self.emit_line("// Parser module helper functions");
+        self.emit_line("mod parser {");
+        self.indent += 1;
+        self.emit_line("use super::*;");
+        self.emit_line("");
+
+        // parser::parse_file
+        self.emit_line("pub fn parse_file(path: &str) -> Result<Program, String> {");
+        self.indent += 1;
+        self.emit_line("let source_map = Arc::new(SourceMap::default());");
+        self.emit_line("let code = std::fs::read_to_string(path)");
+        self.indent += 1;
+        self.emit_line(".map_err(|e| format!(\"Failed to read file: {}\", e))?;");
+        self.indent -= 1;
+        self.emit_line("let file = source_map.new_source_file(");
+        self.indent += 1;
+        self.emit_line("FileName::Real(path.into()),");
+        self.emit_line("code,");
+        self.indent -= 1;
+        self.emit_line(");");
+        self.emit_line("let syntax = Syntax::Typescript(TsConfig {");
+        self.indent += 1;
+        self.emit_line("tsx: true,");
+        self.emit_line("decorators: false,");
+        self.emit_line("..Default::default()");
+        self.indent -= 1;
+        self.emit_line("});");
+        self.emit_line("let mut parser = Parser::new(syntax, StringInput::from(&*file), None);");
+        self.emit_line("parser.parse_program()");
+        self.indent += 1;
+        self.emit_line(".map_err(|e| format!(\"Parse error: {:?}\", e))");
+        self.indent -= 1;
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("");
+
+        // parser::parse
+        self.emit_line("pub fn parse(code: &str) -> Result<Program, String> {");
+        self.indent += 1;
+        self.emit_line("let source_map = Arc::new(SourceMap::default());");
+        self.emit_line("let file = source_map.new_source_file(");
+        self.indent += 1;
+        self.emit_line("FileName::Anon,");
+        self.emit_line("code.to_string(),");
+        self.indent -= 1;
+        self.emit_line(");");
+        self.emit_line("let syntax = Syntax::Typescript(TsConfig {");
+        self.indent += 1;
+        self.emit_line("tsx: true,");
+        self.emit_line("decorators: false,");
+        self.emit_line("..Default::default()");
+        self.indent -= 1;
+        self.emit_line("});");
+        self.emit_line("let mut parser = Parser::new(syntax, StringInput::from(&*file), None);");
+        self.emit_line("parser.parse_program()");
+        self.indent += 1;
+        self.emit_line(".map_err(|e| format!(\"Parse error: {:?}\", e))");
+        self.indent -= 1;
+        self.indent -= 1;
+        self.emit_line("}");
+
+        self.indent -= 1;
+        self.emit_line("}");
+    }
+
+    fn emit_codegen_helpers(&mut self) {
+        self.emit_line("// Codegen helper functions");
+        self.emit_line("fn codegen_to_string<N: swc_ecma_visit::Node>(node: &N) -> String {");
+        self.indent += 1;
+        self.emit_line("let mut buf = vec![];");
+        self.emit_line("{");
+        self.indent += 1;
+        self.emit_line("let cm = Arc::new(SourceMap::default());");
+        self.emit_line("let mut emitter = Emitter {");
+        self.indent += 1;
+        self.emit_line("cfg: CodegenConfig::default(),");
+        self.emit_line("cm: cm.clone(),");
+        self.emit_line("comments: None,");
+        self.emit_line("wr: Box::new(JsWriter::new(cm.clone(), \"\\n\", &mut buf, None)),");
+        self.indent -= 1;
+        self.emit_line("};");
+        self.emit_line("node.emit_with(&mut emitter).unwrap();");
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("String::from_utf8(buf).unwrap()");
+        self.indent -= 1;
+        self.emit_line("}");
     }
 }
