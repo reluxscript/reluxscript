@@ -5,19 +5,11 @@ use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{VisitMut, VisitMutWith};
 
-pub struct MatchesTest {}
+pub struct test {}
 
-impl VisitMut for MatchesTest {
+impl VisitMut for test {
 }
-fn test(expr: &CallExpr) {
-    if match expr {
-        CallExpr { .. } => {
-            true
-        }
-        _ => {
-            false
-        }
-    } {
-    }
+fn test() {
+    let v = vec![1, 2];
 }
 

@@ -82,6 +82,18 @@ impl SwcEmitter {
     fn emit_plugin(&mut self, plugin: &DecoratedPlugin) {
         self.name = plugin.name.clone();
 
+        // Emit structs, enums, and impl blocks FIRST (at module level)
+        for item in &plugin.body {
+            match item {
+                DecoratedPluginItem::Struct(_) |
+                DecoratedPluginItem::Enum(_) |
+                DecoratedPluginItem::Impl(_) => {
+                    self.emit_plugin_item(item);
+                }
+                _ => {}
+            }
+        }
+
         // Plugin struct
         self.emit_line(&format!("pub struct {} {{}}", plugin.name));
         self.emit_line("");
@@ -96,9 +108,6 @@ impl SwcEmitter {
                 if func.name.starts_with("visit_") {
                     self.emit_plugin_item(item);
                 }
-            } else {
-                // Structs, enums, impls go in VisitMut block
-                self.emit_plugin_item(item);
             }
         }
 
@@ -280,9 +289,27 @@ impl SwcEmitter {
     // ========================================================================
 
     fn emit_block(&mut self, block: &DecoratedBlock) {
-        for stmt in &block.stmts {
-            self.emit_stmt(stmt);
+        let len = block.stmts.len();
+        for (i, stmt) in block.stmts.iter().enumerate() {
+            let is_last = i == len - 1;
+            self.emit_stmt_with_context(stmt, is_last);
         }
+    }
+
+    fn emit_stmt_with_context(&mut self, stmt: &DecoratedStmt, is_last_in_block: bool) {
+        // If it's the last statement in a block and it's an expression,
+        // don't add a semicolon (it's the return value)
+        if is_last_in_block {
+            if let DecoratedStmt::Expr(expr) = stmt {
+                self.emit_indent();
+                self.emit_expr(expr);
+                self.output.push('\n');
+                return;
+            }
+        }
+
+        // Otherwise, emit normally
+        self.emit_stmt(stmt);
     }
 
     fn emit_stmt(&mut self, stmt: &DecoratedStmt) {
@@ -697,7 +724,16 @@ impl SwcEmitter {
                     }
                     self.output.push_str(field_name);
                     self.output.push_str(": ");
+
+                    // Check if this is a string literal - add .into() for String fields
+                    let is_string_literal = matches!(field_expr, Expr::Literal(Literal::String(_)));
+                    if is_string_literal {
+                        self.output.push('(');
+                    }
                     self.emit_undecorated_expr(field_expr);
+                    if is_string_literal {
+                        self.output.push_str(").into()");
+                    }
                 }
                 self.output.push_str(" }");
             }
