@@ -542,6 +542,7 @@ impl SwcRewriter {
         let expr = self.apply_field_replacements(expr);
         let expr = self.apply_context_remove(expr);
         let expr = self.apply_matches_expansion(expr);
+        let expr = self.apply_iterator_methods(expr);
         // TODO Phase 4: Apply nested member unwrapping
         // let expr = self.apply_member_unwrapping(expr);
 
@@ -1012,6 +1013,95 @@ impl SwcRewriter {
                         span: expr.metadata.span,
                     },
                 }
+            }
+            _ => expr,
+        }
+    }
+
+    // ========================================================================
+    // TRANSFORMATION: Iterator Methods
+    // ========================================================================
+
+    /// 🔧 Apply iterator method transformations
+    /// Transforms vec.map() → vec.iter().map() for iterator methods on Vec
+    fn apply_iterator_methods(&mut self, expr: DecoratedExpr) -> DecoratedExpr {
+        match &expr.kind {
+            DecoratedExprKind::Call(call) => {
+                // Check if this is a method call (callee is a member expression)
+                if let DecoratedExprKind::Member { object, property, .. } = &call.callee.kind {
+                    // Check if the method is an iterator method
+                    let iterator_methods = ["map", "filter", "find", "any", "all", "fold", "for_each"];
+
+                    if iterator_methods.contains(&property.as_str()) {
+                        // Check if the object is a Vec (swc_type contains "Vec")
+                        if object.metadata.swc_type.contains("Vec") ||
+                           object.metadata.swc_type == "vec" {
+                            // Insert .iter() call between object and method
+                            // vec.map(f) → vec.iter().map(f)
+
+                            let iter_call = DecoratedExpr {
+                                kind: DecoratedExprKind::Member {
+                                    object: object.clone(),
+                                    property: "iter".to_string(),
+                                    optional: false,
+                                    computed: false,
+                                    is_path: false,
+                                    field_metadata: SwcFieldMetadata::direct("iter".to_string(), "fn".to_string()),
+                                },
+                                metadata: SwcExprMetadata {
+                                    swc_type: "fn".to_string(),
+                                    is_boxed: false,
+                                    is_optional: false,
+                                    type_kind: crate::type_system::SwcTypeKind::Unknown,
+                                    span: object.metadata.span,
+                                },
+                            };
+
+                            let iter_call_expr = DecoratedExpr {
+                                kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                                    callee: iter_call,
+                                    args: vec![],
+                                    type_args: vec![],
+                                    optional: false,
+                                    span: call.span,
+                                })),
+                                metadata: SwcExprMetadata {
+                                    swc_type: "Iterator".to_string(),
+                                    is_boxed: false,
+                                    is_optional: false,
+                                    type_kind: crate::type_system::SwcTypeKind::Unknown,
+                                    span: object.metadata.span,
+                                },
+                            };
+
+                            // Now create the final method call with iter() as the object
+                            let new_callee = DecoratedExpr {
+                                kind: DecoratedExprKind::Member {
+                                    object: Box::new(iter_call_expr),
+                                    property: property.clone(),
+                                    optional: false,
+                                    computed: false,
+                                    is_path: false,
+                                    field_metadata: SwcFieldMetadata::direct(property.clone(), "fn".to_string()),
+                                },
+                                metadata: call.callee.metadata.clone(),
+                            };
+
+                            return DecoratedExpr {
+                                kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                                    callee: new_callee,
+                                    args: call.args.clone(),
+                                    type_args: call.type_args.clone(),
+                                    optional: call.optional,
+                                    span: call.span,
+                                })),
+                                metadata: expr.metadata.clone(),
+                            };
+                        }
+                    }
+                }
+
+                expr
             }
             _ => expr,
         }

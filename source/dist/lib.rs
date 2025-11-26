@@ -11,6 +11,8 @@ impl VisitMut for test {
 }
 fn test() {
     let list = vec![1, 2, 3];
-    list.map(/* closure: ClosureExpr { params: ["x"], body: Block(Block { stmts: [Expr(ExprStmt { expr: Binary(BinaryExpr { op: Add, left: Ident(IdentExpr { name: "x", span: Span { start: 89, end: 90, line: 6, column: 9 } }), right: Literal(Int(1)), span: Span { start: 100, end: 101, line: 7, column: 5 } }), span: Span { start: 89, end: 90, line: 6, column: 9 } })], span: Span { start: 78, end: 79, line: 5, column: 18 } }), span: Span { start: 74, end: 75, line: 5, column: 14 } } */)
+    list.iter().map(|x| {
+        (x + 1)
+    });
 }
 

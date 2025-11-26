@@ -276,8 +276,10 @@ impl SwcEmitter {
         self.emit_line(&sig);
 
         // Function body
+        // If function has no return type or returns (), all statements need semicolons
+        let force_semicolons = func.return_type.is_none();
         self.indent += 1;
-        self.emit_block(&func.body);
+        self.emit_block_with_context(&func.body, force_semicolons);
         self.indent -= 1;
 
         self.emit_line("}");
@@ -289,17 +291,21 @@ impl SwcEmitter {
     // ========================================================================
 
     fn emit_block(&mut self, block: &DecoratedBlock) {
+        self.emit_block_with_context(block, false);
+    }
+
+    fn emit_block_with_context(&mut self, block: &DecoratedBlock, force_semicolons: bool) {
         let len = block.stmts.len();
         for (i, stmt) in block.stmts.iter().enumerate() {
             let is_last = i == len - 1;
-            self.emit_stmt_with_context(stmt, is_last);
+            self.emit_stmt_with_context(stmt, is_last, force_semicolons);
         }
     }
 
-    fn emit_stmt_with_context(&mut self, stmt: &DecoratedStmt, is_last_in_block: bool) {
+    fn emit_stmt_with_context(&mut self, stmt: &DecoratedStmt, is_last_in_block: bool, force_semicolons: bool) {
         // If it's the last statement in a block and it's an expression,
-        // don't add a semicolon (it's the return value)
-        if is_last_in_block {
+        // don't add a semicolon UNLESS force_semicolons is true (e.g., function returns ())
+        if is_last_in_block && !force_semicolons {
             if let DecoratedStmt::Expr(expr) = stmt {
                 self.emit_indent();
                 self.emit_expr(expr);
@@ -897,7 +903,19 @@ impl SwcEmitter {
             }
 
             DecoratedExprKind::Closure(closure) => {
-                self.output.push_str(&format!("/* closure: {:?} */", closure));
+                // Emit Rust closure syntax: |params| body
+                self.output.push('|');
+                for (i, param) in closure.params.iter().enumerate() {
+                    if i > 0 {
+                        self.output.push_str(", ");
+                    }
+                    self.output.push_str(param);
+                }
+                self.output.push('|');
+                self.output.push(' ');
+
+                // Emit the body - closure uses parser Expr, not DecoratedExpr
+                self.emit_parser_expr(&closure.body);
             }
         }
     }
@@ -1037,6 +1055,83 @@ impl SwcEmitter {
             CompoundAssignOp::DivAssign => "/",
         }
         .to_string()
+    }
+
+    // ========================================================================
+    // UNDECORATED EXPRESSION EMISSION (for closures, etc.)
+    // ========================================================================
+
+    fn emit_parser_expr(&mut self, expr: &Expr) {
+        match expr {
+            Expr::Literal(lit) => self.emit_literal(lit),
+            Expr::Ident(ident) => self.output.push_str(&ident.name),
+            Expr::Binary(bin) => {
+                self.output.push('(');
+                self.emit_parser_expr(&bin.left);
+                self.output.push(' ');
+                self.output.push_str(&self.binary_op_to_string(&bin.op));
+                self.output.push(' ');
+                self.emit_parser_expr(&bin.right);
+                self.output.push(')');
+            }
+            Expr::Unary(un) => {
+                self.output.push_str(&self.unary_op_to_string(&un.op));
+                self.emit_parser_expr(&un.operand);
+            }
+            Expr::Member(mem) => {
+                self.emit_parser_expr(&mem.object);
+                self.output.push('.');
+                self.output.push_str(&mem.property);
+            }
+            Expr::Call(call) => {
+                self.emit_parser_expr(&call.callee);
+                self.output.push('(');
+                for (i, arg) in call.args.iter().enumerate() {
+                    if i > 0 {
+                        self.output.push_str(", ");
+                    }
+                    self.emit_parser_expr(arg);
+                }
+                self.output.push(')');
+            }
+            Expr::Block(block) => {
+                self.output.push_str("{\n");
+                self.indent += 1;
+                for stmt in &block.stmts {
+                    self.emit_parser_stmt(stmt);
+                }
+                self.indent -= 1;
+                self.emit_indent();
+                self.output.push('}');
+            }
+            _ => {
+                // For other expression types, emit a placeholder
+                self.output.push_str("/* complex expr */");
+            }
+        }
+    }
+
+    fn emit_parser_stmt(&mut self, stmt: &Stmt) {
+        match stmt {
+            Stmt::Expr(expr_stmt) => {
+                self.emit_indent();
+                self.emit_parser_expr(&expr_stmt.expr);
+                self.output.push_str("\n");
+            }
+            Stmt::Return(ret) => {
+                self.emit_indent();
+                self.output.push_str("return");
+                if let Some(ref expr) = ret.value {
+                    self.output.push(' ');
+                    self.emit_parser_expr(expr);
+                }
+                self.output.push_str(";\n");
+            }
+            _ => {
+                self.emit_indent();
+                self.output.push_str("/* complex stmt */\n");
+            }
+        }
     }
 
     // ========================================================================
