@@ -6,11 +6,17 @@ mod babel;
 mod swc;
 pub mod type_context;
 pub mod swc_patterns;
+pub mod swc_metadata;
+pub mod decorated_ast;
+pub mod swc_decorator;
 
 pub use babel::BabelGenerator;
 pub use swc::SwcGenerator;
 pub use type_context::{TypeContext, TypeEnvironment, SwcTypeKind};
 pub use swc_patterns::SwcPatternGenerator;
+pub use swc_metadata::*;
+pub use decorated_ast::*;
+pub use swc_decorator::SwcDecorator;
 
 /// Target platform for code generation
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

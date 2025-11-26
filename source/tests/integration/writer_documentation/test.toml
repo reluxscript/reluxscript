@@ -1,0 +1,12 @@
+[test]
+name = "writer-documentation"
+description = "Writer: Extract JSDoc comments and generate API documentation"
+
+[plugin]
+source = "plugin.lux"
+
+[input]
+source = "input.js"
+
+[expected]
+source = "expected.js"

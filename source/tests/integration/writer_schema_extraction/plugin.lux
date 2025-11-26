@@ -1,0 +1,78 @@
+/// Writer Use Case 6: Extract GraphQL-like schemas and API endpoint shapes
+/// Analyzes object patterns and function returns to infer data schemas
+
+use json;
+
+writer SchemaExtractor {
+    struct FieldSchema {
+        name: Str,
+        field_type: Str,
+    }
+
+    struct TypeSchema {
+        name: Str,
+        fields: Vec<FieldSchema>,
+    }
+
+    fn pre() {
+        self.state.schemas = vec![];
+    }
+
+    fn visit_variable_declarator(node: &VariableDeclarator, ctx: &Context) {
+        // Look for object literal assignments that define data shapes
+        if let Some(init) = &node.init {
+            if let Expression::ObjectExpression(obj) = init {
+                // Get variable name
+                let type_name = match &node.id {
+                    Pattern::Ident(n) => n.clone(),
+                    _ => return,
+                };
+
+                // Extract object properties as schema fields
+                let mut fields = vec![];
+                for prop in &obj.properties {
+                    let field_name = prop.key.clone();
+
+                    // Infer type from value
+                    let field_type = match &prop.value {
+                        Expression::Literal(lit) => match lit {
+                            Literal::String(_) => "String",
+                            Literal::Number(_) => "Number",
+                            Literal::Boolean(_) => "Boolean",
+                            Literal::Null => "Null",
+                            _ => "Unknown",
+                        },
+                        Expression::ArrayExpression(_) => "Array",
+                        Expression::ObjectExpression(_) => "Object",
+                        _ => "Unknown",
+                    };
+
+                    fields.push(FieldSchema {
+                        name: field_name,
+                        field_type: field_type.to_string(),
+                    });
+                }
+
+                if !fields.is_empty() {
+                    self.state.schemas.push(TypeSchema {
+                        name: type_name,
+                        fields,
+                    });
+                }
+            }
+        }
+    }
+
+    fn exit() {
+        // Output GraphQL-like schema
+        self.builder.write_line("# Generated Schema\n");
+
+        for schema in &self.state.schemas {
+            self.builder.write_line(&format!("type {} {{", schema.name));
+            for field in &schema.fields {
+                self.builder.write_line(&format!("  {}: {}", field.name, field.field_type));
+            }
+            self.builder.write_line("}\n");
+        }
+    }
+}

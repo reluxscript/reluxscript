@@ -1,0 +1,12 @@
+[test]
+name = "rewrite-imports"
+description = "Rewrite import paths (bundler/module resolution)"
+
+[plugin]
+source = "plugin.lux"
+
+[input]
+source = "input.js"
+
+[expected]
+source = "expected.js"

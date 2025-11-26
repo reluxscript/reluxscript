@@ -1,0 +1,12 @@
+[test]
+name = "writer-test-fixtures"
+description = "Writer: Generate mock test data from object schemas"
+
+[plugin]
+source = "plugin.lux"
+
+[input]
+source = "input.js"
+
+[expected]
+source = "expected.js"

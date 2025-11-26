@@ -1,0 +1,27 @@
+/// Plugin that adds JSDoc/TypeScript annotations
+/// Tests: Function parameter inspection, building comment strings
+plugin AddAnnotations {
+    struct State {
+        functions_annotated: Number,
+    }
+
+    fn visit_function_declaration(node: &mut FunctionDeclaration, ctx: &Context) {
+        // Build JSDoc comment from function signature
+        let mut doc = "/**\n".to_string();
+
+        // Add parameter documentation
+        for param in &node.params {
+            if let Pattern::Identifier(ref param_name) = param.pattern {
+                doc.push_str(&format!(" * @param {{any}} {}\n", param_name));
+            }
+        }
+
+        doc.push_str(" * @returns {{any}}\n");
+        doc.push_str(" */");
+
+        // Add as leading comment
+        // (In actual implementation, would modify node.leadingComments)
+
+        self.state.functions_annotated += 1;
+    }
+}

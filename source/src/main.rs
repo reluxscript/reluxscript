@@ -57,6 +57,9 @@ enum Commands {
         /// Automatically fix common issues (path-qualified if-let patterns)
         #[arg(long)]
         autofix: bool,
+        /// Dump decorated AST for SWC (debug mode)
+        #[arg(long)]
+        dump_decorated_ast: bool,
     },
     /// Fix common issues in ReluxScript files (rewrites in-place)
     Fix {
@@ -225,7 +228,7 @@ plugin {name} {{
             }
         }
         #[cfg(feature = "codegen")]
-        Commands::Build { file, target, output, autofix } => {
+        Commands::Build { file, target, output, autofix, dump_decorated_ast } => {
             let source = match fs::read_to_string(&file) {
                 Ok(s) => s,
                 Err(e) => {
@@ -285,6 +288,25 @@ plugin {name} {{
                     std::process::exit(1);
                 }
             };
+
+            // Dump decorated AST if requested (SWC only) - skip codegen
+            if dump_decorated_ast {
+                if target_enum == Target::Babel {
+                    eprintln!("Error: --dump-decorated-ast only works with --target swc");
+                    std::process::exit(1);
+                }
+
+                use reluxscript::SwcDecorator;
+                let mut decorator = SwcDecorator::new();
+                let decorated = decorator.decorate_program(&program);
+
+                println!("\n=== DECORATED AST FOR SWC ===");
+                println!("{:#?}", decorated);
+                println!("=== END DECORATED AST ===\n");
+
+                // Exit early - don't run codegen
+                return;
+            }
 
             // Generate code
             let generated = generate(&program, target_enum);

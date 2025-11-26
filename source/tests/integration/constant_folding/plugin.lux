@@ -1,0 +1,17 @@
+/// Plugin that optimizes constant expressions (constant folding)
+/// Tests: Binary expression matching, literal replacement
+plugin ConstantFolding {
+    fn visit_binary_expression(node: &mut BinaryExpression, ctx: &Context) {
+        // Fold numeric addition
+        if node.operator == "+" {
+            if let Expression::Literal(ref left_lit) = *node.left {
+                if let Expression::Literal(ref right_lit) = *node.right {
+                    if let (Literal::Number(l), Literal::Number(r)) = (left_lit, right_lit) {
+                        let result = l + r;
+                        ctx.replace_with(Expression::Literal(Literal::Number(result)));
+                    }
+                }
+            }
+        }
+    }
+}

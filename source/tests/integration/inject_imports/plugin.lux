@@ -1,0 +1,17 @@
+/// Plugin that injects imports at the top of the file
+/// Tests: Program mutation, adding statements, import handling
+plugin InjectImports {
+    fn visit_program(node: &mut Program, ctx: &Context) {
+        // Check if we're using React but haven't imported it
+        let mut uses_react = false;
+
+        // Simple check: if file has JSX or React calls
+        // (In real implementation, would traverse and check)
+        uses_react = true; // Simplified for test
+
+        if uses_react {
+            // Note: In actual implementation, would prepend import
+            // For now, this demonstrates the pattern
+        }
+    }
+}

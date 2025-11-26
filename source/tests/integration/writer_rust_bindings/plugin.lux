@@ -1,0 +1,78 @@
+/// Writer Use Case 4: Generate Rust FFI bindings from TypeScript/JavaScript
+/// Analyzes JS functions and generates corresponding Rust extern declarations
+/// Useful for WASM, Tauri, or other JS-Rust interop scenarios
+
+writer RustBindingGenerator {
+    struct Binding {
+        name: Str,
+        params: Vec<(Str, Str)>,
+        return_type: Str,
+    }
+
+    fn pre() {
+        self.state.bindings = vec![];
+    }
+
+    fn visit_function_declaration(node: &FunctionDeclaration, ctx: &Context) {
+        if let Some(id) = &node.id {
+            let name = id.name.clone();
+
+            // Extract parameters with basic type inference
+            let mut params = vec![];
+            for (i, param) in node.params.iter().enumerate() {
+                let param_name = match param {
+                    Pattern::Ident(n) => n.clone(),
+                    _ => format!("arg{}", i),
+                };
+
+                // For this example, map all to JsValue
+                // Real implementation would use TypeScript annotations
+                params.push((param_name, "JsValue".to_string()));
+            }
+
+            let binding = Binding {
+                name,
+                params,
+                return_type: "JsValue".to_string(),
+            };
+
+            self.state.bindings.push(binding);
+        }
+    }
+
+    fn exit() {
+        // Generate Rust extern declarations
+        self.builder.write_line("use wasm_bindgen::prelude::*;\n");
+        self.builder.write_line("#[wasm_bindgen]");
+        self.builder.write_line("extern \"C\" {");
+
+        for binding in &self.state.bindings {
+            // Build parameter list
+            let mut params_str = String::from("");
+            for (i, (name, ty)) in binding.params.iter().enumerate() {
+                if i > 0 {
+                    params_str.push_str(", ");
+                }
+                params_str.push_str(&format!("{}: {}", name, ty));
+            }
+
+            // Generate function signature
+            let sig = format!(
+                "    #[wasm_bindgen(js_name = \"{}\")]",
+                binding.name
+            );
+            self.builder.write_line(&sig);
+
+            let decl = format!(
+                "    pub fn {}({}) -> {};",
+                binding.name,
+                params_str,
+                binding.return_type
+            );
+            self.builder.write_line(&decl);
+            self.builder.write_line("");
+        }
+
+        self.builder.write_line("}");
+    }
+}

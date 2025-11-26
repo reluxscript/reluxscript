@@ -1,0 +1,16 @@
+/// Test: Member expression decoration with proper type context
+/// Expected: All member.object and member.property accesses should have correct SWC types
+plugin TestMemberExpr {
+    fn visit_member_expression(node: &mut MemberExpression, ctx: &Context) {
+        // Test 1: Access object field (should know it's Box<Expr>)
+        if let Expression::Identifier(ref obj) = *node.object {
+            // Test 2: Access property field (should know it's MemberProp in SWC)
+            if let Expression::Identifier(ref prop) = *node.property {
+                // Test 3: Access identifier name (should know needs .sym in SWC)
+                if obj.name == "console" && prop.name == "log" {
+                    ctx.remove();
+                }
+            }
+        }
+    }
+}

@@ -5,207 +5,37 @@ use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{VisitMut, VisitMutWith};
 
-use swc_ecma_visit::Visit;
+#[derive(Debug, Clone)]
+pub struct TestStruct {
+    pub count: i32,
+}
 
 #[derive(Debug, Clone)]
-pub struct ComponentMetadata {
-    pub name: String,
-    pub has_state: bool,
-    pub has_effects: bool,
+pub struct State {
+    pub items: Vec<TestStruct>,
 }
 
-
-pub struct KitchenSinkWriter {
-    output: String,
-    indent_level: usize,
-    builder: String,
-    components: Vec<ComponentMetadata>,
-    current_component: Option<String>,
+pub struct TestNumberType {
+    pub state: State,
 }
 
-impl KitchenSinkWriter {
+impl TestNumberType {
     pub fn new() -> Self {
         Self {
-            output: String::new(),
-            indent_level: 0,
-            builder: String::new(),
-            components: Vec::new(),
-            current_component: None,
+            state: State {
+                items: Vec::new(),
+            },
         }
     }
-    
-    fn append(&mut self, s: &str) {
-        self.output.push_str(s);
-    }
-    
-    fn newline(&mut self) {
-        self.output.push('\n');
-    }
-    
-    fn indent(&mut self) {
-        self.indent_level += 1;
-    }
-    
-    fn dedent(&mut self) {
-        self.indent_level -= 1;
-    }
-    
-    /// Finalize output (from exit hook)
-    pub fn finish(mut self) -> String {
-        let mut final_output = String::new();
-        final_output.push_str("using System;
-");
-        final_output.push_str("using System.Collections.Generic;
-");
-        final_output.push_str("
-");
-        final_output.push_str("namespace Generated
-");
-        final_output.push_str("{
-");
-        final_output.push_str(&self.to_string());
-        final_output.push_str("}
-");
-        let component_count = self.components.len();
-        final_output.push_str(&format!("
-// Generated {} components
-", component_count));
-        final_output.into()
-        self.output
-    }
-    
-    // Note: pre() hook not supported in SWC (no source access)
-    
-    fn is_component(name: &String) -> bool {
-        if name.is_empty() {
-            return false;
-        }
-        let first = name.chars().next().unwrap();
-        first.is_uppercase()
-    }
-    
-    fn sanitize_name(name: &String) -> String {
-        if name.is_empty() {
-            return name.clone();
-        }
-        let first = name.chars().next().unwrap();
-        format!("{}{}", first.to_uppercase(), &&name[1..])
-    }
-    
-    fn get_callee_name(callee: &Expr) -> Option<String> {
-        if let Expr::Ident(id) = callee {
-            Some(id.sym.clone())
-        } else {
-            None
-        }
-    }
-    
-    fn extract_state_var(self: &mut Self) {
-        if let Some(component_name) = &self.current_component {
-            let sanitized = Self::sanitize_name(component_name);
-            let updated_components = self.components.iter().map(|c| {
-                if (c.name == sanitized) {
-                    ComponentMetadata { name: c.name.clone(), has_state: true, has_effects: c.has_effects }
-                } else {
-                    c.clone()
-                }
-            }).collect();
-            self.components = updated_components;
-        }
-        self.append("    private object _state;");
-        self.newline()
-    }
-    
-    fn extract_effect(self: &mut Self) {
-        if let Some(component_name) = &self.current_component {
-            let sanitized = Self::sanitize_name(component_name);
-            let updated_components = self.components.iter().map(|c| {
-                if (c.name == sanitized) {
-                    ComponentMetadata { name: c.name.clone(), has_state: c.has_state, has_effects: true }
-                } else {
-                    c.clone()
-                }
-            }).collect();
-            self.components = updated_components;
-        }
-        self.append("    public void OnInitialized() { }");
-        self.newline()
-    }
-    
-    fn count_components_with_state(components: &Vec<ComponentMetadata>) -> i32 {
-        let mut count = 0;
-        for component in components {
-            if component.has_state {
-                count += 1
-            }
-        }
-        count
-    }
-    
-    fn get_component_names(components: &Vec<ComponentMetadata>) -> Vec<String> {
-        components.iter().map(|c| c.name.clone()).collect()
-    }
-    
-    fn find_component(components: &Vec<ComponentMetadata>, name: &String) -> Option<&ComponentMetadata> {
-        components.iter().find(|c| (c.name == *name))
-    }
-    
-    fn to_camel_case(s: &String) -> String {
-        if s.is_empty() {
-            return s.clone();
-        }
-        let first = s.chars().next().unwrap();
-        format!("{}{}", first.to_lowercase(), &&s[1..])
-    }
-    
-    fn to_snake_case(s: &String) -> String {
-        s.to_lowercase().replace(" ", "_")
-    }
-    
 }
 
-impl Visit for KitchenSinkWriter {
+impl VisitMut for TestNumberType {
     
-    fn visit_fn_decl(&mut self, n: &FnDecl) {
-        let name = n.ident.sym.clone();
-        if Self::is_component(&name) {
-            let sanitized = Self::sanitize_name(&name);
-            self.current_component = Some(name.clone());
-            let metadata = ComponentMetadata { name: sanitized.clone(), has_state: false, has_effects: false };
-            self.append("public class ");
-            self.append(&sanitized);
-            self.newline();
-            self.append("{");
-            self.newline();
-            swc_ecma_visit::VisitWith::visit_children_with(n, self);
-            self.append("}");
-            self.newline();
-            self.newline();
-            self.components.push(metadata);
-            self.current_component = None;
-        }
-    }
-    
-    fn visit_call_expr(&mut self, n: &CallExpr) {
-        if let Some(callee_name) = Self::get_callee_name(&n.callee) {
-            if (callee_name == "useState") {
-                self.extract_state_var()
-            } else {
-                if (callee_name == "useEffect") {
-                    self.extract_effect()
-                }
-            }
-        }
-        swc_ecma_visit::VisitWith::visit_children_with(n, self);
-    }
-    
-    fn visit_ident(&mut self, n: &Ident) {
-        let _name = n.sym.clone();
-    }
-    
-    fn visit_jsx_element(&mut self, n: &JSXElement) {
-        self.append("    // JSX element");
-        self.newline();
-        swc_ecma_visit::VisitWith::visit_children_with(n, self);
+    fn visit_mut_ident(&mut self, n: &mut Ident) {
+        let test1 = TestStruct { count: 42 };
+        let num = 10;
+        let test2 = TestStruct { count: num };
+        self.items.push(test1);
+        self.items.push(test2);
     }
 }

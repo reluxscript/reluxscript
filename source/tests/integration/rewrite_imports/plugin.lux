@@ -1,0 +1,15 @@
+/// Plugin that rewrites import paths (bundler/module resolution)
+/// Tests: Import declaration mutation, string manipulation
+plugin RewriteImports {
+    fn visit_import_declaration(node: &mut ImportDeclaration, ctx: &Context) {
+        // Rewrite relative imports to aliased paths
+        if node.source.value.starts_with("../../../components") {
+            node.source.value = node.source.value.replace("../../../components", "@/components");
+        }
+
+        // Rewrite old package names to new ones
+        if node.source.value == "react-icons" {
+            node.source.value = "@react-icons/all".to_string();
+        }
+    }
+}

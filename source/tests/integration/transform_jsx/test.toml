@@ -1,0 +1,12 @@
+[test]
+name = "transform-jsx"
+description = "Transform JSX patterns (div to span)"
+
+[plugin]
+source = "plugin.lux"
+
+[input]
+source = "input.js"
+
+[expected]
+source = "expected.js"

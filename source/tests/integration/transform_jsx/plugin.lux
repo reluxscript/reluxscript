@@ -1,0 +1,22 @@
+/// Plugin that transforms JSX elements
+/// Tests: JSX handling, attribute mutation, element transformation
+plugin TransformJSX {
+    fn visit_jsx_element(node: &mut JSXElement, ctx: &Context) {
+        // Transform all div elements to span
+        if let JSXIdentifier(ref name) = node.opening_element.name {
+            if name.name == "div" {
+                // Change opening tag
+                node.opening_element.name = JSXIdentifier(Identifier {
+                    name: "span",
+                });
+
+                // Change closing tag if it exists
+                if let Some(ref mut closing) = node.closing_element {
+                    closing.name = JSXIdentifier(Identifier {
+                        name: "span",
+                    });
+                }
+            }
+        }
+    }
+}

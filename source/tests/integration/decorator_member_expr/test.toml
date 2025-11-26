@@ -1,0 +1,12 @@
+[test]
+name = "decorator-member-expr"
+description = "Test member expression decoration with proper type context"
+
+[plugin]
+source = "plugin.lux"
+
+[input]
+source = "input.js"
+
+[expected]
+source = "expected.js"

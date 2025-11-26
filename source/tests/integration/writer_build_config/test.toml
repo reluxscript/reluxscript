@@ -1,0 +1,12 @@
+[test]
+name = "writer-build-config"
+description = "Writer: Extract build configuration and dependency graph from imports/exports"
+
+[plugin]
+source = "plugin.lux"
+
+[input]
+source = "input.js"
+
+[expected]
+source = "expected.js"

@@ -1,0 +1,12 @@
+[test]
+name = "writer-schema-extraction"
+description = "Writer: Extract GraphQL-like schemas from JavaScript object literals"
+
+[plugin]
+source = "plugin.lux"
+
+[input]
+source = "input.js"
+
+[expected]
+source = "expected.js"

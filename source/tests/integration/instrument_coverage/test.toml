@@ -1,0 +1,12 @@
+[test]
+name = "instrument-coverage"
+description = "Instrument code for coverage tracking"
+
+[plugin]
+source = "plugin.lux"
+
+[input]
+source = "input.js"
+
+[expected]
+source = "expected.js"
