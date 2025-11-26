@@ -86,17 +86,33 @@ impl SwcEmitter {
         self.emit_line(&format!("pub struct {} {{}}", plugin.name));
         self.emit_line("");
 
-        // Impl VisitMut
+        // Impl VisitMut (only visitor methods)
         self.emit_line(&format!("impl VisitMut for {} {{", plugin.name));
         self.indent += 1;
 
-        // Emit all visitor methods
+        // Emit only visitor methods (visit_*)
         for item in &plugin.body {
-            self.emit_plugin_item(item);
+            if let DecoratedPluginItem::Function(func) = item {
+                if func.name.starts_with("visit_") {
+                    self.emit_plugin_item(item);
+                }
+            } else {
+                // Structs, enums, impls go in VisitMut block
+                self.emit_plugin_item(item);
+            }
         }
 
         self.indent -= 1;
         self.emit_line("}");
+
+        // Emit helper functions outside VisitMut impl
+        for item in &plugin.body {
+            if let DecoratedPluginItem::Function(func) = item {
+                if !func.name.starts_with("visit_") {
+                    self.emit_plugin_item(item);
+                }
+            }
+        }
     }
 
     fn emit_writer(&mut self, writer: &DecoratedWriter) {
@@ -491,13 +507,18 @@ impl SwcEmitter {
             DecoratedPatternKind::Struct { name, fields } => {
                 self.output.push_str(name);
                 self.output.push_str(" { ");
-                for (i, (field_name, field_pat)) in fields.iter().enumerate() {
-                    if i > 0 {
-                        self.output.push_str(", ");
+                if fields.is_empty() {
+                    // Empty fields = wildcard struct pattern
+                    self.output.push_str("..");
+                } else {
+                    for (i, (field_name, field_pat)) in fields.iter().enumerate() {
+                        if i > 0 {
+                            self.output.push_str(", ");
+                        }
+                        self.output.push_str(field_name);
+                        self.output.push_str(": ");
+                        self.emit_pattern(field_pat);
                     }
-                    self.output.push_str(field_name);
-                    self.output.push_str(": ");
-                    self.emit_pattern(field_pat);
                 }
                 self.output.push_str(" }");
             }
@@ -729,7 +750,25 @@ impl SwcEmitter {
 
                     self.output.push_str(" => {\n");
                     self.indent += 1;
-                    self.emit_block(&arm.body);
+
+                    // Emit statements, but skip semicolon on the last expression
+                    for (i, stmt) in arm.body.stmts.iter().enumerate() {
+                        let is_last = i == arm.body.stmts.len() - 1;
+
+                        if is_last {
+                            if let DecoratedStmt::Expr(expr) = stmt {
+                                // Last statement is an expression - emit without semicolon
+                                self.emit_indent();
+                                self.emit_expr(expr);
+                                self.output.push('\n');
+                                continue;
+                            }
+                        }
+
+                        // Normal statement emission
+                        self.emit_stmt(stmt);
+                    }
+
                     self.indent -= 1;
                     self.emit_line("}");
                 }

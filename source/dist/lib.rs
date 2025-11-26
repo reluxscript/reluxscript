@@ -5,21 +5,19 @@ use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{VisitMut, VisitMutWith};
 
-pub struct RemoveConsole {}
+pub struct MatchesTest {}
 
-impl VisitMut for RemoveConsole {
-    fn visit_mut_call_expr(&mut self, node: &mut CallExpr) {
-        if let Callee::Expr(__callee_expr) = &node.callee {
-            if let Expr::Member(member) = __callee_expr.as_ref() {
-                if let Expr::Ident(obj) = &member.obj.as_ref() {
-                    if let MemberProp::Ident(prop) = &member.prop {
-                        if ((&*obj.sym == "console") && (&*prop.sym == "log")) {
-                            node.callee = Callee::Expr(Box::new(Expr::Ident(Ident::new("undefined".into(), DUMMY_SP, SyntaxContext::empty()))));
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
+impl VisitMut for MatchesTest {
 }
+fn test(expr: &CallExpr) {
+    if match expr {
+        CallExpr { .. } => {
+            true
+        }
+        _ => {
+            false
+        }
+    } {
+    }
+}
+

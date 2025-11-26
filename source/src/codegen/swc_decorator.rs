@@ -455,7 +455,14 @@ impl SwcDecorator {
                     }
                 } else {
                     // Simple variants like Some, None, Ok, Err
-                    name.clone()
+                    // Also handles struct-like patterns like CallExpression(_)
+                    // Use node mapping for accurate type conversion
+                    if let Some(mapping) = get_node_mapping(name) {
+                        mapping.swc.to_string()
+                    } else {
+                        // Fallback to reluxscript_to_swc_type for built-in types
+                        self.reluxscript_to_swc_type(name)
+                    }
                 };
 
                 // Determine unwrap strategy based on expected_type
@@ -494,6 +501,20 @@ impl SwcDecorator {
                 } else {
                     None
                 };
+
+                // 🔥 SPECIAL CASE: If this is a struct type with wildcard inner, generate struct pattern
+                // Example: CallExpression(_) → CallExpr { .. } (not CallExpr(_))
+                if !name.contains("::") && inner.as_ref().map_or(false, |p| matches!(**p, Pattern::Wildcard)) {
+                    // This is a plain type name (no ::) with wildcard inner → it's a struct!
+                    // Generate struct pattern with wildcard fields
+                    return DecoratedPattern {
+                        kind: DecoratedPatternKind::Struct {
+                            name: swc_pattern.clone(),
+                            fields: vec![],  // Empty fields means match any
+                        },
+                        metadata: SwcPatternMetadata::direct(format!("{} {{ .. }}", swc_pattern)),
+                    };
+                }
 
                 // Recursively decorate inner pattern if present
                 let decorated_inner = inner.as_ref().map(|inner_pat| {
@@ -568,12 +589,16 @@ impl SwcDecorator {
                     .map(|(fname, fpat)| (fname.clone(), self.decorate_pattern_with_context(fpat, "Unknown")))
                     .collect();
 
+                // Map the struct name to SWC type (e.g., CallExpression → CallExpr)
+                // Use reluxscript_to_swc_type which maps to the plain type name
+                let swc_name = self.reluxscript_to_swc_type(name);
+
                 DecoratedPattern {
                     kind: DecoratedPatternKind::Struct {
-                        name: name.clone(),
+                        name: swc_name.clone(),
                         fields: decorated_fields,
                     },
-                    metadata: SwcPatternMetadata::direct(name.clone()),
+                    metadata: SwcPatternMetadata::direct(swc_name),
                 }
             }
 
