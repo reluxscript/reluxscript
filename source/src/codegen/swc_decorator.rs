@@ -1,7 +1,7 @@
 //! SWC Decorator - Transforms parser AST into decorated AST with SWC semantics
 //!
 //! This is where the magic happens! The decorator:
-//! 1. Walks the original AST
+//! 1. Walks the ReluxScript AST
 //! 2. Infers SWC types for each expression
 //! 3. Transforms patterns based on CONTEXT (what type is being matched?)
 //! 4. Annotates field access with correct unwrap strategies
@@ -17,7 +17,7 @@
 use crate::parser::*;
 use crate::type_system::{TypeContext, SwcTypeKind};
 use crate::mapping::get_node_mapping;
-use super::type_context::get_typed_field_mapping;
+use super::type_context::{get_typed_field_mapping, map_reluxscript_to_swc};
 use super::swc_metadata::*;
 use super::decorated_ast::*;
 use std::collections::HashMap;
@@ -30,6 +30,10 @@ pub struct SwcDecorator {
 
     /// Current function parameters (for type inference)
     current_params: HashMap<String, TypeContext>,
+
+    /// Semantic type environment from semantic analysis pass
+    /// Contains all type information already computed
+    semantic_type_env: Option<crate::semantic::TypeEnv>,
 }
 
 impl SwcDecorator {
@@ -37,6 +41,54 @@ impl SwcDecorator {
         Self {
             type_env: HashMap::new(),
             current_params: HashMap::new(),
+            semantic_type_env: None,
+        }
+    }
+
+    /// Create a new decorator with semantic type information
+    pub fn with_semantic_types(semantic_type_env: crate::semantic::TypeEnv) -> Self {
+        Self {
+            type_env: HashMap::new(),
+            current_params: HashMap::new(),
+            semantic_type_env: Some(semantic_type_env),
+        }
+    }
+
+    /// Look up variable type from semantic TypeEnv and convert to SWC type string
+    fn lookup_semantic_type(&self, var_name: &str) -> Option<String> {
+        if let Some(ref type_env) = self.semantic_type_env {
+            if let Some(type_info) = type_env.lookup(var_name) {
+                return Some(Self::type_info_to_swc_type(type_info));
+            }
+        }
+        None
+    }
+
+    /// Convert semantic TypeInfo to SWC type string
+    fn type_info_to_swc_type(type_info: &crate::semantic::TypeInfo) -> String {
+        use crate::semantic::TypeInfo;
+        use super::type_context::map_reluxscript_to_swc;
+
+        match type_info {
+            TypeInfo::Str => "String".to_string(),
+            TypeInfo::I32 => "i32".to_string(),
+            TypeInfo::U32 => "u32".to_string(),
+            TypeInfo::F64 => "f64".to_string(),
+            TypeInfo::Bool => "bool".to_string(),
+            TypeInfo::Unit => "()".to_string(),
+            TypeInfo::Null => "Option".to_string(),
+            TypeInfo::Ref { inner, .. } => Self::type_info_to_swc_type(inner),
+            TypeInfo::Vec(inner) => format!("Vec<{}>", Self::type_info_to_swc_type(inner)),
+            TypeInfo::Option(inner) => format!("Option<{}>", Self::type_info_to_swc_type(inner)),
+            TypeInfo::Result(ok, err) => format!("Result<{}, {}>",
+                Self::type_info_to_swc_type(ok),
+                Self::type_info_to_swc_type(err)),
+            TypeInfo::AstNode(name) => {
+                // Convert ReluxScript AST node name to SWC type
+                // e.g., "MemberExpression" -> "MemberExpr"
+                map_reluxscript_to_swc(name).0
+            }
+            _ => "Unknown".to_string(),
         }
     }
 
@@ -106,7 +158,18 @@ impl SwcDecorator {
         // Clear and register parameter types
         self.current_params.clear();
         for param in &func.params {
-            let type_ctx = self.type_annotation_to_context(&param.ty);
+            // First try semantic type env, fallback to annotation parsing
+            let type_ctx = if let Some(swc_type) = self.lookup_semantic_type(&param.name) {
+                TypeContext {
+                    reluxscript_type: param.name.clone(),
+                    swc_type,
+                    kind: SwcTypeKind::Unknown, // Will be refined
+                    known_variant: None,
+                    needs_deref: false,
+                }
+            } else {
+                self.type_annotation_to_context(&param.ty)
+            };
             self.current_params.insert(param.name.clone(), type_ctx.clone());
             self.type_env.insert(param.name.clone(), type_ctx);
         }
@@ -213,6 +276,10 @@ impl SwcDecorator {
                 };
 
                 let pattern = self.decorate_pattern_with_context(&for_stmt.pattern, &element_type);
+
+                // Register pattern bindings for the loop body
+                self.register_pattern_bindings(&for_stmt.pattern, &element_type);
+
                 let body = self.decorate_block(&for_stmt.body);
 
                 DecoratedStmt::For(DecoratedForStmt {
@@ -264,7 +331,12 @@ impl SwcDecorator {
         // If this is an if-let, decorate the pattern with CONTEXT
         let decorated_pattern = if let Some(ref pattern) = if_stmt.pattern {
             // THIS IS THE KEY: We know what type is being matched!
-            Some(self.decorate_pattern_with_context(pattern, condition_type))
+            let decorated_pat = self.decorate_pattern_with_context(pattern, condition_type);
+
+            // Register pattern bindings in type environment for the then branch
+            self.register_pattern_bindings(pattern, condition_type);
+
+            Some(decorated_pat)
         } else {
             None
         };
@@ -279,6 +351,49 @@ impl SwcDecorator {
             then_branch,
             else_branch,
             if_let_metadata: None, // TODO: Add if-let metadata
+        }
+    }
+
+    /// Register variables bound by a pattern into the type environment
+    fn register_pattern_bindings(&mut self, pattern: &Pattern, bound_type: &str) {
+        match pattern {
+            Pattern::Ident(name) => {
+                // Simple identifier binding
+                self.type_env.insert(name.clone(), TypeContext {
+                    reluxscript_type: bound_type.to_string(),
+                    swc_type: bound_type.to_string(),
+                    kind: SwcTypeKind::Unknown,
+                    known_variant: None,
+                    needs_deref: false,
+                });
+            }
+            Pattern::Variant { name, inner } => {
+                // For variant patterns, the inner binding gets the variant's type
+                if let Some(inner_pattern) = inner {
+                    // Extract the variant type name
+                    // e.g., "Callee::MemberExpression" → inner type is "MemberExpression"
+                    let inner_type = if name.contains("::") {
+                        let parts: Vec<&str> = name.split("::").collect();
+                        if parts.len() == 2 {
+                            // Convert "MemberExpression" to "MemberExpr" using mapping
+                            let (_swc_type, _kind) = map_reluxscript_to_swc(parts[1]);
+                            _swc_type
+                        } else {
+                            bound_type.to_string()
+                        }
+                    } else {
+                        bound_type.to_string()
+                    };
+                    self.register_pattern_bindings(inner_pattern, &inner_type);
+                }
+            }
+            Pattern::Ref { pattern: inner, .. } => {
+                // Ref pattern: register the inner pattern with the same type
+                self.register_pattern_bindings(inner, bound_type);
+            }
+            _ => {
+                // Other patterns don't bind simple names we can track
+            }
         }
     }
 
@@ -458,10 +573,23 @@ impl SwcDecorator {
             Expr::Ident(ident_expr) => {
                 let name = &ident_expr.name;
 
-                // Look up type in environment
+                // Look up type in environment (local first, then semantic)
                 let type_ctx = self.type_env.get(name)
                     .cloned()
-                    .unwrap_or_else(|| TypeContext::unknown());
+                    .unwrap_or_else(|| {
+                        // Try semantic type environment
+                        if let Some(swc_type_str) = self.lookup_semantic_type(name) {
+                            TypeContext {
+                                reluxscript_type: name.clone(),
+                                swc_type: swc_type_str.clone(),
+                                kind: SwcTypeKind::Unknown, // Will be refined later
+                                known_variant: None,
+                                needs_deref: false,
+                            }
+                        } else {
+                            TypeContext::unknown()
+                        }
+                    });
 
                 DecoratedExpr {
                     kind: DecoratedExprKind::Ident {
@@ -510,7 +638,7 @@ impl SwcDecorator {
                     SwcFieldMetadata {
                         swc_field_name: swc_field.to_string(),
                         accessor: FieldAccessor::Direct,
-                        field_type: "Unknown".to_string(),
+                        field_type: "UserDefined".to_string(),
                         source_field: Some(mem.property.clone()),
                         span: Some(mem.span),
                     }
@@ -541,6 +669,25 @@ impl SwcDecorator {
             Expr::Unary(unary) => {
                 let decorated_operand = Box::new(self.decorate_expr(&unary.operand));
 
+                // Infer result type based on operation
+                let result_type = match unary.op {
+                    UnaryOp::Deref => {
+                        // *expr unwraps Box<T> -> T
+                        let operand_type = &decorated_operand.metadata.swc_type;
+                        if operand_type.starts_with("Box<") && operand_type.ends_with(">") {
+                            // Extract T from Box<T>
+                            operand_type[4..operand_type.len()-1].to_string()
+                        } else {
+                            // Dereference of non-Box, type stays the same
+                            operand_type.clone()
+                        }
+                    }
+                    _ => {
+                        // For other unary ops, type stays the same
+                        decorated_operand.metadata.swc_type.clone()
+                    }
+                };
+
                 DecoratedExpr {
                     kind: DecoratedExprKind::Unary {
                         op: unary.op,
@@ -551,7 +698,7 @@ impl SwcDecorator {
                         },
                     },
                     metadata: SwcExprMetadata {
-                        swc_type: "Unknown".to_string(),
+                        swc_type: result_type,
                         is_boxed: false,
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
@@ -611,7 +758,7 @@ impl SwcDecorator {
                         span: call.span,
                     })),
                     metadata: SwcExprMetadata {
-                        swc_type: "Unknown".to_string(),
+                        swc_type: "UserDefined".to_string(),
                         is_boxed: false,
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
@@ -636,7 +783,7 @@ impl SwcDecorator {
                 DecoratedExpr {
                     kind: DecoratedExprKind::Block(decorated_block),
                     metadata: SwcExprMetadata {
-                        swc_type: "Unknown".to_string(),
+                        swc_type: "UserDefined".to_string(),
                         is_boxed: false,
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
@@ -655,7 +802,7 @@ impl SwcDecorator {
                         index: index_expr,
                     },
                     metadata: SwcExprMetadata {
-                        swc_type: "Unknown".to_string(),
+                        swc_type: "UserDefined".to_string(),
                         is_boxed: false,
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
@@ -707,7 +854,7 @@ impl SwcDecorator {
                         else_branch,
                     })),
                     metadata: SwcExprMetadata {
-                        swc_type: "Unknown".to_string(),
+                        swc_type: "UserDefined".to_string(),
                         is_boxed: false,
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
@@ -741,7 +888,7 @@ impl SwcDecorator {
                         arms,
                     })),
                     metadata: SwcExprMetadata {
-                        swc_type: "Unknown".to_string(),
+                        swc_type: "UserDefined".to_string(),
                         is_boxed: false,
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
@@ -862,7 +1009,7 @@ impl SwcDecorator {
                 DecoratedExpr {
                     kind: DecoratedExprKind::Try(expr),
                     metadata: SwcExprMetadata {
-                        swc_type: "Unknown".to_string(),
+                        swc_type: "UserDefined".to_string(),
                         is_boxed: false,
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,

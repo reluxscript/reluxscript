@@ -297,7 +297,8 @@ plugin {name} {{
                 }
 
                 use reluxscript::SwcDecorator;
-                let mut decorator = SwcDecorator::new();
+                // Use semantic type environment for decoration
+                let mut decorator = SwcDecorator::with_semantic_types(result.type_env);
                 let decorated = decorator.decorate_program(&program);
 
                 println!("\n=== DECORATED AST FOR SWC ===");
