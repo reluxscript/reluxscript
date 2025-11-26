@@ -665,10 +665,13 @@ impl SwcDecorator {
             }
 
             Expr::StructInit(struct_init) => {
+                // Map ReluxScript type to SWC type
+                let swc_type = self.reluxscript_to_swc_type(&struct_init.name);
+
                 DecoratedExpr {
                     kind: DecoratedExprKind::StructInit(struct_init.clone()),
                     metadata: SwcExprMetadata {
-                        swc_type: struct_init.name.clone(),
+                        swc_type,
                         is_boxed: false,
                         is_optional: false,
                         type_kind: SwcTypeKind::Struct,
@@ -781,13 +784,17 @@ impl SwcDecorator {
             Expr::Deref(deref_expr) => {
                 let expr = Box::new(self.decorate_expr(&deref_expr.expr));
 
+                // When dereferencing, the type is the inner type (unwrap Box/Ref)
+                let swc_type = expr.metadata.swc_type.clone();
+                let type_kind = expr.metadata.type_kind.clone();
+
                 DecoratedExpr {
                     kind: DecoratedExprKind::Deref(expr),
                     metadata: SwcExprMetadata {
-                        swc_type: "Unknown".to_string(),
+                        swc_type,
                         is_boxed: false,
                         is_optional: false,
-                        type_kind: SwcTypeKind::Unknown,
+                        type_kind,
                         span: Some(deref_expr.span),
                     },
                 }
