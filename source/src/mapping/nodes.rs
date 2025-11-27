@@ -48,6 +48,16 @@ pub static NODE_MAPPINGS: Lazy<Vec<NodeMapping>> = Lazy::new(|| vec![
         swc_visitor: "visit_mut_var_decl",
     },
     NodeMapping {
+        reluxscript: "VariableDeclarator",
+        babel: "VariableDeclarator",
+        swc: "VarDeclarator",
+        swc_enum: None,
+        babel_checker: "isVariableDeclarator",
+        swc_pattern: "VarDeclarator",
+        visitor_method: "visit_variable_declarator",
+        swc_visitor: "visit_mut_var_declarator",
+    },
+    NodeMapping {
         reluxscript: "ClassDeclaration",
         babel: "ClassDeclaration",
         swc: "ClassDecl",

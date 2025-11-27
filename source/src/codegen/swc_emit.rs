@@ -882,7 +882,8 @@ impl SwcEmitter {
             }
 
             DecoratedExprKind::StructInit(struct_init) => {
-                self.output.push_str(&struct_init.name);
+                // Use the SWC type from metadata (e.g., Identifier → Ident)
+                self.output.push_str(&expr.metadata.swc_type);
                 self.output.push_str(" { ");
                 for (i, (field_name, field_expr)) in struct_init.fields.iter().enumerate() {
                     if i > 0 {

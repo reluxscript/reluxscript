@@ -5,48 +5,26 @@ use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{VisitMut, VisitMutWith};
 
-pub struct EmitterIssuesTest {}
-
-impl VisitMut for EmitterIssuesTest {
-}
-fn test_path_expression(expr: &Expr) -> String {
-    let code = codegen::generate(expr);
-    code
+struct RenameMap {
+    old_name: String,
+    new_name: String,
 }
 
-fn test_macro_call(name: &String) -> String {
-    format!("Hello, {}!", name)
-}
+pub struct VariableRenamer {}
 
-fn test_pattern_matching(pattern: &Pat) -> bool {
-    match pattern {
-        Pat::Array(arr) => {
-            true
-        }
-        Pat::Object(obj) => {
-            true
-        }
-        Pat::Ident(id) => {
-            false
-        }
-        _ => {
-            false
+impl VisitMut for VariableRenamer {
+    fn visit_mut_ident(&mut self, node: &mut Ident) {
+        if (&*node.sym == "oldVar") {
+            *node = Ident { sym: "newVar".to_string().into(), span: DUMMY_SP, optional: false, ctxt: SyntaxContext::empty() }.into()
         }
     }
+    
+    fn visit_mut_var_declarator(&mut self, node: &mut VarDeclarator) {
+        if let Pat::Ident(id) = &mut node.name {
+            if (&*id.sym == "temp") {
+                *id = Ident { sym: "renamed".to_string().into(), span: DUMMY_SP, optional: false, ctxt: SyntaxContext::empty() }.into()
+            }
+        }
+    }
+    
 }
-
-fn test_combined(pattern: &Pat) -> String {
-    let result = match pattern {
-        Pat::Array(_) => {
-            "array"
-        }
-        Pat::Object(_) => {
-            "object"
-        }
-        _ => {
-            "other"
-        }
-    };
-    format!("Pattern type: {}", result)
-}
-

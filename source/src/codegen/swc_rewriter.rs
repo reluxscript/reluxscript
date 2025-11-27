@@ -17,6 +17,7 @@ use crate::parser::*;
 use crate::lexer::Span;
 use super::decorated_ast::*;
 use super::swc_metadata::*;
+use crate::type_system::SwcTypeKind;
 use super::swc_decorator::{DecoratedProgram, DecoratedTopLevelDecl, DecoratedPlugin, DecoratedWriter, DecoratedPluginItem, DecoratedFnDecl, DecoratedImplBlock};
 
 /// SwcRewriter transforms DecoratedAST → DecoratedAST
@@ -544,6 +545,7 @@ impl SwcRewriter {
         let expr = self.apply_field_replacements(expr);
         let expr = self.apply_context_remove(expr);
         let expr = self.apply_codegen_helpers(expr);
+        let expr = self.apply_ast_struct_init(expr);
         let expr = self.apply_matches_expansion(expr);
         let expr = self.apply_iterator_methods(expr);
         // TODO Phase 4: Apply nested member unwrapping
@@ -1021,6 +1023,127 @@ impl SwcRewriter {
                         }
                     }
                 }
+            }
+        }
+
+        // No transformation needed
+        expr
+    }
+
+    // ========================================================================
+    // TRANSFORMATION: AST Struct Initialization
+    // ========================================================================
+
+    /// 🔧 Transform AST node struct initialization to add required fields
+    /// transforms: Identifier { name: "x" } → Ident { sym: "x".into(), span: DUMMY_SP }
+    fn apply_ast_struct_init(&mut self, expr: DecoratedExpr) -> DecoratedExpr {
+        use crate::parser::{Expr, StructInitExpr, IdentExpr, MemberExpr, CallExpr, Literal};
+        use crate::lexer::Span;
+
+        if let DecoratedExprKind::StructInit(ref struct_init) = expr.kind {
+            // Check if this is an AST node type that needs transformation
+            let swc_type = &expr.metadata.swc_type;
+
+            // For Identifier → Ident, transform the fields
+            if struct_init.name == "Identifier" && swc_type == "Ident" {
+                let mut new_fields = Vec::new();
+
+                // Map each field - working with undecorated Expr from StructInit
+                for (field_name, field_expr) in &struct_init.fields {
+                    if field_name == "name" {
+                        // name → sym with .into()
+                        // Create: field_expr.into()
+                        let into_call = Expr::Call(CallExpr {
+                            callee: Box::new(Expr::Member(MemberExpr {
+                                object: Box::new(field_expr.clone()),
+                                property: "into".to_string(),
+                                optional: false,
+                                computed: false,
+                                is_path: false,
+                                span: Span::new(0, 0, 0, 0),
+                            })),
+                            args: vec![],
+                            type_args: vec![],
+                            optional: false,
+                            is_macro: false,
+                            span: Span::new(0, 0, 0, 0),
+                        });
+                        new_fields.push(("sym".to_string(), into_call));
+                    } else {
+                        new_fields.push((field_name.clone(), field_expr.clone()));
+                    }
+                }
+
+                // Add required fields that weren't specified
+                if !new_fields.iter().any(|(name, _)| name == "span") {
+                    new_fields.push((
+                        "span".to_string(),
+                        Expr::Ident(IdentExpr {
+                            name: "DUMMY_SP".to_string(),
+                            span: Span::new(0, 0, 0, 0),
+                        })
+                    ));
+                }
+
+                // Add optional: false
+                if !new_fields.iter().any(|(name, _)| name == "optional") {
+                    new_fields.push((
+                        "optional".to_string(),
+                        Expr::Literal(Literal::Bool(false))
+                    ));
+                }
+
+                // Add ctxt: SyntaxContext::empty()
+                // Use a simple identifier "SyntaxContext::empty()" as a workaround
+                if !new_fields.iter().any(|(name, _)| name == "ctxt") {
+                    new_fields.push((
+                        "ctxt".to_string(),
+                        Expr::Ident(IdentExpr {
+                            name: "SyntaxContext::empty()".to_string(),
+                            span: Span::new(0, 0, 0, 0),
+                        })
+                    ));
+                }
+
+                // Return transformed struct init with updated fields
+                // Wrap in DecoratedExpr so it can be converted with .into() if needed
+                let ident_expr = DecoratedExpr {
+                    kind: DecoratedExprKind::StructInit(StructInitExpr {
+                        name: swc_type.clone(),
+                        fields: new_fields,
+                        span: struct_init.span,
+                    }),
+                    metadata: expr.metadata.clone(),
+                };
+
+                // Wrap in .into() call for automatic conversion (Ident -> BindingIdent, etc.)
+                return DecoratedExpr {
+                    kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                        callee: DecoratedExpr {
+                            kind: DecoratedExprKind::Member {
+                                object: Box::new(ident_expr),
+                                property: "into".to_string(),
+                                optional: false,
+                                computed: false,
+                                is_path: false,
+                                field_metadata: SwcFieldMetadata::direct("into".to_string(), "fn".to_string()),
+                            },
+                            metadata: SwcExprMetadata {
+                                swc_type: "fn".to_string(),
+                                is_boxed: false,
+                                is_optional: false,
+                                type_kind: SwcTypeKind::Primitive,
+                                span: Some(struct_init.span),
+                            },
+                        },
+                        args: vec![],
+                        type_args: vec![],
+                        optional: false,
+                        is_macro: false,
+                        span: struct_init.span,
+                    })),
+                    metadata: expr.metadata.clone(),
+                };
             }
         }
 

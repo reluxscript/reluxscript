@@ -1,0 +1,7 @@
+// Simple writer that generates code
+writer SimpleWriter {
+    fn generate_greeting(name: &str) -> String {
+        let message = format!("Hello, {}!", name);
+        return message;
+    }
+}
