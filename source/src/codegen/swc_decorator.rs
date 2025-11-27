@@ -101,6 +101,7 @@ impl SwcDecorator {
     /// Decorate a full program (main entry point)
     pub fn decorate_program(&mut self, program: &Program) -> DecoratedProgram {
         DecoratedProgram {
+            uses: program.uses.clone(),
             decl: self.decorate_top_level_decl(&program.decl),
         }
     }
@@ -1358,6 +1359,7 @@ impl SwcDecorator {
 
 #[derive(Debug, Clone)]
 pub struct DecoratedProgram {
+    pub uses: Vec<crate::parser::UseStmt>,
     pub decl: DecoratedTopLevelDecl,
 }
 

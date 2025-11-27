@@ -70,6 +70,9 @@ impl SwcEmitter {
         // Emit header with conditional imports
         self.emit_header();
 
+        // Emit user module imports (from use statements)
+        self.emit_user_imports(&program.uses);
+
         // Emit the main code
         self.emit_top_level_decl(&program.decl);
 
@@ -92,9 +95,23 @@ impl SwcEmitter {
     // ========================================================================
 
     fn detect_imports(&mut self, program: &DecoratedProgram) {
-        // TODO: Detect HashMap/HashSet usage by walking the AST
-        // TODO: Detect json/fs/parser/codegen usage from use statements
-        // For now, these will be false - we can add detection later if needed
+        // Scan use statements to detect which modules are imported
+        for use_stmt in &program.uses {
+            match use_stmt.path.as_str() {
+                "codegen" => self.uses_codegen = true,
+                "parser" => self.uses_parser = true,
+                "fs" => self.uses_fs = true,
+                "json" => self.uses_json = true,
+                "HashMap" => self.uses_hashmap = true,
+                "HashSet" => self.uses_hashset = true,
+                _ => {
+                    // File modules or unknown modules - ignore for now
+                }
+            }
+        }
+
+        // TODO: Also walk AST to detect HashMap/HashSet usage even without explicit use statements
+        // For now, relying on use statements is sufficient
     }
 
     // ========================================================================
@@ -142,6 +159,54 @@ impl SwcEmitter {
         }
 
         self.emit_line("");
+    }
+
+    /// Emit user module imports (from use statements)
+    fn emit_user_imports(&mut self, uses: &[crate::parser::UseStmt]) {
+        if uses.is_empty() {
+            return;
+        }
+
+        for use_stmt in uses {
+            let is_file_module = use_stmt.path.starts_with("./") || use_stmt.path.starts_with("../");
+
+            if is_file_module {
+                // File module: convert path to module name
+                // e.g., "./helpers.lux" -> "helpers"
+                // e.g., "../utils/types.lux" -> "types" (just use the filename)
+                let module_name = self.extract_module_name_from_path(&use_stmt.path);
+
+                // Emit mod declaration
+                self.emit_line(&format!("mod {};", module_name));
+
+                // Emit use statement for imports
+                if !use_stmt.imports.is_empty() {
+                    // Named imports: use helpers::{get_component_name, escape_string};
+                    let imports = use_stmt.imports.join(", ");
+                    self.emit_line(&format!("use {}::{{{}}};", module_name, imports));
+                } else if let Some(alias) = &use_stmt.alias {
+                    // Aliased import: use helpers as h;
+                    self.emit_line(&format!("use {} as {};", module_name, alias));
+                } else {
+                    // Full import: use helpers;
+                    self.emit_line(&format!("use {};", module_name));
+                }
+            }
+            // Skip built-in modules - they're handled by detect_imports
+        }
+
+        self.emit_line("");
+    }
+
+    /// Extract module name from file path
+    fn extract_module_name_from_path(&self, path: &str) -> String {
+        // Remove .lux or .rsc extension
+        let path = path.replace(".lux", "").replace(".rsc", "");
+
+        // Extract just the filename from the path
+        // e.g., "./helpers" -> "helpers"
+        // e.g., "../utils/types" -> "types"
+        path.split('/').last().unwrap_or(&path).to_string()
     }
 
     // ========================================================================
