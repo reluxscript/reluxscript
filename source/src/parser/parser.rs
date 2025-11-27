@@ -1354,7 +1354,10 @@ impl Parser {
                         is_path: false,
                         span,
                     });
-                } else if self.match_token(TokenKind::LParen) {
+                } else if self.check(TokenKind::Not) && self.peek_ahead(1).map_or(false, |t| t.kind == TokenKind::LParen) {
+                    // Macro call: format!(...), println!(...), vec![...]
+                    self.advance(); // consume !
+                    self.advance(); // consume (
                     let args = self.parse_args()?;
                     self.expect(TokenKind::RParen)?;
                     let span = self.current_span();
@@ -1363,6 +1366,20 @@ impl Parser {
                         args,
                         type_args: Vec::new(),
                         optional: false,
+                        is_macro: true,
+                        span,
+                    });
+                } else if self.match_token(TokenKind::LParen) {
+                    // Regular function call
+                    let args = self.parse_args()?;
+                    self.expect(TokenKind::RParen)?;
+                    let span = self.current_span();
+                    expr = Expr::Call(CallExpr {
+                        callee: Box::new(expr),
+                        args,
+                        type_args: Vec::new(),
+                        optional: false,
+                        is_macro: false,
                         span,
                     });
                 } else if self.match_token(TokenKind::LBracket) {
@@ -1950,6 +1967,7 @@ impl Parser {
                     args,
                     type_args: Vec::new(),
                     optional: false,
+                    is_macro: false,
                     span,
                 });
             } else if self.match_token(TokenKind::Dot) {
@@ -2249,6 +2267,7 @@ impl Parser {
                     args,
                     type_args: Vec::new(),
                     optional: false,
+                    is_macro: true,
                     span,
                 }));
             } else {
@@ -2329,6 +2348,7 @@ impl Parser {
                     args,
                     type_args: Vec::new(),
                     optional: false,
+                    is_macro: false,
                     span,
                 }));
             }
@@ -2674,6 +2694,10 @@ impl Parser {
 
     fn peek(&self) -> Option<&Token> {
         self.tokens.get(self.pos)
+    }
+
+    fn peek_ahead(&self, n: usize) -> Option<&Token> {
+        self.tokens.get(self.pos + n)
     }
 
     fn advance(&mut self) -> Option<&Token> {

@@ -1,0 +1,22 @@
+// Minimal test for macro calls (!)
+plugin MacroCallTest {
+    fn test_format_macro(name: &Str) -> Str {
+        // Should emit: format!("Hello, {}", name)
+        format!("Hello, {}", name)
+    }
+
+    fn test_println_macro(msg: &Str) {
+        // Should emit: println!("{}", msg)
+        println!("{}", msg);
+    }
+
+    fn test_vec_macro() -> Vec<i32> {
+        // Should emit: vec![1, 2, 3]
+        vec![1, 2, 3]
+    }
+
+    fn test_panic_macro() {
+        // Should emit: panic!("Error")
+        panic!("Error");
+    }
+}

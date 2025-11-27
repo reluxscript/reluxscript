@@ -1,0 +1,39 @@
+// Minimal test for built-in module imports
+// Based on real minimact patterns (uses fs, json, parser, codegen)
+
+use fs;
+use json;
+use parser;
+use codegen;
+
+plugin BuiltinImportsTest {
+    fn test_fs_read(path: &Str) -> Str {
+        // Should emit: fs::read_to_string(path).unwrap()
+        fs::read_to_string(path).unwrap()
+    }
+
+    fn test_json_parse(data: &Str) -> Str {
+        // Should emit: serde_json::from_str(data).unwrap()
+        json::parse(data).unwrap()
+    }
+
+    fn test_parser_parse(code: &Str) -> Program {
+        // Should emit: parser::parse(code).unwrap()
+        parser::parse(code).unwrap()
+    }
+
+    fn test_codegen_generate(node: &Expr) -> Str {
+        // Should emit: codegen::generate(node)
+        codegen::generate(node)
+    }
+
+    fn test_combined_workflow(input_path: &Str) -> Str {
+        // Real-world pattern: read file, parse, transform, generate
+        let code = fs::read_to_string(input_path).unwrap();
+        let ast = parser::parse(&code).unwrap();
+
+        // Transform would happen here...
+
+        codegen::generate(&ast)
+    }
+}

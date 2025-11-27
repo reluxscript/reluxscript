@@ -867,6 +867,7 @@ impl SwcDecorator {
                         args,
                         type_args: call.type_args.clone(),
                         optional: call.optional,
+                        is_macro: call.is_macro,
                         span: call.span,
                     })),
                     metadata: SwcExprMetadata {

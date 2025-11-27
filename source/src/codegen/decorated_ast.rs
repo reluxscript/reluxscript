@@ -129,6 +129,7 @@ pub struct DecoratedCallExpr {
     pub args: Vec<DecoratedExpr>,
     pub type_args: Vec<crate::parser::TsType>,
     pub optional: bool,
+    pub is_macro: bool,
     pub span: Span,
 }
 

@@ -49,6 +49,7 @@ impl SwcRewriter {
     /// Main entry point: rewrite entire program
     pub fn rewrite_program(&mut self, program: DecoratedProgram) -> DecoratedProgram {
         DecoratedProgram {
+            uses: program.uses,
             decl: self.rewrite_top_level_decl(program.decl),
         }
     }
@@ -632,6 +633,7 @@ impl SwcRewriter {
                         .collect(),
                     type_args: call.type_args,
                     optional: call.optional,
+                        is_macro: call.is_macro,
                     span: call.span,
                 }))
             }
@@ -1093,6 +1095,7 @@ impl SwcRewriter {
                                     args: call.args.clone(),
                                     type_args: call.type_args.clone(),
                                     optional: call.optional,
+                        is_macro: call.is_macro,
                                     span: call.span,
                                 })),
                                 metadata: expr.metadata.clone(),

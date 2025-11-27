@@ -689,6 +689,8 @@ pub struct CallExpr {
     pub args: Vec<Expr>,
     pub type_args: Vec<TsType>,
     pub optional: bool,
+    /// True if this is a macro call (e.g., format!(...), vec![...])
+    pub is_macro: bool,
     pub span: Span,
 }
 

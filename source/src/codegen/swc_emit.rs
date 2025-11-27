@@ -843,17 +843,10 @@ impl SwcEmitter {
             }
 
             DecoratedExprKind::Call(call) => {
-                // Check if callee is a known macro (format, println, vec, panic, etc.)
-                let is_macro = if let DecoratedExprKind::Ident { name, .. } = &call.callee.kind {
-                    matches!(name.as_str(), "format" | "println" | "vec" | "panic" | "print" | "eprintln" | "eprint" | "dbg")
-                } else {
-                    false
-                };
-
                 self.emit_expr(&call.callee);
 
                 // Add ! suffix for macro calls
-                if is_macro {
+                if call.is_macro {
                     self.output.push('!');
                 }
 
