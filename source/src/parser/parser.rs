@@ -1698,6 +1698,27 @@ impl Parser {
         let start_span = self.current_span();
         let expr = self.parse_expr()?;
 
+        // Check if this is a custom property assignment
+        if let Expr::Assign(ref assign) = expr {
+            if let Expr::CustomPropAccess(ref access) = *assign.target {
+                // Convert to CustomPropAssignment statement
+                self.skip_newlines();
+                if !self.check(TokenKind::RBrace) {
+                    self.expect(TokenKind::Semicolon)?;
+                } else {
+                    self.match_token(TokenKind::Semicolon);
+                }
+
+                return Ok(Stmt::CustomPropAssignment(CustomPropAssignment {
+                    node: access.node.clone(),
+                    property: access.property.clone(),
+                    value: assign.value.clone(),
+                    ty: None,  // Type annotation not supported yet
+                    span: start_span,
+                }));
+            }
+        }
+
         // Semicolon is optional if this is the last expression in a block (before RBrace)
         // This allows the expression to serve as the block's return value
         self.skip_newlines();
@@ -1726,6 +1747,19 @@ impl Parser {
         if self.match_token(TokenKind::Eq) {
             let value = self.parse_assignment()?;
             let span = self.current_span();
+
+            // Check if this is a custom property assignment
+            if let Expr::CustomPropAccess(access) = expr {
+                // This is a custom property assignment, not a regular assignment
+                // We keep it as an Assign expression but the semantic analyzer
+                // will detect it via the CustomPropAccess target
+                return Ok(Expr::Assign(AssignExpr {
+                    target: Box::new(Expr::CustomPropAccess(access)),
+                    value: Box::new(value),
+                    span,
+                }));
+            }
+
             return Ok(Expr::Assign(AssignExpr {
                 target: Box::new(expr),
                 value: Box::new(value),
@@ -1988,14 +2022,24 @@ impl Parser {
                 // Member access
                 let property = self.expect_ident()?;
                 let span = self.current_span();
-                expr = Expr::Member(MemberExpr {
-                    object: Box::new(expr),
-                    property,
-                    optional: false,
-                    computed: false,
-                    is_path: false,
-                    span,
-                });
+
+                // Check if this is a custom property access (starts with __)
+                if property.starts_with("__") {
+                    expr = Expr::CustomPropAccess(CustomPropAccess {
+                        node: Box::new(expr),
+                        property,
+                        span,
+                    });
+                } else {
+                    expr = Expr::Member(MemberExpr {
+                        object: Box::new(expr),
+                        property,
+                        optional: false,
+                        computed: false,
+                        is_path: false,
+                        span,
+                    });
+                }
             } else if self.match_token(TokenKind::QuestionDot) {
                 // Optional member access ?.
                 let property = self.expect_ident()?;

@@ -416,6 +416,14 @@ impl TypeChecker {
                 // Verbatim blocks are opaque to type checking
                 // No analysis performed on raw code
             }
+
+            Stmt::CustomPropAssignment(assign) => {
+                // Check the node and value expressions
+                let _node_type = self.infer_expr(&assign.node);
+                let _value_type = self.infer_expr(&assign.value);
+                // TODO: Implement custom property type tracking
+                // For now, we just validate the expressions compile
+            }
         }
     }
 
@@ -813,6 +821,13 @@ impl TypeChecker {
                     RegexMethod::Captures => TypeInfo::Option(Box::new(TypeInfo::Str)), // TODO: Captures type
                     RegexMethod::Replace | RegexMethod::ReplaceAll => TypeInfo::Str,
                 }
+            }
+
+            Expr::CustomPropAccess(_access) => {
+                // Custom properties always return Option<T>
+                // TODO: Track property types and return Option<ActualType>
+                // For now, return Option<Unknown>
+                TypeInfo::Option(Box::new(TypeInfo::Unknown))
             }
         }
     }

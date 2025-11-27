@@ -352,6 +352,7 @@ pub enum Stmt {
     Traverse(TraverseStmt),
     Function(FnDecl),  // Nested function declaration
     Verbatim(VerbatimStmt),  // Platform-specific code block
+    CustomPropAssignment(CustomPropAssignment),  // Custom AST property assignment
 }
 
 /// Let statement: `let [mut] name [: Type] = expr;`
@@ -512,6 +513,22 @@ pub enum VerbatimTarget {
     Rust,
 }
 
+/// Custom AST property assignment: `node.__propName = value;`
+/// Custom properties are identified by double underscore prefix and allow
+/// attaching metadata to AST nodes in a cross-platform way.
+#[derive(Debug, Clone)]
+pub struct CustomPropAssignment {
+    /// The AST node being assigned to (e.g., `node`)
+    pub node: Box<Expr>,
+    /// The custom property name (e.g., "__hexPath")
+    pub property: String,
+    /// The value being assigned
+    pub value: Box<Expr>,
+    /// Optional type annotation
+    pub ty: Option<Type>,
+    pub span: Span,
+}
+
 /// Traverse statement: `traverse(node) { ... }` or `traverse(node) using Visitor;`
 /// This is the scoped traversal construct that bridges Babel's path.traverse and SWC's visit_mut_with
 #[derive(Debug, Clone)]
@@ -613,6 +630,8 @@ pub enum Expr {
     Matches(MatchesExpr),
     /// Regex call: Regex::matches(), Regex::find(), etc.
     RegexCall(RegexCall),
+    /// Custom AST property access: node.__propName
+    CustomPropAccess(CustomPropAccess),
     /// Return expression: return expr
     Return(Option<Box<Expr>>),
     /// Break expression: break
@@ -765,6 +784,17 @@ pub struct RegexCall {
     pub text_arg: Box<Expr>,
     pub pattern_arg: String,  // Must be a string literal
     pub replacement_arg: Option<Box<Expr>>,  // For replace/replace_all
+    pub span: Span,
+}
+
+/// Custom AST property access: `node.__propName`
+/// Reads a custom property from an AST node. Always returns Option<T>.
+#[derive(Debug, Clone)]
+pub struct CustomPropAccess {
+    /// The AST node being accessed (e.g., `node`)
+    pub node: Box<Expr>,
+    /// The custom property name (e.g., "__hexPath")
+    pub property: String,
     pub span: Span,
 }
 

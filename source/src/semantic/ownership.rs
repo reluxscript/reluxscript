@@ -161,6 +161,12 @@ impl OwnershipChecker {
                 // Verbatim blocks are opaque to ownership checking
                 // No analysis performed on raw code
             }
+
+            Stmt::CustomPropAssignment(assign) => {
+                // Check ownership on the node and value
+                self.check_expr(&assign.node);
+                self.check_expr(&assign.value);
+            }
         }
     }
 
@@ -297,6 +303,11 @@ impl OwnershipChecker {
                 if let Some(ref repl) = regex_call.replacement_arg {
                     self.check_expr(repl);
                 }
+            }
+
+            Expr::CustomPropAccess(access) => {
+                // Check ownership on the node expression
+                self.check_expr(&access.node);
             }
 
             Expr::Literal(_) | Expr::Ident(_) => {}

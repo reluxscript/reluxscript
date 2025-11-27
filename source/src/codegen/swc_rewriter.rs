@@ -231,6 +231,12 @@ impl SwcRewriter {
                 // Verbatim code passes through unchanged
                 DecoratedStmt::Verbatim(verbatim)
             }
+
+            DecoratedStmt::CustomPropAssignment(assign) => {
+                // TODO: Transform to state.set_custom_prop() call
+                // For now, pass through unchanged
+                DecoratedStmt::CustomPropAssignment(assign)
+            }
         }
     }
 
@@ -766,7 +772,9 @@ impl SwcRewriter {
             DecoratedExprKind::Ident { .. } |
             DecoratedExprKind::Break |
             DecoratedExprKind::Continue |
+            DecoratedExprKind::CustomPropAccess(_) |
             DecoratedExprKind::Closure(_) => {
+                // TODO: Transform CustomPropAccess to state.get_custom_prop() call
                 expr.kind
             }
         };

@@ -1241,6 +1241,17 @@ impl BabelGenerator {
                     }
                 }
             }
+
+            Stmt::CustomPropAssignment(assign) => {
+                // Emit as direct property assignment: node.__propName = value;
+                self.emit_indent();
+                self.gen_expr(&assign.node);
+                self.emit(".");
+                self.emit(&assign.property);
+                self.emit(" = ");
+                self.gen_expr(&assign.value);
+                self.emit(";\n");
+            }
         }
     }
 
@@ -2698,6 +2709,13 @@ impl BabelGenerator {
             Expr::RegexCall(_regex_call) => {
                 // TODO: Implement regex call generation for Babel
                 self.emit("/* TODO: Regex call */");
+            }
+
+            Expr::CustomPropAccess(access) => {
+                // Emit as direct property access: node.__propName
+                self.gen_expr(&access.node);
+                self.emit(".");
+                self.emit(&access.property);
             }
         }
     }

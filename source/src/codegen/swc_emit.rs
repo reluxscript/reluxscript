@@ -570,6 +570,15 @@ impl SwcEmitter {
             DecoratedStmt::Verbatim(verbatim) => {
                 self.emit_line(&verbatim.code);
             }
+
+            DecoratedStmt::CustomPropAssignment(assign) => {
+                // TODO: Emit as self.state.set_custom_prop(node, "prop", value)
+                // For now, just emit a comment
+                self.emit_indent();
+                self.output.push_str("// TODO: CustomPropAssignment: ");
+                self.output.push_str(&assign.property);
+                self.output.push_str("\n");
+            }
         }
     }
 
@@ -1061,6 +1070,14 @@ impl SwcEmitter {
 
             DecoratedExprKind::Continue => {
                 self.output.push_str("continue");
+            }
+
+            DecoratedExprKind::CustomPropAccess(access) => {
+                // TODO: Emit as self.state.get_custom_prop(node, "prop")
+                // For now, just emit a comment
+                self.output.push_str("/* TODO: CustomPropAccess: ");
+                self.output.push_str(&access.property);
+                self.output.push_str(" */");
             }
 
             DecoratedExprKind::Closure(closure) => {

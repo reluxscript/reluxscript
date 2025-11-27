@@ -662,6 +662,13 @@ impl Resolver {
                 // Verbatim blocks are opaque to semantic analysis
                 // No type checking or variable tracking
             }
+
+            Stmt::CustomPropAssignment(assign) => {
+                // Resolve the node expression and value
+                self.resolve_expr(&assign.node);
+                self.resolve_expr(&assign.value);
+                // TODO: Validate that node is an AST type and property starts with __
+            }
         }
     }
 
@@ -979,6 +986,12 @@ impl Resolver {
                 if let Some(ref repl) = regex_call.replacement_arg {
                     self.resolve_expr(repl);
                 }
+            }
+
+            Expr::CustomPropAccess(access) => {
+                // Resolve the node expression
+                self.resolve_expr(&access.node);
+                // TODO: Validate that property starts with __
             }
 
             Expr::Literal(_) => {}

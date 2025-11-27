@@ -345,6 +345,12 @@ impl SwcDecorator {
             Stmt::Function(func_decl) => DecoratedStmt::Function(func_decl.clone()),
 
             Stmt::Verbatim(verbatim) => DecoratedStmt::Verbatim(verbatim.clone()),
+
+            Stmt::CustomPropAssignment(assign) => {
+                // TODO: Implement custom property assignment decoration
+                // For now, pass through as-is
+                DecoratedStmt::CustomPropAssignment(assign.clone())
+            }
         }
     }
 
@@ -1219,6 +1225,21 @@ impl SwcDecorator {
                         is_boxed: false,
                         is_optional: false,
                         type_kind: SwcTypeKind::Primitive,
+                        span: None,
+                    },
+                }
+            }
+
+            Expr::CustomPropAccess(access) => {
+                // TODO: Implement custom property access decoration with type tracking
+                // For now, pass through as-is
+                DecoratedExpr {
+                    kind: DecoratedExprKind::CustomPropAccess(access.clone()),
+                    metadata: SwcExprMetadata {
+                        swc_type: "Option<Unknown>".to_string(),
+                        is_boxed: false,
+                        is_optional: true,
+                        type_kind: SwcTypeKind::Unknown,
                         span: None,
                     },
                 }

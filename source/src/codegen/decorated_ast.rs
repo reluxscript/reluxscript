@@ -120,6 +120,7 @@ pub enum DecoratedExprKind {
     Return(Option<Box<DecoratedExpr>>),
     Break,
     Continue,
+    CustomPropAccess(crate::parser::CustomPropAccess), // TODO: Add metadata for type info
 }
 
 /// Decorated call expression
@@ -166,6 +167,7 @@ pub enum DecoratedStmt {
     Traverse(crate::parser::TraverseStmt), // TODO: Decorate if needed
     Function(crate::parser::FnDecl), // Nested functions - TODO: Decorate if needed
     Verbatim(crate::parser::VerbatimStmt), // Platform-specific code - no decoration needed
+    CustomPropAssignment(crate::parser::CustomPropAssignment), // TODO: Decorate with metadata
 }
 
 /// Decorated let statement
