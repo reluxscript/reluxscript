@@ -611,6 +611,8 @@ pub enum Expr {
     Tuple(Vec<Expr>),
     /// Matches macro: matches!(expr, pattern)
     Matches(MatchesExpr),
+    /// Regex call: Regex::matches(), Regex::find(), etc.
+    RegexCall(RegexCall),
     /// Return expression: return expr
     Return(Option<Box<Expr>>),
     /// Break expression: break
@@ -754,6 +756,33 @@ pub struct MatchesExpr {
     pub scrutinee: Box<Expr>,
     pub pattern: Pattern,
     pub span: Span,
+}
+
+/// Regex call expression: Regex::matches(), Regex::find(), etc.
+#[derive(Debug, Clone)]
+pub struct RegexCall {
+    pub method: RegexMethod,
+    pub text_arg: Box<Expr>,
+    pub pattern_arg: String,  // Must be a string literal
+    pub replacement_arg: Option<Box<Expr>>,  // For replace/replace_all
+    pub span: Span,
+}
+
+/// Regex method variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegexMethod {
+    /// Regex::matches(text, pattern) -> bool
+    Matches,
+    /// Regex::find(text, pattern) -> Option<String>
+    Find,
+    /// Regex::find_all(text, pattern) -> Vec<String>
+    FindAll,
+    /// Regex::captures(text, pattern) -> Option<Captures>
+    Captures,
+    /// Regex::replace(text, pattern, replacement) -> String
+    Replace,
+    /// Regex::replace_all(text, pattern, replacement) -> String
+    ReplaceAll,
 }
 
 /// Closure expression

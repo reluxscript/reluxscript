@@ -802,6 +802,18 @@ impl TypeChecker {
 
             Expr::Break => TypeInfo::Unit,  // Diverges
             Expr::Continue => TypeInfo::Unit,  // Diverges
+
+            Expr::RegexCall(regex_call) => {
+                use crate::parser::RegexMethod;
+                // Return type depends on method
+                match regex_call.method {
+                    RegexMethod::Matches => TypeInfo::Bool,
+                    RegexMethod::Find => TypeInfo::Option(Box::new(TypeInfo::Str)),
+                    RegexMethod::FindAll => TypeInfo::Vec(Box::new(TypeInfo::Str)),
+                    RegexMethod::Captures => TypeInfo::Option(Box::new(TypeInfo::Str)), // TODO: Captures type
+                    RegexMethod::Replace | RegexMethod::ReplaceAll => TypeInfo::Str,
+                }
+            }
         }
     }
 

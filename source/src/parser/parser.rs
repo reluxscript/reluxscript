@@ -1959,6 +1959,20 @@ impl Parser {
 
             if self.match_token(TokenKind::LParen) {
                 // Function call
+
+                // Check if this is a Regex:: namespace call
+                if let Expr::Member(ref member) = expr {
+                    if member.is_path {
+                        if let Expr::Ident(ref ident) = *member.object {
+                            if ident.name == "Regex" {
+                                // Parse Regex::method(...) call
+                                expr = self.parse_regex_call(&member.property)?;
+                                continue;
+                            }
+                        }
+                    }
+                }
+
                 let args = self.parse_args()?;
                 self.expect(TokenKind::RParen)?;
                 let span = self.current_span();
@@ -2127,6 +2141,77 @@ impl Parser {
         }
 
         Ok(args)
+    }
+
+    /// Parse Regex::method(...) call
+    fn parse_regex_call(&mut self, method_name: &str) -> ParseResult<Expr> {
+        use crate::parser::ast::{RegexCall, RegexMethod};
+
+        let start_span = self.current_span();
+
+        // Determine which regex method this is
+        let method = match method_name {
+            "matches" => RegexMethod::Matches,
+            "find" => RegexMethod::Find,
+            "find_all" => RegexMethod::FindAll,
+            "captures" => RegexMethod::Captures,
+            "replace" => RegexMethod::Replace,
+            "replace_all" => RegexMethod::ReplaceAll,
+            _ => {
+                return Err(self.error(&format!(
+                    "Unknown Regex method: '{}'. Available methods: matches, find, find_all, captures, replace, replace_all",
+                    method_name
+                )));
+            }
+        };
+
+        // Parse arguments
+        self.skip_newlines();
+
+        // First argument: text to search
+        let text_arg = Box::new(self.parse_expr()?);
+        self.skip_newlines();
+        self.expect(TokenKind::Comma)?;
+        self.skip_newlines();
+
+        // Second argument: pattern (must be string literal)
+        let pattern_expr = self.parse_expr()?;
+        let pattern_arg = match pattern_expr {
+            Expr::Literal(Literal::String(s)) => s,
+            _ => {
+                return Err(self.error(
+                    "Regex pattern must be a string literal. Example: Regex::matches(text, r\"^pattern$\")"
+                ));
+            }
+        };
+
+        // Third argument (optional): replacement string for replace/replace_all
+        let replacement_arg = if matches!(method, RegexMethod::Replace | RegexMethod::ReplaceAll) {
+            self.skip_newlines();
+            self.expect(TokenKind::Comma)?;
+            self.skip_newlines();
+            Some(Box::new(self.parse_expr()?))
+        } else {
+            None
+        };
+
+        self.skip_newlines();
+        self.expect(TokenKind::RParen)?;
+
+        let span = Span::new(
+            start_span.start,
+            self.current_span().end,
+            start_span.line,
+            start_span.column,
+        );
+
+        Ok(Expr::RegexCall(RegexCall {
+            method,
+            text_arg,
+            pattern_arg,
+            replacement_arg,
+            span,
+        }))
     }
 
     /// Parse primary expression

@@ -292,6 +292,13 @@ impl OwnershipChecker {
             Expr::Break => {}
             Expr::Continue => {}
 
+            Expr::RegexCall(regex_call) => {
+                self.check_expr(&regex_call.text_arg);
+                if let Some(ref repl) = regex_call.replacement_arg {
+                    self.check_expr(repl);
+                }
+            }
+
             Expr::Literal(_) | Expr::Ident(_) => {}
         }
     }

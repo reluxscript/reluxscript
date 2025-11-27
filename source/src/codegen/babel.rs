@@ -2694,6 +2694,11 @@ impl BabelGenerator {
             Expr::Continue => {
                 self.emit("continue");
             }
+
+            Expr::RegexCall(_regex_call) => {
+                // TODO: Implement regex call generation for Babel
+                self.emit("/* TODO: Regex call */");
+            }
         }
     }
 

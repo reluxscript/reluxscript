@@ -972,6 +972,15 @@ impl Resolver {
             Expr::Break => {}
             Expr::Continue => {}
 
+            Expr::RegexCall(regex_call) => {
+                // Resolve text argument
+                self.resolve_expr(&regex_call.text_arg);
+                // Resolve replacement argument if present
+                if let Some(ref repl) = regex_call.replacement_arg {
+                    self.resolve_expr(repl);
+                }
+            }
+
             Expr::Literal(_) => {}
         }
     }

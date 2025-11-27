@@ -1209,6 +1209,20 @@ impl SwcDecorator {
                     },
                 }
             }
+
+            Expr::RegexCall(_regex_call) => {
+                // TODO: Implement regex call decoration
+                DecoratedExpr {
+                    kind: DecoratedExprKind::Literal(Literal::String("TODO: RegexCall".to_string())),
+                    metadata: SwcExprMetadata {
+                        swc_type: "String".to_string(),
+                        is_boxed: false,
+                        is_optional: false,
+                        type_kind: SwcTypeKind::Primitive,
+                        span: None,
+                    },
+                }
+            }
         }
     }
 
