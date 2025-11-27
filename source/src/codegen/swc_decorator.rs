@@ -437,13 +437,22 @@ impl SwcDecorator {
                         let relux_variant = parts[1]; // "Identifier"
 
                         // 🔥 CONTEXT-AWARE MAPPING
-                        // If we're matching against MemberProp, translate differently!
+                        // If we're matching against MemberProp or Pat, translate differently!
                         if expected_type == "MemberProp" {
                             // Expression::Identifier on MemberProp → MemberProp::Ident
                             if relux_enum == "Expression" && relux_variant == "Identifier" {
                                 "MemberProp::Ident".to_string()
                             } else {
                                 // Fallback to standard mapping
+                                self.map_pattern_to_swc(name)
+                            }
+                        } else if expected_type == "Pat" || relux_enum == "Pattern" {
+                            // Pattern::Identifier → Pat::Ident
+                            // Pattern::Array → Pat::Array (already handled by map_pattern_to_swc)
+                            if relux_variant == "Identifier" {
+                                "Pat::Ident".to_string()
+                            } else {
+                                // Use standard mapping which handles Pattern::ArrayPattern etc
                                 self.map_pattern_to_swc(name)
                             }
                         } else {
@@ -1203,18 +1212,28 @@ impl SwcDecorator {
 
     /// Map ReluxScript pattern to SWC pattern
     fn map_pattern_to_swc(&self, relux_pattern: &str) -> String {
-        if let Some(mapping) = get_node_mapping(relux_pattern) {
-            mapping.swc_pattern.to_string()
-        } else if relux_pattern.contains("::") {
-            // Parse and convert: Expression::Identifier → Expr::Ident
+        // For patterns like "Pattern::ArrayPattern", try looking up just the variant part first
+        if relux_pattern.contains("::") {
             let parts: Vec<&str> = relux_pattern.split("::").collect();
             if parts.len() == 2 {
+                let variant_name = parts[1];  // "ArrayPattern" from "Pattern::ArrayPattern"
+
+                // Try to find mapping for the variant
+                if let Some(mapping) = get_node_mapping(variant_name) {
+                    // Use the swc_pattern from the mapping (e.g., "Pat::Array")
+                    return mapping.swc_pattern.to_string();
+                }
+
+                // Fallback: manual conversion
                 let swc_enum = self.reluxscript_to_swc_type(parts[0]);
-                let swc_variant = self.reluxscript_to_swc_type(parts[1]);
+                let swc_variant = self.reluxscript_to_swc_type(variant_name);
                 format!("{}::{}", swc_enum, swc_variant)
             } else {
                 relux_pattern.to_string()
             }
+        } else if let Some(mapping) = get_node_mapping(relux_pattern) {
+            // Direct mapping for simple patterns
+            mapping.swc_pattern.to_string()
         } else {
             relux_pattern.to_string()
         }

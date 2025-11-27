@@ -10,23 +10,23 @@ pub struct EmitterIssuesTest {}
 impl VisitMut for EmitterIssuesTest {
 }
 fn test_path_expression(expr: &Expr) -> String {
-    let code = codegen.generate(expr);
+    let code = codegen::generate(expr);
     code
 }
 
 fn test_macro_call(name: &String) -> String {
-    format("Hello, {}!", name)
+    format!("Hello, {}!", name)
 }
 
-fn test_pattern_matching(pattern: &Pat) -> Bool {
+fn test_pattern_matching(pattern: &Pat) -> bool {
     match pattern {
-        Pattern::ArrayPattern(arr) => {
+        Pat::Array(arr) => {
             true
         }
-        Pattern::ObjectPattern(obj) => {
+        Pat::Object(obj) => {
             true
         }
-        Pattern::Ident(id) => {
+        Pat::Ident(id) => {
             false
         }
         _ => {
@@ -37,16 +37,16 @@ fn test_pattern_matching(pattern: &Pat) -> Bool {
 
 fn test_combined(pattern: &Pat) -> String {
     let result = match pattern {
-        Pattern::ArrayPattern(_) => {
+        Pat::Array(_) => {
             "array"
         }
-        Pattern::ObjectPattern(_) => {
+        Pat::Object(_) => {
             "object"
         }
         _ => {
             "other"
         }
     };
-    format("Pattern type: {}", result)
+    format!("Pattern type: {}", result)
 }
 

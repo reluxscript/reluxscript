@@ -736,14 +736,19 @@ impl SwcEmitter {
                 self.emit_expr(operand);
             }
 
-            DecoratedExprKind::Member { object, property: _, optional, computed: _, is_path: _, field_metadata } => {
+            DecoratedExprKind::Member { object, property: _, optional, computed: _, is_path, field_metadata } => {
                 self.emit_expr(object);
 
                 if *optional {
                     self.output.push('?');
                 }
 
-                self.output.push('.');
+                // Use :: for path expressions (module::function), . for field access
+                if *is_path {
+                    self.output.push_str("::");
+                } else {
+                    self.output.push('.');
+                }
 
                 // Use the SWC field name from metadata!
                 self.output.push_str(&field_metadata.swc_field_name);
@@ -773,7 +778,20 @@ impl SwcEmitter {
             }
 
             DecoratedExprKind::Call(call) => {
+                // Check if callee is a known macro (format, println, vec, panic, etc.)
+                let is_macro = if let DecoratedExprKind::Ident { name, .. } = &call.callee.kind {
+                    matches!(name.as_str(), "format" | "println" | "vec" | "panic" | "print" | "eprintln" | "eprint" | "dbg")
+                } else {
+                    false
+                };
+
                 self.emit_expr(&call.callee);
+
+                // Add ! suffix for macro calls
+                if is_macro {
+                    self.output.push('!');
+                }
+
                 self.output.push('(');
                 for (i, arg) in call.args.iter().enumerate() {
                     if i > 0 {
@@ -1045,11 +1063,18 @@ impl SwcEmitter {
                 match name.as_str() {
                     "Number" => "i32".to_string(),
                     "Str" => "String".to_string(),
-                    "Boolean" => "bool".to_string(),
+                    "Bool" | "Boolean" => "bool".to_string(),
                     _ => name.clone(),
                 }
             }
-            Type::Named(name) => name.clone(),
+            Type::Named(name) => {
+                // Map common type names to Rust equivalents
+                match name.as_str() {
+                    "Bool" | "Boolean" => "bool".to_string(),
+                    "Str" => "String".to_string(),
+                    _ => name.clone(),
+                }
+            }
             Type::Reference { mutable, inner } => {
                 format!(
                     "&{}{}",
