@@ -153,9 +153,8 @@ impl SwcEmitter {
         }
 
         if self.uses_codegen {
-            self.emit_line("use std::sync::Arc;");
             self.emit_line("use swc_common::SourceMap;");
-            self.emit_line("use swc_ecma_codegen::{Emitter, text_writer::JsWriter, Config as CodegenConfig};");
+            self.emit_line("use swc_ecma_codegen::{Emitter, text_writer::JsWriter, Config as CodegenConfig, Node};");
         }
 
         self.emit_line("");
@@ -1465,12 +1464,12 @@ impl SwcEmitter {
 
     fn emit_codegen_helpers(&mut self) {
         self.emit_line("// Codegen helper functions");
-        self.emit_line("fn codegen_to_string<N: swc_ecma_visit::Node>(node: &N) -> String {");
+        self.emit_line("fn codegen_to_string<N: Node>(node: &N) -> String {");
         self.indent += 1;
         self.emit_line("let mut buf = vec![];");
         self.emit_line("{");
         self.indent += 1;
-        self.emit_line("let cm = Arc::new(SourceMap::default());");
+        self.emit_line("let cm = swc_common::sync::Lrc::new(SourceMap::default());");
         self.emit_line("let mut emitter = Emitter {");
         self.indent += 1;
         self.emit_line("cfg: CodegenConfig::default(),");

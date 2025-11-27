@@ -4,41 +4,32 @@
 use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{VisitMut, VisitMutWith};
+use swc_common::SourceMap;
+use swc_ecma_codegen::{Emitter, text_writer::JsWriter, Config as CodegenConfig, Node};
 
-pub struct MatchesMacroTest {}
 
-impl VisitMut for MatchesMacroTest {
+pub struct CodegenTest {}
+
+impl VisitMut for CodegenTest {
 }
-fn test_simple_matches(x: &Option<i32>) -> Bool {
-    match x {
-        Some { .. } => {
-            true
-        }
-        _ => {
-            false
-        }
+fn transform_expr(expr: &Expr) {
+    let code = codegen_to_string(expr);
+    let formatted = format!("Generated: {}", code);
+}
+
+
+// Codegen helper functions
+fn codegen_to_string<N: Node>(node: &N) -> String {
+    let mut buf = vec![];
+    {
+        let cm = swc_common::sync::Lrc::new(SourceMap::default());
+        let mut emitter = Emitter {
+            cfg: CodegenConfig::default(),
+            cm: cm.clone(),
+            comments: None,
+            wr: Box::new(JsWriter::new(cm.clone(), "\n", &mut buf, None)),
+        };
+        node.emit_with(&mut emitter).unwrap();
     }
+    String::from_utf8(buf).unwrap()
 }
-
-fn test_or_pattern(x: &Option<i32>) -> Bool {
-    match x {
-        Some(1) | Some(2) | None => {
-            true
-        }
-        _ => {
-            false
-        }
-    }
-}
-
-fn test_ast_pattern(expr: &Expr) -> Bool {
-    match expr {
-        Expr::JSXElement(_) | Expr::JSXFragment(_) => {
-            true
-        }
-        _ => {
-            false
-        }
-    }
-}
-

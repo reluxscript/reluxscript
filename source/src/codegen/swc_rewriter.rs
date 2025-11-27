@@ -543,6 +543,7 @@ impl SwcRewriter {
         // Then apply transformations (top-down)
         let expr = self.apply_field_replacements(expr);
         let expr = self.apply_context_remove(expr);
+        let expr = self.apply_codegen_helpers(expr);
         let expr = self.apply_matches_expansion(expr);
         let expr = self.apply_iterator_methods(expr);
         // TODO Phase 4: Apply nested member unwrapping
@@ -955,6 +956,75 @@ impl SwcRewriter {
             }
         }
 
+        expr
+    }
+
+    // ========================================================================
+    // TRANSFORMATION: Codegen Helper Functions
+    // ========================================================================
+
+    /// 🔧 Transform codegen::generate() calls to codegen_to_string() helper
+    /// transforms: codegen::generate(expr) → codegen_to_string(expr)
+    /// transforms: codegen::generate_with_options(expr, opts) → codegen_to_string_with_config(expr, config)
+    fn apply_codegen_helpers(&mut self, expr: DecoratedExpr) -> DecoratedExpr {
+        // Check if this is a call expression
+        if let DecoratedExprKind::Call(ref call) = expr.kind {
+            // Check if the callee is a member expression (module::function)
+            if let DecoratedExprKind::Member { ref object, ref property, is_path, .. } = call.callee.kind {
+                // Check if it's codegen::generate or codegen::generate_with_options
+                if is_path {
+                    if let DecoratedExprKind::Ident { ref name, .. } = object.kind {
+                        if name == "codegen" {
+                            match property.as_str() {
+                                "generate" => {
+                                    // Transform: codegen::generate(node) → codegen_to_string(node)
+                                    return DecoratedExpr {
+                                        kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                                            callee: DecoratedExpr {
+                                                kind: DecoratedExprKind::Ident {
+                                                    name: "codegen_to_string".to_string(),
+                                                    ident_metadata: SwcIdentifierMetadata::name(),
+                                                },
+                                                metadata: Self::simple_metadata("fn"),
+                                            },
+                                            args: call.args.clone(),
+                                            type_args: vec![],
+                                            optional: false,
+                                            is_macro: false,
+                                            span: call.span,
+                                        })),
+                                        metadata: expr.metadata.clone(),
+                                    };
+                                }
+                                "generate_with_options" => {
+                                    // Transform: codegen::generate_with_options(node, opts) → codegen_to_string_with_config(node, config)
+                                    return DecoratedExpr {
+                                        kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                                            callee: DecoratedExpr {
+                                                kind: DecoratedExprKind::Ident {
+                                                    name: "codegen_to_string_with_config".to_string(),
+                                                    ident_metadata: SwcIdentifierMetadata::name(),
+                                                },
+                                                metadata: Self::simple_metadata("fn"),
+                                            },
+                                            args: call.args.clone(),
+                                            type_args: vec![],
+                                            optional: false,
+                                            is_macro: false,
+                                            span: call.span,
+                                        })),
+                                        metadata: expr.metadata.clone(),
+                                    };
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // No transformation needed
         expr
     }
 

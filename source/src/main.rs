@@ -400,11 +400,13 @@ path = "lib.rs"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-swc_common = "17"
-swc_ecma_ast = "18"
-swc_ecma_visit = "18"
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+swc_common = "17.0.1"
+swc_ecma_ast = "18.0.0"
+swc_ecma_visit = "18.0.1"
+swc_ecma_parser = "27.0.3"
+swc_ecma_codegen = "20.0.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
 "#;
                     if let Err(e) = fs::write(&cargo_toml_path, cargo_toml_content) {
                         eprintln!("Warning: Could not create Cargo.toml for validation: {}", e);
