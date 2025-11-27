@@ -820,7 +820,7 @@ impl Resolver {
                 if let Expr::Ident(ident) = &*call.callee {
                     if self.env.lookup(&ident.name).is_none() {
                         let is_special = matches!(ident.name.as_str(),
-                            "self" | "Self" | "matches!" | "format!" | "format" | "vec!" | "Some" | "None" | "Ok" | "Err" | "String" | "HashMap" | "HashSet" | "Vec" | "Option" | "Result" | "Box" | "CodeBuilder" | "_"
+                            "self" | "Self" | "matches!" | "format!" | "format" | "vec!" | "println" | "panic" | "print" | "eprintln" | "eprint" | "dbg" | "Some" | "None" | "Ok" | "Err" | "String" | "HashMap" | "HashSet" | "Vec" | "Option" | "Result" | "Box" | "CodeBuilder" | "_"
                         );
                         let is_ast_type = get_node_mapping(&ident.name).is_some();
                         if !is_special && !is_ast_type {

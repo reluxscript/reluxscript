@@ -5,19 +5,23 @@ use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{VisitMut, VisitMutWith};
 
-mod helpers;
-use helpers::{escape_string, uppercase};
+pub struct MacroCallTest {}
 
-pub struct NamedImportsTest {}
-
-impl VisitMut for NamedImportsTest {
+impl VisitMut for MacroCallTest {
 }
-fn test_use_imported_function(input: &String) -> String {
-    escape_string(input)
+fn test_format_macro(name: &String) -> String {
+    format!("Hello, {}", name)
 }
 
-fn test_multiple_imports(name: &String) -> String {
-    let escaped = escape_string(name);
-    uppercase(&escaped)
+fn test_println_macro(msg: &String) {
+    println!("{}", msg);
+}
+
+fn test_vec_macro() -> Vec<i32> {
+    vec![1, 2, 3]
+}
+
+fn test_panic_macro() {
+    panic!("Error");
 }
 

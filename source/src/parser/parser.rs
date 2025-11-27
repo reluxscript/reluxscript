@@ -2316,6 +2316,21 @@ impl Parser {
 
         // Identifier or struct init
         if let Some(name) = self.try_expect_ident() {
+            // Check for macro call: identifier!()
+            if self.check(TokenKind::Not) && self.peek_ahead(1).map_or(false, |t| t.kind == TokenKind::LParen) {
+                self.advance(); // consume !
+                self.advance(); // consume (
+                let args = self.parse_args()?;
+                self.expect(TokenKind::RParen)?;
+                return Ok(Expr::Call(CallExpr {
+                    callee: Box::new(Expr::Ident(IdentExpr { name, span })),
+                    args,
+                    type_args: Vec::new(),
+                    optional: false,
+                    is_macro: true,
+                    span: self.current_span(),
+                }));
+            }
             // Check for struct initialization or wildcard pattern TypeName(_)
             if self.check(TokenKind::LBrace) {
                 return self.parse_struct_init(name, span);
