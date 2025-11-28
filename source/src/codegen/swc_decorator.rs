@@ -1216,18 +1216,8 @@ impl SwcDecorator {
                 }
             }
 
-            Expr::RegexCall(_regex_call) => {
-                // TODO: Implement regex call decoration
-                DecoratedExpr {
-                    kind: DecoratedExprKind::Literal(Literal::String("TODO: RegexCall".to_string())),
-                    metadata: SwcExprMetadata {
-                        swc_type: "String".to_string(),
-                        is_boxed: false,
-                        is_optional: false,
-                        type_kind: SwcTypeKind::Primitive,
-                        span: None,
-                    },
-                }
+            Expr::RegexCall(regex_call) => {
+                self.decorate_regex_call(regex_call)
             }
 
             Expr::CustomPropAccess(access) => {
@@ -1385,6 +1375,61 @@ impl SwcDecorator {
                 }
             }
             _ => ty.clone(),
+        }
+    }
+
+    fn decorate_regex_call(&mut self, regex_call: &crate::parser::RegexCall) -> DecoratedExpr {
+        use crate::parser::RegexMethod;
+        use crate::codegen::decorated_ast::{DecoratedRegexCall, DecoratedExprKind};
+        use crate::codegen::swc_metadata::SwcRegexMetadata;
+
+        // Decorate arguments
+        let text_arg = self.decorate_expr(&regex_call.text_arg);
+        let replacement_arg = regex_call.replacement_arg.as_ref().map(|e| self.decorate_expr(e));
+
+        // Determine if this method needs a helper function
+        let needs_helper = matches!(regex_call.method, RegexMethod::Captures);
+        let helper_name = if needs_helper {
+            Some("__regex_captures".to_string())
+        } else {
+            None
+        };
+
+        // TODO: Implement pattern caching heuristic
+        // For now, don't cache patterns (inline them)
+        let cache_pattern = false;
+        let pattern_id = None;
+
+        // Determine return type for metadata
+        let (swc_type, is_optional) = match regex_call.method {
+            RegexMethod::Matches => ("bool".to_string(), false),
+            RegexMethod::Find => ("String".to_string(), true),
+            RegexMethod::FindAll => ("Vec<String>".to_string(), false),
+            RegexMethod::Captures => ("__Captures".to_string(), true),
+            RegexMethod::Replace | RegexMethod::ReplaceAll => ("String".to_string(), false),
+        };
+
+        DecoratedExpr {
+            kind: DecoratedExprKind::RegexCall(Box::new(DecoratedRegexCall {
+                method: regex_call.method,
+                text_arg,
+                pattern: regex_call.pattern_arg.clone(),
+                replacement_arg,
+                metadata: SwcRegexMetadata {
+                    cache_pattern,
+                    pattern_id,
+                    needs_helper,
+                    helper_name,
+                },
+                span: regex_call.span,
+            })),
+            metadata: SwcExprMetadata {
+                swc_type,
+                is_boxed: false,
+                is_optional,
+                type_kind: SwcTypeKind::Primitive,
+                span: Some(regex_call.span),
+            },
         }
     }
 }

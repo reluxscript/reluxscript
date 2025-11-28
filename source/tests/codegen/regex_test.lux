@@ -1,0 +1,29 @@
+plugin RegexTest {
+    fn test_matches(name: &Str) -> bool {
+        Regex::matches(name, r"^use[A-Z]")
+    }
+
+    fn test_find(text: &Str) -> Option<Str> {
+        Regex::find(text, r"\d+")
+    }
+
+    fn test_find_all(text: &Str) -> Vec<Str> {
+        Regex::find_all(text, r"\d+")
+    }
+
+    fn test_captures(text: &Str) {
+        if let Some(caps) = Regex::captures(text, r"^(\d+)\.(\d+)$") {
+            let major = caps.get(1);
+            let minor = caps.get(2);
+            println!("Version: {}.{}", major, minor);
+        }
+    }
+
+    fn test_replace(text: &Str) -> Str {
+        Regex::replace(text, r"\d+", "NUM")
+    }
+
+    fn test_replace_all(text: &Str) -> Str {
+        Regex::replace_all(text, r"\d+", "NUM")
+    }
+}

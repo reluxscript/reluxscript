@@ -43,6 +43,12 @@ pub struct SwcEmitter {
 
     /// Whether codegen module is used
     uses_codegen: bool,
+
+    /// Whether regex captures helper is needed
+    needs_regex_captures_helper: bool,
+
+    /// Whether regex crate is used
+    uses_regex: bool,
 }
 
 impl SwcEmitter {
@@ -59,6 +65,8 @@ impl SwcEmitter {
             uses_fs: false,
             uses_parser: false,
             uses_codegen: false,
+            needs_regex_captures_helper: false,
+            uses_regex: false,
         }
     }
 
@@ -87,6 +95,11 @@ impl SwcEmitter {
             self.emit_codegen_helpers();
         }
 
+        if self.needs_regex_captures_helper {
+            self.emit_line("");
+            self.emit_regex_helpers();
+        }
+
         std::mem::take(&mut self.output)
     }
 
@@ -110,8 +123,108 @@ impl SwcEmitter {
             }
         }
 
-        // TODO: Also walk AST to detect HashMap/HashSet usage even without explicit use statements
-        // For now, relying on use statements is sufficient
+        // Walk AST to detect regex usage
+        self.detect_regex_usage_in_decl(&program.decl);
+    }
+
+    fn detect_regex_usage_in_decl(&mut self, decl: &crate::codegen::swc_decorator::DecoratedTopLevelDecl) {
+        use crate::codegen::swc_decorator::DecoratedTopLevelDecl;
+        match decl {
+            DecoratedTopLevelDecl::Plugin(plugin) => {
+                for item in &plugin.body {
+                    if let crate::codegen::swc_decorator::DecoratedPluginItem::Function(func) = item {
+                        self.detect_regex_usage_in_block(&func.body);
+                    }
+                }
+            }
+            DecoratedTopLevelDecl::Writer(writer) => {
+                for item in &writer.body {
+                    if let crate::codegen::swc_decorator::DecoratedPluginItem::Function(func) = item {
+                        self.detect_regex_usage_in_block(&func.body);
+                    }
+                }
+            }
+            DecoratedTopLevelDecl::Undecorated(_) => {
+                // Undecorated code (interfaces, modules) - skip
+            }
+        }
+    }
+
+    fn detect_regex_usage_in_block(&mut self, block: &crate::codegen::decorated_ast::DecoratedBlock) {
+        use crate::codegen::decorated_ast::{DecoratedStmt, DecoratedExprKind};
+        for stmt in &block.stmts {
+            match stmt {
+                DecoratedStmt::Let(let_stmt) => {
+                    self.detect_regex_usage_in_expr(&let_stmt.init);
+                }
+                DecoratedStmt::Expr(expr) => {
+                    self.detect_regex_usage_in_expr(expr);
+                }
+                DecoratedStmt::If(if_stmt) => {
+                    self.detect_regex_usage_in_expr(&if_stmt.condition);
+                    self.detect_regex_usage_in_block(&if_stmt.then_branch);
+                    if let Some(ref else_branch) = if_stmt.else_branch {
+                        self.detect_regex_usage_in_block(else_branch);
+                    }
+                }
+                DecoratedStmt::Match(match_stmt) => {
+                    self.detect_regex_usage_in_expr(&match_stmt.expr);
+                    for arm in &match_stmt.arms {
+                        self.detect_regex_usage_in_block(&arm.body);
+                    }
+                }
+                DecoratedStmt::Return(Some(expr)) => {
+                    self.detect_regex_usage_in_expr(expr);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn detect_regex_usage_in_expr(&mut self, expr: &crate::codegen::decorated_ast::DecoratedExpr) {
+        use crate::codegen::decorated_ast::DecoratedExprKind;
+
+        // Check if this expression is a regex call
+        if matches!(expr.kind, DecoratedExprKind::RegexCall(_)) {
+            self.uses_regex = true;
+            if let DecoratedExprKind::RegexCall(ref regex_call) = expr.kind {
+                if regex_call.metadata.needs_helper {
+                    self.needs_regex_captures_helper = true;
+                }
+            }
+            return;
+        }
+
+        // Recursively check child expressions
+        match &expr.kind {
+            DecoratedExprKind::Call(call) => {
+                self.detect_regex_usage_in_expr(&call.callee);
+                for arg in &call.args {
+                    self.detect_regex_usage_in_expr(arg);
+                }
+            }
+            DecoratedExprKind::Binary { left, right, .. } => {
+                self.detect_regex_usage_in_expr(left);
+                self.detect_regex_usage_in_expr(right);
+            }
+            DecoratedExprKind::Member { object, .. } => {
+                self.detect_regex_usage_in_expr(object);
+            }
+            DecoratedExprKind::If(if_expr) => {
+                self.detect_regex_usage_in_expr(&if_expr.condition);
+                self.detect_regex_usage_in_block(&if_expr.then_branch);
+                if let Some(ref else_branch) = if_expr.else_branch {
+                    self.detect_regex_usage_in_block(else_branch);
+                }
+            }
+            DecoratedExprKind::Match(match_expr) => {
+                self.detect_regex_usage_in_expr(&match_expr.expr);
+                for arm in &match_expr.arms {
+                    self.detect_regex_usage_in_block(&arm.body);
+                }
+            }
+            _ => {}
+        }
     }
 
     // ========================================================================
@@ -155,6 +268,10 @@ impl SwcEmitter {
         if self.uses_codegen {
             self.emit_line("use swc_common::SourceMap;");
             self.emit_line("use swc_ecma_codegen::{Emitter, text_writer::JsWriter, Config as CodegenConfig, Node};");
+        }
+
+        if self.uses_regex {
+            self.emit_line("use regex::Regex as RegexPattern;");
         }
 
         self.emit_line("");
@@ -1072,6 +1189,10 @@ impl SwcEmitter {
                 self.output.push_str("continue");
             }
 
+            DecoratedExprKind::RegexCall(regex_call) => {
+                self.emit_regex_call(regex_call);
+            }
+
             DecoratedExprKind::CustomPropAccess(access) => {
                 // TODO: Emit as self.state.get_custom_prop(node, "prop")
                 // For now, just emit a comment
@@ -1480,6 +1601,79 @@ impl SwcEmitter {
         self.emit_line("}");
     }
 
+    fn emit_regex_call(&mut self, regex_call: &crate::codegen::decorated_ast::DecoratedRegexCall) {
+        use crate::parser::RegexMethod;
+
+        // Mark that regex crate is used
+        self.uses_regex = true;
+
+        match regex_call.method {
+            RegexMethod::Matches => {
+                // Regex::matches(text, pattern) -> RegexPattern::new(r"pattern").unwrap().is_match(text)
+                self.output.push_str("RegexPattern::new(r\"");
+                self.output.push_str(&regex_call.pattern);
+                self.output.push_str("\").unwrap().is_match(");
+                self.emit_expr(&regex_call.text_arg);
+                self.output.push(')');
+            }
+
+            RegexMethod::Find => {
+                // Regex::find(text, pattern) -> RegexPattern::new(r"pattern").unwrap().find(text).map(|m| m.as_str().to_string())
+                self.output.push_str("RegexPattern::new(r\"");
+                self.output.push_str(&regex_call.pattern);
+                self.output.push_str("\").unwrap().find(");
+                self.emit_expr(&regex_call.text_arg);
+                self.output.push_str(").map(|m| m.as_str().to_string())");
+            }
+
+            RegexMethod::FindAll => {
+                // Regex::find_all(text, pattern) -> RegexPattern::new(r"pattern").unwrap().find_iter(text).map(|m| m.as_str().to_string()).collect::<Vec<String>>()
+                self.output.push_str("RegexPattern::new(r\"");
+                self.output.push_str(&regex_call.pattern);
+                self.output.push_str("\").unwrap().find_iter(");
+                self.emit_expr(&regex_call.text_arg);
+                self.output.push_str(").map(|m| m.as_str().to_string()).collect::<Vec<String>>()");
+            }
+
+            RegexMethod::Captures => {
+                // Regex::captures(text, pattern) -> __regex_captures(text, r"pattern")
+                // Mark that we need the helper function
+                self.needs_regex_captures_helper = true;
+                self.output.push_str("__regex_captures(");
+                self.emit_expr(&regex_call.text_arg);
+                self.output.push_str(", r\"");
+                self.output.push_str(&regex_call.pattern);
+                self.output.push_str("\")");
+            }
+
+            RegexMethod::Replace => {
+                // Regex::replace(text, pattern, replacement) -> RegexPattern::new(r"pattern").unwrap().replace(text, replacement).to_string()
+                self.output.push_str("RegexPattern::new(r\"");
+                self.output.push_str(&regex_call.pattern);
+                self.output.push_str("\").unwrap().replace(");
+                self.emit_expr(&regex_call.text_arg);
+                self.output.push_str(", ");
+                if let Some(ref replacement) = regex_call.replacement_arg {
+                    self.emit_expr(replacement);
+                }
+                self.output.push_str(").to_string()");
+            }
+
+            RegexMethod::ReplaceAll => {
+                // Regex::replace_all(text, pattern, replacement) -> RegexPattern::new(r"pattern").unwrap().replace_all(text, replacement).to_string()
+                self.output.push_str("RegexPattern::new(r\"");
+                self.output.push_str(&regex_call.pattern);
+                self.output.push_str("\").unwrap().replace_all(");
+                self.emit_expr(&regex_call.text_arg);
+                self.output.push_str(", ");
+                if let Some(ref replacement) = regex_call.replacement_arg {
+                    self.emit_expr(replacement);
+                }
+                self.output.push_str(").to_string()");
+            }
+        }
+    }
+
     fn emit_codegen_helpers(&mut self) {
         self.emit_line("// Codegen helper functions");
         self.emit_line("fn codegen_to_string<N: Node>(node: &N) -> String {");
@@ -1500,6 +1694,37 @@ impl SwcEmitter {
         self.indent -= 1;
         self.emit_line("}");
         self.emit_line("String::from_utf8(buf).unwrap()");
+        self.indent -= 1;
+        self.emit_line("}");
+    }
+
+    fn emit_regex_helpers(&mut self) {
+        self.emit_line("// Regex helper functions");
+        self.emit_line("fn __regex_captures(text: &str, pattern: &str) -> Option<__Captures> {");
+        self.indent += 1;
+        self.emit_line("let re = RegexPattern::new(pattern).unwrap();");
+        self.emit_line("re.captures(text).map(|caps| __Captures { inner: caps })");
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("");
+
+        self.emit_line("struct __Captures<'a> {");
+        self.indent += 1;
+        self.emit_line("inner: regex::Captures<'a>,");
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("");
+
+        self.emit_line("impl<'a> __Captures<'a> {");
+        self.indent += 1;
+        self.emit_line("fn get(&self, index: usize) -> String {");
+        self.indent += 1;
+        self.emit_line("self.inner.get(index)");
+        self.indent += 1;
+        self.emit_line(".map(|m| m.as_str().to_string())");
+        self.emit_line(".unwrap_or_default()");
+        self.indent -= 2;
+        self.emit_line("}");
         self.indent -= 1;
         self.emit_line("}");
     }

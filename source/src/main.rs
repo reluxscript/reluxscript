@@ -405,6 +405,7 @@ swc_ecma_ast = "18.0.0"
 swc_ecma_visit = "18.0.1"
 swc_ecma_parser = "27.0.3"
 swc_ecma_codegen = "20.0.0"
+regex = "1.11.1"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 "#;

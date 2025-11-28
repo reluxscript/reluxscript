@@ -196,6 +196,23 @@ pub struct SwcUnaryMetadata {
     pub span: Option<Span>,
 }
 
+/// Metadata for regex call expressions
+#[derive(Debug, Clone)]
+pub struct SwcRegexMetadata {
+    /// Whether to cache the pattern as a lazy_static
+    /// (if used multiple times or in a loop/visitor)
+    pub cache_pattern: bool,
+
+    /// ID of the cached pattern (for REGEX_0, REGEX_1, etc.)
+    pub pattern_id: Option<usize>,
+
+    /// Whether a helper function is needed (for captures)
+    pub needs_helper: bool,
+
+    /// Name of the helper function if needed
+    pub helper_name: Option<String>,
+}
+
 impl SwcPatternMetadata {
     /// Create metadata for a simple pattern with no unwrapping
     pub fn direct(swc_pattern: String) -> Self {

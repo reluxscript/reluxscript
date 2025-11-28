@@ -818,7 +818,18 @@ impl TypeChecker {
                     RegexMethod::Matches => TypeInfo::Bool,
                     RegexMethod::Find => TypeInfo::Option(Box::new(TypeInfo::Str)),
                     RegexMethod::FindAll => TypeInfo::Vec(Box::new(TypeInfo::Str)),
-                    RegexMethod::Captures => TypeInfo::Option(Box::new(TypeInfo::Str)), // TODO: Captures type
+                    RegexMethod::Captures => {
+                        // Return Option<Captures> where Captures has a get(i32) -> Str method
+                        let mut fields = std::collections::HashMap::new();
+                        fields.insert("get".to_string(), TypeInfo::Function {
+                            params: vec![TypeInfo::I32],
+                            ret: Box::new(TypeInfo::Str),
+                        });
+                        TypeInfo::Option(Box::new(TypeInfo::Struct {
+                            name: "Captures".to_string(),
+                            fields,
+                        }))
+                    }
                     RegexMethod::Replace | RegexMethod::ReplaceAll => TypeInfo::Str,
                 }
             }

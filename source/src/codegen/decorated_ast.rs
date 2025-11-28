@@ -120,6 +120,7 @@ pub enum DecoratedExprKind {
     Return(Option<Box<DecoratedExpr>>),
     Break,
     Continue,
+    RegexCall(Box<DecoratedRegexCall>),
     CustomPropAccess(crate::parser::CustomPropAccess), // TODO: Add metadata for type info
 }
 
@@ -131,6 +132,17 @@ pub struct DecoratedCallExpr {
     pub type_args: Vec<crate::parser::TsType>,
     pub optional: bool,
     pub is_macro: bool,
+    pub span: Span,
+}
+
+/// Decorated regex call expression
+#[derive(Debug, Clone)]
+pub struct DecoratedRegexCall {
+    pub method: crate::parser::RegexMethod,
+    pub text_arg: DecoratedExpr,
+    pub pattern: String,
+    pub replacement_arg: Option<DecoratedExpr>,
+    pub metadata: SwcRegexMetadata,
     pub span: Span,
 }
 

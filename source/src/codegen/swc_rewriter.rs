@@ -762,6 +762,18 @@ impl SwcRewriter {
                 }
             }
 
+            // Regex calls - recursively rewrite child expressions
+            DecoratedExprKind::RegexCall(regex_call) => {
+                DecoratedExprKind::RegexCall(Box::new(crate::codegen::decorated_ast::DecoratedRegexCall {
+                    method: regex_call.method,
+                    text_arg: self.rewrite_expr(regex_call.text_arg),
+                    pattern: regex_call.pattern,
+                    replacement_arg: regex_call.replacement_arg.map(|e| self.rewrite_expr(e)),
+                    metadata: regex_call.metadata,
+                    span: regex_call.span,
+                }))
+            }
+
             // Return expressions
             DecoratedExprKind::Return(value) => {
                 DecoratedExprKind::Return(value.map(|v| Box::new(self.rewrite_expr(*v))))
