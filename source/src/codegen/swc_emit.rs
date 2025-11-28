@@ -348,6 +348,15 @@ impl SwcEmitter {
     fn emit_plugin(&mut self, plugin: &DecoratedPlugin) {
         self.name = plugin.name.clone();
 
+        // Check if there's a State struct
+        let has_state = plugin.body.iter().any(|item| {
+            if let DecoratedPluginItem::Struct(s) = item {
+                s.name == "State"
+            } else {
+                false
+            }
+        });
+
         // Emit structs, enums, and impl blocks FIRST (at module level)
         for item in &plugin.body {
             match item {
@@ -361,7 +370,13 @@ impl SwcEmitter {
         }
 
         // Plugin struct
-        self.emit_line(&format!("pub struct {} {{}}", plugin.name));
+        self.emit_line(&format!("pub struct {} {{", plugin.name));
+        self.indent += 1;
+        if has_state {
+            self.emit_line("pub state: State,");
+        }
+        self.indent -= 1;
+        self.emit_line("}");
         self.emit_line("");
 
         // Impl VisitMut (only visitor methods)
@@ -379,6 +394,49 @@ impl SwcEmitter {
 
         self.indent -= 1;
         self.emit_line("}");
+        self.emit_line("");
+
+        // Emit impl block with constructor if has state
+        if has_state {
+            // Get the State struct to initialize fields
+            let state_struct = plugin.body.iter().find_map(|item| {
+                if let DecoratedPluginItem::Struct(s) = item {
+                    if s.name == "State" {
+                        return Some(s);
+                    }
+                }
+                None
+            });
+
+            if let Some(state) = state_struct {
+                self.emit_line(&format!("impl {} {{", plugin.name));
+                self.indent += 1;
+
+                self.emit_line("pub fn new() -> Self {");
+                self.indent += 1;
+                self.emit_line("Self {");
+                self.indent += 1;
+                self.emit_line("state: State {");
+                self.indent += 1;
+
+                // Initialize state fields with default values
+                for field in &state.fields {
+                    let default_value = self.get_default_value_for_type(&field.ty);
+                    self.emit_line(&format!("{}: {},", field.name, default_value));
+                }
+
+                self.indent -= 1;
+                self.emit_line("},");
+                self.indent -= 1;
+                self.emit_line("}");
+                self.indent -= 1;
+                self.emit_line("}");
+
+                self.indent -= 1;
+                self.emit_line("}");
+                self.emit_line("");
+            }
+        }
 
         // Emit helper functions outside VisitMut impl
         for item in &plugin.body {
@@ -1727,5 +1785,41 @@ impl SwcEmitter {
         self.emit_line("}");
         self.indent -= 1;
         self.emit_line("}");
+    }
+
+    fn get_default_value_for_type(&self, ty: &Type) -> String {
+        match ty {
+            Type::Primitive(name) => {
+                match name.as_str() {
+                    "Str" => "String::new()".to_string(),
+                    "Number" => "0".to_string(),
+                    "Bool" => "false".to_string(),
+                    "()" => "()".to_string(),
+                    "i32" | "i64" | "u32" | "u64" | "usize" | "isize" => "0".to_string(),
+                    "f32" | "f64" => "0.0".to_string(),
+                    "char" => "'\\0'".to_string(),
+                    _ => "Default::default()".to_string(),
+                }
+            }
+            Type::Container { name, .. } => {
+                match name.as_str() {
+                    "Vec" => "Vec::new()".to_string(),
+                    "HashMap" => "HashMap::new()".to_string(),
+                    "HashSet" => "HashSet::new()".to_string(),
+                    "Option" => "None".to_string(),
+                    _ => format!("{}::new()", name),
+                }
+            }
+            Type::Optional(_) => "None".to_string(),
+            Type::Array { .. } => "Vec::new()".to_string(),
+            Type::Named(name) => {
+                // Handle special types
+                match name.as_str() {
+                    "CodeBuilder" => "String::new()".to_string(),
+                    _ => "Default::default()".to_string(),
+                }
+            }
+            _ => "Default::default()".to_string(),
+        }
     }
 }
