@@ -9,6 +9,10 @@ pub fn get_keyword_completions() -> Vec<CompletionItem> {
         completion_keyword("module", "Define a module"),
         completion_keyword("interface", "Define an interface"),
         completion_keyword("use", "Import symbols from another module"),
+        completion_keyword("struct", "Define a struct"),
+        completion_keyword("enum", "Define an enum"),
+        completion_keyword("impl", "Implement methods for a type"),
+        completion_keyword("where", "Where clause for generics"),
 
         // Function-related
         completion_keyword("fn", "Define a function"),
@@ -41,6 +45,7 @@ pub fn get_keyword_completions() -> Vec<CompletionItem> {
         // Literals
         completion_keyword("true", "Boolean true"),
         completion_keyword("false", "Boolean false"),
+        completion_keyword("null", "Null literal"),
         completion_keyword("None", "Option none variant"),
         completion_keyword("Some", "Option some variant"),
         completion_keyword("Ok", "Result ok variant"),
@@ -119,6 +124,11 @@ pub fn get_ast_type_completions() -> Vec<CompletionItem> {
         completion_type("Property", "Object property"),
         completion_type("Program", "Root program node"),
         completion_type("File", "File node"),
+
+        // Context & State types
+        completion_type("Context", "Visitor context"),
+        completion_type("PluginState", "Plugin state"),
+        completion_type("CodeBuilder", "Code builder for writers"),
     ]
 }
 
@@ -138,6 +148,37 @@ pub fn get_builtin_type_completions() -> Vec<CompletionItem> {
         completion_type("f64", "64-bit floating point"),
         completion_type("usize", "Pointer-sized unsigned integer"),
     ]
+}
+
+/// Generate macro completions
+pub fn get_macro_completions() -> Vec<CompletionItem> {
+    vec![
+        completion_macro("format!", "Format string macro"),
+        completion_macro("println!", "Print with newline macro"),
+        completion_macro("print!", "Print macro"),
+        completion_macro("panic!", "Panic macro"),
+        completion_macro("assert!", "Assert macro"),
+        completion_macro("debug!", "Debug macro"),
+        completion_macro("matches!", "Pattern matching macro"),
+        completion_macro("vec!", "Vec creation macro"),
+
+        // Verbatim blocks
+        completion_macro("babel!", "Babel-specific verbatim code block"),
+        completion_macro("swc!", "SWC-specific verbatim code block"),
+        completion_macro("js!", "JavaScript verbatim code block (alias for babel!)"),
+        completion_macro("rust!", "Rust verbatim code block (alias for swc!)"),
+    ]
+}
+
+/// Helper to create macro completion
+fn completion_macro(label: &str, detail: &str) -> CompletionItem {
+    CompletionItem {
+        label: label.to_string(),
+        kind: Some(CompletionItemKind::FUNCTION),
+        detail: Some(detail.to_string()),
+        documentation: None,
+        ..Default::default()
+    }
 }
 
 /// Generate function snippet completions

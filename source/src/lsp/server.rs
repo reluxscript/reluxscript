@@ -239,6 +239,7 @@ impl LanguageServer for ReluxScriptLanguageServer {
             completions.extend(get_keyword_completions());
             completions.extend(get_ast_type_completions());
             completions.extend(get_builtin_type_completions());
+            completions.extend(get_macro_completions());
             completions.extend(get_snippet_completions());
         }
 
