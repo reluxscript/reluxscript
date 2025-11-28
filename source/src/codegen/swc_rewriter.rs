@@ -257,7 +257,13 @@ impl SwcRewriter {
             condition = self.strip_unnecessary_deref(condition);
         }
 
-        let pattern = if_stmt.pattern.map(|p| self.rewrite_pattern(p));
+        let pattern = if_stmt.pattern.as_ref().map(|p| self.rewrite_pattern(p.clone()));
+
+        // Add .as_ref() to scrutinee if matching against Box<T>
+        if let Some(ref pat) = pattern {
+            condition = self.add_asref_for_box_match(condition, pat);
+        }
+
         let then_branch = self.rewrite_block(if_stmt.then_branch);
         let else_branch = if_stmt.else_branch.map(|b| self.rewrite_block(b));
 
@@ -315,6 +321,51 @@ impl SwcRewriter {
                     FieldAccessor::EnumField { .. })
             }
             _ => false,
+        }
+    }
+
+    /// Add .as_ref() to scrutinee when matching &Box<T> against T pattern
+    /// Example: if let Expr::Array(arr) = init  →  if let Expr::Array(arr) = init.as_ref()
+    fn add_asref_for_box_match(&self, scrutinee: DecoratedExpr, pattern: &DecoratedPattern) -> DecoratedExpr {
+        // Check if scrutinee is an identifier with Box in its type
+        let is_ident_with_box = matches!(&scrutinee.kind, DecoratedExprKind::Ident { .. })
+            && scrutinee.metadata.swc_type.contains("Box<");
+
+        // Check if pattern is a variant pattern (like Expr::Array)
+        let is_variant_pattern = matches!(&pattern.kind, DecoratedPatternKind::Variant { .. });
+
+        if is_ident_with_box && is_variant_pattern {
+            // Wrap scrutinee with .as_ref() call
+            DecoratedExpr {
+                kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                    callee: DecoratedExpr {
+                        kind: DecoratedExprKind::Member {
+                            object: Box::new(scrutinee.clone()),
+                            property: "as_ref".to_string(),
+                            optional: false,
+                            computed: false,
+                            is_path: false,
+                            field_metadata: SwcFieldMetadata::direct("as_ref".to_string(), "fn".to_string()),
+                        },
+                        metadata: SwcExprMetadata {
+                            swc_type: "fn".to_string(),
+                            is_boxed: false,
+                            is_optional: false,
+                            type_kind: SwcTypeKind::Unknown,
+                            span: None,
+                        },
+                    },
+                    args: vec![],
+                    type_args: vec![],
+                    optional: false,
+                    is_macro: false,
+                    span: Span::new(0, 0, 0, 0),
+                })),
+                metadata: scrutinee.metadata,
+            }
+        } else {
+            // No transformation needed
+            scrutinee
         }
     }
 

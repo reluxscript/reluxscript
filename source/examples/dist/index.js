@@ -3,31 +3,37 @@
 
 module.exports = function({ types: t }) {
   
-  function build_member_path(expr) {
-    let parts = [];
-    let current = expr;
-    while ((t.isMemberExpression(current))) {
-      const member = current;
-      const property = member.property;
-      const object = member.object;
-      if ((t.isIdentifier(property))) {
-        const name = property.name;
-        parts.unshift(name);
-      }
-      current = object;
+  class Stats {
+  constructor(removed_count) {
+      this.removed_count = removed_count;
     }
-    if ((t.isIdentifier(current))) {
-      const name = current.name;
-      parts.unshift(name);
-    }
-    return parts.join(".");
+  }
+  
+  function is_console_method(name) {
+    return (((name === "log") || (name === "warn")) || (name === "error"));
   }
   
   let state = {};
   
   return {
     visitor: {
-
+      CallExpression(path) {
+        const node = path.node;
+        const callee = node.callee;
+        const args_count = node.arguments.length;
+        if ((args_count > 0)) {
+          for (const arg of node.arguments) {
+            const _temp = arg;
+          }
+        }
+      },
+      Identifier(path) {
+        const node = path.node;
+        const name = node.name;
+        if ((name === "oldName")) {
+          path.replaceWith(t.identifier("newName"));
+        }
+      }
     }
   };
 };

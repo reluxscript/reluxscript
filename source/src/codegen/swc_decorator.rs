@@ -464,7 +464,10 @@ impl SwcDecorator {
                             }
                         } else {
                             // Standard mapping for Expr, Stmt, etc.
-                            self.map_pattern_to_swc(name)
+                            let full_pattern = self.map_pattern_to_swc(name);
+                            // Strip the binding name if present, keep only the enum variant
+                            // "Expr::Array(array_lit)" → "Expr::Array"
+                            self.strip_pattern_binding(&full_pattern)
                         }
                     } else {
                         name.clone()
@@ -474,7 +477,9 @@ impl SwcDecorator {
                     // Also handles struct-like patterns like CallExpression(_)
                     // Use node mapping for accurate type conversion
                     if let Some(mapping) = get_node_mapping(name) {
-                        mapping.swc.to_string()
+                        let full_pattern = mapping.swc_pattern.to_string();
+                        // Strip the binding name if present, keep only the enum variant
+                        self.strip_pattern_binding(&full_pattern)
                     } else {
                         // Fallback to reluxscript_to_swc_type for built-in types
                         self.reluxscript_to_swc_type(name)
@@ -664,6 +669,70 @@ impl SwcDecorator {
         }
     }
 
+    /// Decorate expression with .as_ref() suppressed for Option<Box<T>> fields
+    /// Used when decorating operands of & reference operator
+    fn decorate_expr_suppress_asref(&mut self, expr: &Expr) -> DecoratedExpr {
+        match expr {
+            Expr::Member(mem) => {
+                // Decorate member expression but suppress .as_ref()
+                let object = Box::new(self.decorate_expr(&mem.object));
+                let object_type = &object.metadata.swc_type;
+
+                let field_metadata = if mem.property == "builder" && self.is_writer {
+                    SwcFieldMetadata {
+                        swc_field_name: mem.property.clone(),
+                        accessor: FieldAccessor::Replace {
+                            with: "self".to_string(),
+                        },
+                        field_type: "Self".to_string(),
+                        source_field: Some(mem.property.clone()),
+                        span: Some(mem.span),
+                    }
+                } else if let Some(mapping) = get_typed_field_mapping(object_type, &mem.property) {
+                    // We have precise mapping - but suppress .as_ref()!
+                    SwcFieldMetadata {
+                        swc_field_name: mapping.swc_field.to_string(),
+                        accessor: FieldAccessor::Direct,  // Always use Direct, not BoxedAsRef
+                        field_type: mapping.result_type_swc.to_string(),
+                        source_field: Some(mem.property.clone()),
+                        span: Some(mem.span),
+                    }
+                } else {
+                    // Fallback - also use Direct
+                    SwcFieldMetadata {
+                        swc_field_name: mem.property.clone(),
+                        accessor: FieldAccessor::Direct,
+                        field_type: "Unknown".to_string(),
+                        source_field: Some(mem.property.clone()),
+                        span: Some(mem.span),
+                    }
+                };
+
+                let member_type = field_metadata.field_type.clone();
+
+                DecoratedExpr {
+                    kind: DecoratedExprKind::Member {
+                        object,
+                        property: mem.property.clone(),
+                        optional: mem.optional,
+                        computed: mem.computed,
+                        is_path: mem.is_path,
+                        field_metadata,
+                    },
+                    metadata: SwcExprMetadata {
+                        swc_type: member_type,
+                        is_boxed: false,
+                        is_optional: false,
+                        type_kind: SwcTypeKind::Unknown,
+                        span: Some(mem.span),
+                    },
+                }
+            }
+            // For all other expression types, just use normal decoration
+            _ => self.decorate_expr(expr),
+        }
+    }
+
     /// Decorate an expression and infer its SWC type
     fn decorate_expr(&mut self, expr: &Expr) -> DecoratedExpr {
         match expr {
@@ -780,7 +849,13 @@ impl SwcDecorator {
             }
 
             Expr::Unary(unary) => {
-                let decorated_operand = Box::new(self.decorate_expr(&unary.operand));
+                // For Ref/RefMut, suppress .as_ref() on Option<Box<T>> fields
+                // because &node.field doesn't need .as_ref()
+                let decorated_operand = if matches!(unary.op, UnaryOp::Ref | UnaryOp::RefMut) {
+                    Box::new(self.decorate_expr_suppress_asref(&unary.operand))
+                } else {
+                    Box::new(self.decorate_expr(&unary.operand))
+                };
 
                 // Infer result type based on operation
                 let result_type = match unary.op {
@@ -1234,6 +1309,17 @@ impl SwcDecorator {
                     },
                 }
             }
+        }
+    }
+
+    /// Strip the binding name from a pattern, keeping only the enum variant
+    /// Example: "Expr::Array(array_lit)" → "Expr::Array"
+    /// Example: "Pat::Ident(ident)" → "Pat::Ident"
+    fn strip_pattern_binding(&self, pattern: &str) -> String {
+        if let Some(paren_pos) = pattern.find('(') {
+            pattern[..paren_pos].to_string()
+        } else {
+            pattern.to_string()
         }
     }
 
