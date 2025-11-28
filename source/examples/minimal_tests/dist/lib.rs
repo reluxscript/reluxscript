@@ -12,14 +12,14 @@ impl VisitMut for TestStringLiteralInto {
 }
 
 fn get_label() -> String {
-    return "hello";
+    return "hello".to_string();
 }
 
 fn get_conditional(flag: bool) -> String {
     if flag {
-        "yes"
+        "yes".to_string()
     } else {
-        "no"
+        "no".to_string()
     }
 }
 

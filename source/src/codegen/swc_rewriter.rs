@@ -210,7 +210,16 @@ impl SwcRewriter {
             }
 
             DecoratedStmt::Return(ret_expr) => {
-                DecoratedStmt::Return(ret_expr.map(|e| self.rewrite_expr(e)))
+                let rewritten = ret_expr.map(|e| {
+                    let expr = self.rewrite_expr(e);
+                    // Check if it's a string literal that needs conversion
+                    if let DecoratedExprKind::Literal(Literal::String(_)) = expr.kind {
+                        self.wrap_with_to_string(expr)
+                    } else {
+                        expr
+                    }
+                });
+                DecoratedStmt::Return(rewritten)
             }
 
             DecoratedStmt::Break => DecoratedStmt::Break,
@@ -265,7 +274,9 @@ impl SwcRewriter {
         }
 
         let then_branch = self.rewrite_block(if_stmt.then_branch);
+        let then_branch = self.convert_block_tail_string_literal(then_branch);
         let else_branch = if_stmt.else_branch.map(|b| self.rewrite_block(b));
+        let else_branch = else_branch.map(|b| self.convert_block_tail_string_literal(b));
 
         DecoratedIfStmt {
             condition,
@@ -1484,6 +1495,100 @@ impl SwcRewriter {
                 expr
             }
             _ => expr,
+        }
+    }
+
+    // ========================================================================
+    // TRANSFORMATION: String Literal Conversion
+    // ========================================================================
+
+    /// 🔧 Convert string literals to String when needed
+    /// transforms: "hello" → "hello".to_string() (in return position or if/else arms returning String)
+    fn apply_string_literal_conversion(&mut self, expr: DecoratedExpr) -> DecoratedExpr {
+        match &expr.kind {
+            // Check for string literals that might need conversion
+            DecoratedExprKind::Literal(Literal::String(_)) => {
+                // For SWC, always add .to_string() to bare string literals
+                // The emitter will check context (return statements, assignments, etc.)
+                // and add the conversion when needed
+                // Actually, we can't easily determine context here, so we'll handle
+                // this in specific positions like return statements
+                expr
+            }
+
+            // Handle if expressions - convert string literals in branches
+            DecoratedExprKind::If(if_expr) => {
+                DecoratedExpr {
+                    kind: DecoratedExprKind::If(Box::new(DecoratedIfExpr {
+                        condition: if_expr.condition.clone(),
+                        then_branch: self.convert_block_tail_string_literal(if_expr.then_branch.clone()),
+                        else_branch: if_expr.else_branch.as_ref().map(|b| self.convert_block_tail_string_literal(b.clone())),
+                    })),
+                    metadata: expr.metadata.clone(),
+                }
+            }
+
+            // Other expressions pass through unchanged
+            _ => expr,
+        }
+    }
+
+    /// Helper: Convert string literal in block's tail position
+    fn convert_block_tail_string_literal(&mut self, block: DecoratedBlock) -> DecoratedBlock {
+        let mut stmts = block.stmts;
+        if let Some(last_stmt) = stmts.last_mut() {
+            if let DecoratedStmt::Expr(ref mut expr) = last_stmt {
+                if let DecoratedExprKind::Literal(Literal::String(_)) = expr.kind {
+                    // Wrap with .to_string() call
+                    *expr = self.wrap_with_to_string(expr.clone());
+                }
+            } else if let DecoratedStmt::Return(Some(ref mut expr)) = last_stmt {
+                if let DecoratedExprKind::Literal(Literal::String(_)) = expr.kind {
+                    // Wrap with .to_string() call
+                    *expr = self.wrap_with_to_string(expr.clone());
+                }
+            }
+        }
+        DecoratedBlock { stmts }
+    }
+
+    /// Helper: Wrap expression with .to_string() method call
+    fn wrap_with_to_string(&self, expr: DecoratedExpr) -> DecoratedExpr {
+        use crate::lexer::Span as LexerSpan;
+        let span = expr.metadata.span.unwrap_or(LexerSpan::new(0, 0, 0, 0));
+
+        DecoratedExpr {
+            kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                callee: DecoratedExpr {
+                    kind: DecoratedExprKind::Member {
+                        object: Box::new(expr.clone()),
+                        property: "to_string".to_string(),
+                        optional: false,
+                        computed: false,
+                        is_path: false,
+                        field_metadata: SwcFieldMetadata::direct("to_string".to_string(), "fn".to_string()),
+                    },
+                    metadata: SwcExprMetadata {
+                        swc_type: "fn".to_string(),
+                        is_boxed: false,
+                        is_optional: false,
+                        type_kind: crate::type_system::SwcTypeKind::Unknown,
+                        span: Some(span),
+                    },
+                },
+                args: vec![],
+                type_args: vec![],
+                optional: false,
+                is_macro: false,
+                span,
+            })),
+            metadata: SwcExprMetadata {
+                swc_type: "String".to_string(),
+                is_boxed: false,
+                is_optional: false,
+                type_kind: crate::type_system::SwcTypeKind::Unknown,
+                span: Some(span),
+            },
         }
     }
 
