@@ -128,25 +128,75 @@ impl SwcEmitter {
     }
 
     fn detect_regex_usage_in_decl(&mut self, decl: &crate::codegen::swc_decorator::DecoratedTopLevelDecl) {
-        use crate::codegen::swc_decorator::DecoratedTopLevelDecl;
+        use crate::codegen::swc_decorator::{DecoratedTopLevelDecl, DecoratedPluginItem};
         match decl {
             DecoratedTopLevelDecl::Plugin(plugin) => {
                 for item in &plugin.body {
-                    if let crate::codegen::swc_decorator::DecoratedPluginItem::Function(func) = item {
-                        self.detect_regex_usage_in_block(&func.body);
+                    match item {
+                        DecoratedPluginItem::Function(func) => {
+                            self.detect_regex_usage_in_block(&func.body);
+                        }
+                        DecoratedPluginItem::Struct(struct_decl) => {
+                            self.detect_hashmap_hashset_in_struct(struct_decl);
+                        }
+                        _ => {}
                     }
                 }
             }
             DecoratedTopLevelDecl::Writer(writer) => {
                 for item in &writer.body {
-                    if let crate::codegen::swc_decorator::DecoratedPluginItem::Function(func) = item {
-                        self.detect_regex_usage_in_block(&func.body);
+                    match item {
+                        DecoratedPluginItem::Function(func) => {
+                            self.detect_regex_usage_in_block(&func.body);
+                        }
+                        DecoratedPluginItem::Struct(struct_decl) => {
+                            self.detect_hashmap_hashset_in_struct(struct_decl);
+                        }
+                        _ => {}
                     }
                 }
             }
             DecoratedTopLevelDecl::Undecorated(_) => {
                 // Undecorated code (interfaces, modules) - skip
             }
+        }
+    }
+
+    fn detect_hashmap_hashset_in_struct(&mut self, struct_decl: &crate::parser::StructDecl) {
+        for field in &struct_decl.fields {
+            self.detect_hashmap_hashset_in_type(&field.ty);
+        }
+    }
+
+    fn detect_hashmap_hashset_in_type(&mut self, ty: &crate::parser::Type) {
+        use crate::parser::Type;
+        match ty {
+            Type::Container { name, type_args } => {
+                match name.as_str() {
+                    "HashMap" => self.uses_hashmap = true,
+                    "HashSet" => self.uses_hashset = true,
+                    _ => {}
+                }
+                // Recursively check type arguments
+                for ty_arg in type_args {
+                    self.detect_hashmap_hashset_in_type(ty_arg);
+                }
+            }
+            Type::Reference { inner, .. } => {
+                self.detect_hashmap_hashset_in_type(inner);
+            }
+            Type::Optional(inner) => {
+                self.detect_hashmap_hashset_in_type(inner);
+            }
+            Type::Array { element } => {
+                self.detect_hashmap_hashset_in_type(element);
+            }
+            Type::Tuple(types) => {
+                for ty in types {
+                    self.detect_hashmap_hashset_in_type(ty);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -237,7 +287,7 @@ impl SwcEmitter {
         self.emit_line("");
         self.emit_line("use swc_common::{Span, DUMMY_SP, SyntaxContext};");
         self.emit_line("use swc_ecma_ast::*;");
-        self.emit_line("use swc_ecma_visit::{VisitMut, VisitMutWith};");
+        self.emit_line("use swc_ecma_visit::{VisitMut, VisitMutWith, VisitWith};");
 
         // Add conditional imports
         if self.uses_hashmap && self.uses_hashset {

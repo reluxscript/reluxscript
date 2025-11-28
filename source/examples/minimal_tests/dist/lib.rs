@@ -3,19 +3,35 @@
 
 use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
-use swc_ecma_visit::{VisitMut, VisitMutWith};
+use swc_ecma_visit::{VisitMut, VisitMutWith, VisitWith};
 
-pub struct TestIfLetBinding {
+struct Item {
+    name: String,
 }
 
-impl VisitMut for TestIfLetBinding {
-    fn visit_mut_var_declarator(&mut self, node: &mut VarDeclarator) {
-        if let Some(init) = &node.init {
-            if let Expr::Array(arr) = init.as_ref() {
-                let size = arr.elems.len();
-            }
-        }
+struct State {
+    items: Vec<Item>,
+}
+
+pub struct TestVecPush {
+    pub state: State,
+}
+
+impl VisitMut for TestVecPush {
+    fn visit_mut_ident(&mut self, node: &mut Ident) {
+        let item = Item { name: "test".into() };
+        self.state.items.push(item);
     }
     
+}
+
+impl TestVecPush {
+    pub fn new() -> Self {
+        Self {
+            state: State {
+                items: Vec::new(),
+            },
+        }
+    }
 }
 

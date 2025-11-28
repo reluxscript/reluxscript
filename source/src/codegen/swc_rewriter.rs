@@ -602,6 +602,8 @@ impl SwcRewriter {
         let expr = self.apply_field_replacements(expr);
         let expr = self.apply_context_remove(expr);
         let expr = self.apply_codegen_helpers(expr);
+        let expr = self.apply_visit_children_rewrite(expr);
+        let expr = self.apply_atom_to_string_conversion(expr);
         let expr = self.apply_ast_struct_init(expr);
         let expr = self.apply_matches_expansion(expr);
         let expr = self.apply_iterator_methods(expr);
@@ -1099,6 +1101,108 @@ impl SwcRewriter {
 
         // No transformation needed
         expr
+    }
+
+    // ========================================================================
+    // TRANSFORMATION: Visit Children Method Rewrite
+    // ========================================================================
+
+    /// 🔧 Transform node.visit_children(self) to node.visit_mut_children_with(self)
+    /// ReluxScript uses visit_children as an abstraction, but SWC VisitMut uses visit_mut_children_with
+    fn apply_visit_children_rewrite(&mut self, expr: DecoratedExpr) -> DecoratedExpr {
+        // Check if this is a call expression
+        if let DecoratedExprKind::Call(ref call) = expr.kind {
+            // Check if the callee is a member expression
+            if let DecoratedExprKind::Member { ref object, ref property, .. } = call.callee.kind {
+                // Check if it's .visit_children
+                if property == "visit_children" {
+                    // Transform: node.visit_children(self) → node.visit_mut_children_with(self)
+                    return DecoratedExpr {
+                        kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                            callee: DecoratedExpr {
+                                kind: DecoratedExprKind::Member {
+                                    object: object.clone(),
+                                    property: "visit_mut_children_with".to_string(),
+                                    optional: false,
+                                    computed: false,
+                                    is_path: false,
+                                    field_metadata: SwcFieldMetadata::direct(
+                                        "visit_mut_children_with".to_string(),
+                                        "()".to_string()
+                                    ),
+                                },
+                                metadata: call.callee.metadata.clone(),
+                            },
+                            args: call.args.clone(),
+                            type_args: vec![],
+                            optional: false,
+                            is_macro: false,
+                            span: call.span,
+                        })),
+                        metadata: expr.metadata.clone(),
+                    };
+                }
+            }
+        }
+
+        // No transformation needed
+        expr
+    }
+
+    // ========================================================================
+    // TRANSFORMATION: Atom to String Conversion
+    // ========================================================================
+
+    /// 🔧 Transform .sym.clone() to .sym.to_string() when String type is needed
+    /// SWC uses Atom (interned string) for identifiers, but ReluxScript code expects String
+    fn apply_atom_to_string_conversion(&mut self, expr: DecoratedExpr) -> DecoratedExpr {
+        // Check if this is a method call
+        if let DecoratedExprKind::Call(ref call) = expr.kind {
+            // Check if the callee is a member expression (something.clone())
+            if let DecoratedExprKind::Member { ref object, ref property, .. } = call.callee.kind {
+                // Check if it's .clone() and the object ends with .sym or .name
+                if property == "clone" && self.ends_with_sym_access(object) {
+                    // Transform: [anything].name.clone() or [anything].sym.clone() → [anything].to_string()
+                        return DecoratedExpr {
+                            kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                                callee: DecoratedExpr {
+                                    kind: DecoratedExprKind::Member {
+                                        object: object.clone(),
+                                        property: "to_string".to_string(),
+                                        optional: false,
+                                        computed: false,
+                                        is_path: false,
+                                        field_metadata: SwcFieldMetadata::direct(
+                                            "to_string".to_string(),
+                                            "String".to_string()
+                                        ),
+                                    },
+                                    metadata: call.callee.metadata.clone(),
+                                },
+                                args: vec![],  // to_string() takes no args
+                                type_args: vec![],
+                                optional: false,
+                                is_macro: false,
+                                span: call.span,
+                            })),
+                            metadata: expr.metadata.clone(),
+                        };
+                }
+            }
+        }
+
+        // No transformation needed
+        expr
+    }
+
+    /// Helper: Check if an expression ends with .sym or .name access (identifier string fields)
+    fn ends_with_sym_access(&self, expr: &DecoratedExpr) -> bool {
+        if let DecoratedExprKind::Member { property, .. } = &expr.kind {
+            // Check for both .sym (SWC) and .name (ReluxScript) as they map to Atom/String
+            property == "sym" || property == "name"
+        } else {
+            false
+        }
     }
 
     // ========================================================================

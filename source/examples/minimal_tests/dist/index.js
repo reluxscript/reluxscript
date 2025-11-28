@@ -3,21 +3,26 @@
 
 module.exports = function({ types: t }) {
   
+  class Item {
+  constructor(name) {
+      this.name = name;
+    }
+  }
+  
+  class State {
+  constructor(items) {
+      this.items = items;
+    }
+  }
+  
   let state = {};
   
   return {
     visitor: {
-      VariableDeclarator(path) {
+      Identifier(path) {
         const node = path.node;
-        const __iflet_0 = node.init;
-        if (__iflet_0 !== null && __iflet_0 !== undefined) {
-          const init = __iflet_0;
-          const __iflet_1 = init;
-          if (__iflet_1 !== null) {
-            const arr = __iflet_1;
-            const size = arr.elements.length;
-          }
-        }
+        const item = { name: "test" };
+        this.state.items.push(item);
       }
     }
   };
