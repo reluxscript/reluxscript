@@ -5,33 +5,21 @@ use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{VisitMut, VisitMutWith, VisitWith};
 
-struct Item {
-    name: String,
+pub struct TestStringLiteralInto {
 }
 
-struct State {
-    items: Vec<Item>,
+impl VisitMut for TestStringLiteralInto {
 }
 
-pub struct TestVecPush {
-    pub state: State,
+fn get_label() -> String {
+    return "hello";
 }
 
-impl VisitMut for TestVecPush {
-    fn visit_mut_ident(&mut self, node: &mut Ident) {
-        let item = Item { name: "test".into() };
-        self.state.items.push(item);
-    }
-    
-}
-
-impl TestVecPush {
-    pub fn new() -> Self {
-        Self {
-            state: State {
-                items: Vec::new(),
-            },
-        }
+fn get_conditional(flag: bool) -> String {
+    if flag {
+        "yes"
+    } else {
+        "no"
     }
 }
 

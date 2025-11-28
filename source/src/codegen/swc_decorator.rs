@@ -444,7 +444,7 @@ impl SwcDecorator {
                         let relux_variant = parts[1]; // "Identifier"
 
                         // 🔥 CONTEXT-AWARE MAPPING
-                        // If we're matching against MemberProp or Pat, translate differently!
+                        // If we're matching against MemberProp, Pat, or Callee, translate differently!
                         if expected_type == "MemberProp" {
                             // Expression::Identifier on MemberProp → MemberProp::Ident
                             if relux_enum == "Expression" && relux_variant == "Identifier" {
@@ -453,6 +453,10 @@ impl SwcDecorator {
                                 // Fallback to standard mapping
                                 self.map_pattern_to_swc(name)
                             }
+                        } else if expected_type == "Callee" && relux_enum == "Expression" {
+                            // Expression::* on Callee → Callee::Expr
+                            // The nested pattern desugaring is handled by desugar_strategy below
+                            "Callee::Expr".to_string()
                         } else if expected_type == "Pat" || relux_enum == "Pattern" {
                             // Pattern::Identifier → Pat::Ident
                             // Pattern::Array → Pat::Array (already handled by map_pattern_to_swc)
@@ -497,7 +501,7 @@ impl SwcDecorator {
                         let relux_enum = parts[0];
                         let relux_variant = parts[1];
 
-                        // Detect Callee::MemberExpression
+                        // Detect Callee::MemberExpression (legacy support)
                         if relux_enum == "Callee" && relux_variant == "MemberExpression" {
                             // Get the inner binding name from the pattern
                             let inner_binding = if let Some(Pattern::Ident(inner_name)) = inner.as_ref().map(|p| &**p) {
@@ -510,6 +514,26 @@ impl SwcDecorator {
                                 outer_pattern: "Callee::Expr".to_string(),
                                 outer_binding: "__callee_expr".to_string(),
                                 inner_pattern: "Expr::Member".to_string(),
+                                inner_binding,
+                                unwrap_expr: ".as_ref()".to_string(),
+                            })
+                        // Detect Expression::* in Callee context (e.g., Expression::MemberExpression on CallExpression.callee)
+                        } else if expected_type == "Callee" && relux_enum == "Expression" {
+                            // Get the inner binding name from the pattern
+                            let inner_binding = if let Some(Pattern::Ident(inner_name)) = inner.as_ref().map(|p| &**p) {
+                                inner_name.clone()
+                            } else {
+                                "__expr_inner".to_string()  // Default binding name
+                            };
+
+                            // Map the expression variant to SWC pattern
+                            let inner_swc_pattern = self.map_pattern_to_swc(&format!("Expression::{}", relux_variant));
+                            let inner_pattern = self.strip_pattern_binding(&inner_swc_pattern);
+
+                            Some(DesugarStrategy::NestedIfLet {
+                                outer_pattern: "Callee::Expr".to_string(),
+                                outer_binding: "__callee_expr".to_string(),
+                                inner_pattern,
                                 inner_binding,
                                 unwrap_expr: ".as_ref()".to_string(),
                             })

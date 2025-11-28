@@ -607,6 +607,7 @@ impl SwcRewriter {
         let expr = self.apply_ast_struct_init(expr);
         let expr = self.apply_matches_expansion(expr);
         let expr = self.apply_iterator_methods(expr);
+        let expr = self.apply_string_literal_conversion(expr);
         // TODO Phase 4: Apply nested member unwrapping
         // let expr = self.apply_member_unwrapping(expr);
 

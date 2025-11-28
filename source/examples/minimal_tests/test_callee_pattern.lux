@@ -1,0 +1,9 @@
+// Test: CallExpression.callee is Callee type, not Expression
+
+plugin TestCalleePattern {
+    fn visit_call_expression(node: &mut CallExpression, ctx: &Context) {
+        if let Expression::MemberExpression(member) = &node.callee {
+            // Should handle that callee is Callee, not Expression
+        }
+    }
+}

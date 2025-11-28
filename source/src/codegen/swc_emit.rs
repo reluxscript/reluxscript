@@ -552,6 +552,14 @@ impl SwcEmitter {
     // ========================================================================
 
     fn emit_struct(&mut self, struct_decl: &StructDecl) {
+        // Emit derives if any, or default to Clone + Debug for SWC
+        if !struct_decl.derives.is_empty() {
+            self.emit_line(&format!("#[derive({})]", struct_decl.derives.join(", ")));
+        } else {
+            // Default derives for user structs in SWC
+            self.emit_line("#[derive(Clone, Debug)]");
+        }
+
         self.emit_line(&format!("struct {} {{", struct_decl.name));
         self.indent += 1;
 

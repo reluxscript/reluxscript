@@ -278,6 +278,7 @@ impl Parser {
         Ok(StructDecl {
             name,
             fields,
+            derives: Vec::new(),  // Will be populated by semantic analysis
             span: start_span,
         })
     }

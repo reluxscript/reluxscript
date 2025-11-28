@@ -1,0 +1,7 @@
+// Test: MemberExpression.property is MemberProp enum, not String
+
+plugin TestMemberProperty {
+    fn visit_member_expression(node: &mut MemberExpression, ctx: &Context) {
+        let prop = node.property.clone();
+    }
+}

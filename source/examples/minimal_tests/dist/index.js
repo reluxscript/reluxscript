@@ -3,15 +3,15 @@
 
 module.exports = function({ types: t }) {
   
-  class Item {
-  constructor(name) {
-      this.name = name;
-    }
+  function get_label() {
+    return "hello";
   }
   
-  class State {
-  constructor(items) {
-      this.items = items;
+  function get_conditional(flag) {
+    if (flag) {
+      return "yes";
+    } else {
+      return "no";
     }
   }
   
@@ -19,11 +19,7 @@ module.exports = function({ types: t }) {
   
   return {
     visitor: {
-      Identifier(path) {
-        const node = path.node;
-        const item = { name: "test" };
-        this.state.items.push(item);
-      }
+
     }
   };
 };
