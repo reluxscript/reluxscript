@@ -27,3 +27,7 @@ pub use autofix::TokenRewriter;
 // WASM bindings for playground
 #[cfg(feature = "wasm")]
 pub mod wasm;
+
+// Language Server Protocol
+#[cfg(feature = "lsp")]
+pub mod lsp;

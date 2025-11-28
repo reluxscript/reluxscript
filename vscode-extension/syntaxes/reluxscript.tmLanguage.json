@@ -1,0 +1,185 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "ReluxScript",
+  "scopeName": "source.reluxscript",
+  "patterns": [
+    { "include": "#keywords" },
+    { "include": "#storage-types" },
+    { "include": "#ast-types" },
+    { "include": "#strings" },
+    { "include": "#comments" },
+    { "include": "#numbers" },
+    { "include": "#functions" },
+    { "include": "#macros" },
+    { "include": "#operators" }
+  ],
+  "repository": {
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.reluxscript",
+          "match": "\\b(if|else|match|return|for|in|while|break|continue|loop)\\b"
+        },
+        {
+          "name": "keyword.other.reluxscript",
+          "match": "\\b(plugin|writer|module|interface|fn|let|const|mut|pub|use|self|Self|traverse|using|pre|exit|import|export|as)\\b"
+        },
+        {
+          "name": "keyword.operator.reluxscript",
+          "match": "\\b(and|or|not)\\b"
+        },
+        {
+          "name": "constant.language.reluxscript",
+          "match": "\\b(true|false|None|Some|Ok|Err)\\b"
+        }
+      ]
+    },
+    "storage-types": {
+      "patterns": [
+        {
+          "name": "storage.type.reluxscript",
+          "match": "\\b(Vec|Option|Result|HashMap|HashSet|String|str|bool|i32|u32|f64|usize)\\b"
+        }
+      ]
+    },
+    "ast-types": {
+      "patterns": [
+        {
+          "name": "entity.name.type.ast.reluxscript",
+          "match": "\\b(Expression|Identifier|CallExpression|MemberExpression|BinaryExpression|UnaryExpression|AssignmentExpression|UpdateExpression|LogicalExpression|ConditionalExpression|ArrowFunctionExpression|FunctionExpression|NewExpression|SequenceExpression|ThisExpression|ArrayExpression|ObjectExpression|Property|TemplateLiteral|TaggedTemplateExpression|SpreadElement|YieldExpression|AwaitExpression|ChainExpression)\\b"
+        },
+        {
+          "name": "entity.name.type.ast.reluxscript",
+          "match": "\\b(Statement|Stmt|BlockStatement|ExpressionStatement|IfStatement|SwitchStatement|ForStatement|WhileStatement|DoWhileStatement|ForInStatement|ForOfStatement|BreakStatement|ContinueStatement|ReturnStatement|ThrowStatement|TryStatement|CatchClause|VariableDeclaration|VariableDeclarator|FunctionDeclaration|ClassDeclaration|ImportDeclaration|ExportDeclaration)\\b"
+        },
+        {
+          "name": "entity.name.type.ast.reluxscript",
+          "match": "\\b(Pattern|Identifier|ObjectPattern|ArrayPattern|RestElement|AssignmentPattern)\\b"
+        },
+        {
+          "name": "entity.name.type.ast.reluxscript",
+          "match": "\\b(Literal|StringLiteral|NumericLiteral|BooleanLiteral|RegExpLiteral|NullLiteral|BigIntLiteral)\\b"
+        },
+        {
+          "name": "entity.name.type.ast.reluxscript",
+          "match": "\\b(Program|File|Node|Path)\\b"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.reluxscript",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.reluxscript",
+              "match": "\\\\(x[0-9A-Fa-f]{2}|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8}|[0-9]{1,3}|[nrt'\"\\\\])"
+            },
+            {
+              "name": "invalid.illegal.unrecognized-escape.reluxscript",
+              "match": "\\\\."
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.reluxscript",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "name": "constant.character.escape.reluxscript",
+              "match": "\\\\(x[0-9A-Fa-f]{2}|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8}|[0-9]{1,3}|[nrt'\"\\\\])"
+            }
+          ]
+        }
+      ]
+    },
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.reluxscript",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.reluxscript",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.reluxscript",
+          "match": "\\b0x[0-9a-fA-F_]+\\b"
+        },
+        {
+          "name": "constant.numeric.binary.reluxscript",
+          "match": "\\b0b[01_]+\\b"
+        },
+        {
+          "name": "constant.numeric.octal.reluxscript",
+          "match": "\\b0o[0-7_]+\\b"
+        },
+        {
+          "name": "constant.numeric.float.reluxscript",
+          "match": "\\b[0-9][0-9_]*\\.[0-9][0-9_]*([eE][+-]?[0-9_]+)?\\b"
+        },
+        {
+          "name": "constant.numeric.integer.reluxscript",
+          "match": "\\b[0-9][0-9_]*\\b"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "entity.name.function.visitor.reluxscript",
+          "match": "\\b(visit_[a-z_]+|enter_[a-z_]+|exit_[a-z_]+)\\b"
+        },
+        {
+          "name": "entity.name.function.reluxscript",
+          "match": "\\b([a-z_][a-z0-9_]*)\\s*(?=\\()"
+        }
+      ]
+    },
+    "macros": {
+      "patterns": [
+        {
+          "name": "support.function.macro.reluxscript",
+          "match": "\\b(format|println|print|panic|assert|debug|matches|vec|Some|None|Ok|Err)!"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.comparison.reluxscript",
+          "match": "(==|!=|<|>|<=|>=)"
+        },
+        {
+          "name": "keyword.operator.assignment.reluxscript",
+          "match": "(=|\\+=|-=|\\*=|/=|%=)"
+        },
+        {
+          "name": "keyword.operator.arithmetic.reluxscript",
+          "match": "(\\+|-|\\*|/|%)"
+        },
+        {
+          "name": "keyword.operator.logical.reluxscript",
+          "match": "(&&|\\|\\||!)"
+        },
+        {
+          "name": "keyword.operator.bitwise.reluxscript",
+          "match": "(&|\\||\\^|<<|>>)"
+        },
+        {
+          "name": "keyword.operator.other.reluxscript",
+          "match": "(\\?|:|=>|->|\\.\\.|&|\\*)"
+        }
+      ]
+    }
+  }
+}
