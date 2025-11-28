@@ -711,6 +711,7 @@ impl SwcDecorator {
                         field_type: "Self".to_string(),
                         source_field: Some(mem.property.clone()),
                         span: Some(mem.span),
+                        read_conversion: String::new(),
                     }
                 } else if let Some(mapping) = get_typed_field_mapping(object_type, &mem.property) {
                     // We have precise mapping - but suppress .as_ref()!
@@ -720,6 +721,7 @@ impl SwcDecorator {
                         field_type: mapping.result_type_swc.to_string(),
                         source_field: Some(mem.property.clone()),
                         span: Some(mem.span),
+                        read_conversion: mapping.read_conversion.to_string(),
                     }
                 } else {
                     // Fallback - also use Direct
@@ -729,6 +731,7 @@ impl SwcDecorator {
                         field_type: "Unknown".to_string(),
                         source_field: Some(mem.property.clone()),
                         span: Some(mem.span),
+                        read_conversion: String::new(),
                     }
                 };
 
@@ -817,6 +820,7 @@ impl SwcDecorator {
                         field_type: "WriterContext".to_string(),
                         source_field: Some(mem.property.clone()),
                         span: Some(mem.span),
+                        read_conversion: String::new(),
                     }
                 } else if let Some(mapping) = get_typed_field_mapping(object_type, &mem.property) {
                     // We have precise mapping!
@@ -830,6 +834,7 @@ impl SwcDecorator {
                         field_type: mapping.result_type_swc.to_string(),
                         source_field: Some(mem.property.clone()),
                         span: Some(mem.span),
+                        read_conversion: mapping.read_conversion.to_string(),
                     }
                 } else {
                     // Fallback field mapping
@@ -847,6 +852,7 @@ impl SwcDecorator {
                         field_type: "UserDefined".to_string(),
                         source_field: Some(mem.property.clone()),
                         span: Some(mem.span),
+                        read_conversion: String::new(),
                     }
                 };
 

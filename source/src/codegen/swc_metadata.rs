@@ -47,6 +47,9 @@ pub struct SwcFieldMetadata {
 
     /// Source location for error reporting
     pub span: Option<Span>,
+
+    /// Read conversion to apply when reading this field (e.g., ".to_string()")
+    pub read_conversion: String,
 }
 
 /// SWC-specific metadata for identifier access
@@ -265,6 +268,7 @@ impl SwcFieldMetadata {
             field_type,
             source_field: None,
             span: None,
+            read_conversion: String::new(),
         }
     }
 
@@ -280,6 +284,7 @@ impl SwcFieldMetadata {
             field_type,
             source_field: None,
             span: None,
+            read_conversion: String::new(),
         }
     }
 
@@ -294,6 +299,7 @@ impl SwcFieldMetadata {
             field_type,
             source_field: None,
             span: None,
+            read_conversion: String::new(),
         }
     }
 }

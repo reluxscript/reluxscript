@@ -6,23 +6,27 @@ use swc_ecma_ast::*;
 use swc_ecma_visit::{VisitMut, VisitMutWith, VisitWith};
 use std::collections::HashSet;
 
+#[derive(Clone, Debug)]
 struct HookInfo {
     name: String,
     hook_type: String,
     args_count: i32,
 }
 
+#[derive(Clone, Debug)]
 struct ComponentStats {
     name: String,
     hooks: Vec<HookInfo>,
     has_jsx: bool,
 }
 
+#[derive(Clone, Debug)]
 struct MemberInfo {
     object: String,
     property: String,
 }
 
+#[derive(Clone, Debug)]
 struct State {
     components: Vec<ComponentStats>,
     current_component: Option<String>,
@@ -36,7 +40,7 @@ pub struct KitchenSinkPlugin {
 
 impl VisitMut for KitchenSinkPlugin {
     fn visit_mut_fn_decl(&mut self, node: &mut FnDecl) {
-        let name = node.ident.sym.to_string();
+        let name = node.ident.sym();
         if is_component_name(&name) {
             self.state.current_component = Some(name.clone());
             let stats = ComponentStats { name: name.clone(), hooks: vec![], has_jsx: false };
@@ -69,7 +73,7 @@ impl VisitMut for KitchenSinkPlugin {
     }
     
     fn visit_mut_ident(&mut self, node: &mut Ident) {
-        let name = node.sym.to_string();
+        let name = node.sym();
         self.state.visited_nodes.insert(name.clone());
         if (name == "oldName") {
             *node = Ident { sym: "newName".into(), span: DUMMY_SP, optional: false, ctxt: SyntaxContext::empty() }.into()
@@ -162,7 +166,7 @@ fn format_stats(stats: &ComponentStats) -> String {
 
 fn get_callee_name(callee: &Expr) -> Option<String> {
     if let Expr::Ident(id) = callee {
-        Some(id.sym.to_string())
+        Some(id.sym())
     } else {
         if let Expr::Member(member) = callee {
             Some(member.prop.clone())
@@ -173,9 +177,11 @@ fn get_callee_name(callee: &Expr) -> Option<String> {
 }
 
 fn extract_member_call(call: &CallExpr) -> Option<MemberInfo> {
-    if let Expr::Member(member) = &call.callee {
-        if let Expr::Ident(obj) = &member.obj {
-            return Some(MemberInfo { object: obj.name.clone(), property: member.property.clone() });
+    if let Callee::Expr(__callee_expr) = &&call.callee {
+        if let Expr::Member(member) = __callee_expr.as_ref() {
+            if let Expr::Ident(obj) = &member.obj {
+                return Some(MemberInfo { object: obj.name.clone(), property: member.property.clone() });
+            }
         }
     }
     None
@@ -223,9 +229,9 @@ fn process_component(stats: &ComponentStats) -> Result<(), String> {
 
 fn get_hook_label(count: i32) -> String {
     if (count > 0) {
-        "hooks"
+        "hooks".to_string()
     } else {
-        "no hooks"
+        "no hooks".to_string()
     }
 }
 

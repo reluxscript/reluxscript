@@ -613,6 +613,7 @@ impl SwcRewriter {
         let expr = self.apply_field_replacements(expr);
         let expr = self.apply_context_remove(expr);
         let expr = self.apply_codegen_helpers(expr);
+        let expr = self.apply_field_conversions(expr);
         let expr = self.apply_visit_children_rewrite(expr);
         let expr = self.apply_atom_to_string_conversion(expr);
         let expr = self.apply_ast_struct_init(expr);
@@ -1105,6 +1106,55 @@ impl SwcRewriter {
                                 }
                                 _ => {}
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        // No transformation needed
+        expr
+    }
+
+    // ========================================================================
+    // TRANSFORMATION: Field Conversions (e.g., .clone() with read_conversion)
+    // ========================================================================
+
+    /// 🔧 Transform field access with .clone() to apply read_conversion
+    /// transforms: id.name.clone() → id.sym.to_string() (when read_conversion is set)
+    /// transforms: member.property → needs special handling for MemberProp
+    fn apply_field_conversions(&mut self, expr: DecoratedExpr) -> DecoratedExpr {
+        // Check if this is a call to .clone()
+        if let DecoratedExprKind::Call(ref call) = expr.kind {
+            if let DecoratedExprKind::Member { ref object, ref property, .. } = call.callee.kind {
+                if property == "clone" && call.args.is_empty() {
+                    // This is a .clone() call - check if the object is a member access with read_conversion
+                    if let DecoratedExprKind::Member { object: ref inner_object, field_metadata: ref inner_field_metadata, .. } = object.kind {
+                        if !inner_field_metadata.read_conversion.is_empty() {
+                            // We have a read_conversion! Transform member.field.clone() → member.field.to_string()
+                            // The read_conversion already includes the method (e.g., ".to_string()")
+                            // So we just need to apply it to the inner member expression
+                            return DecoratedExpr {
+                                kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                                    callee: DecoratedExpr {
+                                        kind: DecoratedExprKind::Member {
+                                            object: inner_object.clone(),
+                                            property: inner_field_metadata.read_conversion.trim_start_matches('.').to_string(),
+                                            optional: false,
+                                            computed: false,
+                                            is_path: false,
+                                            field_metadata: inner_field_metadata.clone(),
+                                        },
+                                        metadata: object.metadata.clone(),
+                                    },
+                                    args: vec![],
+                                    type_args: vec![],
+                                    optional: false,
+                                    is_macro: false,
+                                    span: call.span,
+                                })),
+                                metadata: expr.metadata.clone(),
+                            };
                         }
                     }
                 }
