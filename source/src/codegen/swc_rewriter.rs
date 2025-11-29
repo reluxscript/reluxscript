@@ -869,27 +869,65 @@ impl SwcRewriter {
     // TRANSFORMATION: Field Replacements
     // ========================================================================
 
-    /// 🔧 Apply field replacements (e.g., self.builder → self in writers)
+    /// 🔧 Apply field replacements for writers
+    /// In writers, State struct is flattened, so self.state.X becomes self.X
+    /// Also, self.builder.X() becomes self.X() since CodeBuilder methods are on the writer
     fn apply_field_replacements(&mut self, expr: DecoratedExpr) -> DecoratedExpr {
-        match &expr.kind {
-            DecoratedExprKind::Member { field_metadata, .. } => {
-                // Check if this field access should be replaced
-                if let FieldAccessor::Replace { with } = &field_metadata.accessor {
-                    // Replace the entire member expression with the replacement
-                    return DecoratedExpr {
-                        kind: DecoratedExprKind::Ident {
-                            name: with.clone(),
-                            ident_metadata: SwcIdentifierMetadata::name(),
-                        },
-                        metadata: expr.metadata,
-                    };
-                }
-            }
-            _ => {}
+        if !self.is_writer {
+            return expr;
         }
 
-        // No replacement needed
-        expr
+        match expr.kind {
+            DecoratedExprKind::Member { object, property, optional, computed, is_path, field_metadata } => {
+                // Check if object is self.state or self.builder - if so, replace with just self
+                if let DecoratedExprKind::Member {
+                    object: inner_obj,
+                    property: inner_prop,
+                    ..
+                } = &object.kind {
+                    if let DecoratedExprKind::Ident { name, .. } = &inner_obj.kind {
+                        if name == "self" && (inner_prop == "state" || inner_prop == "builder") {
+                            // self.state.X → self.X  or  self.builder.X() → self.X()
+                            return DecoratedExpr {
+                                kind: DecoratedExprKind::Member {
+                                    object: inner_obj.clone(),  // Just "self"
+                                    property,
+                                    optional,
+                                    computed,
+                                    is_path,
+                                    field_metadata,
+                                },
+                                metadata: expr.metadata,
+                            };
+                        }
+                    }
+                }
+
+                // Check if THIS is self.state or self.builder (not followed by another property)
+                // This handles cases where self.state or self.builder is used directly
+                if let DecoratedExprKind::Ident { name, .. } = &object.kind {
+                    if name == "self" && (property == "state" || property == "builder") {
+                        // self.state → self  or  self.builder → self
+                        // But only if it's being replaced (has Replace accessor)
+                        if let FieldAccessor::Replace { with } = &field_metadata.accessor {
+                            return DecoratedExpr {
+                                kind: DecoratedExprKind::Ident {
+                                    name: with.clone(),
+                                    ident_metadata: SwcIdentifierMetadata::name(),
+                                },
+                                metadata: expr.metadata,
+                            };
+                        }
+                    }
+                }
+
+                DecoratedExpr {
+                    kind: DecoratedExprKind::Member { object, property, optional, computed, is_path, field_metadata },
+                    metadata: expr.metadata,
+                }
+            }
+            _ => expr
+        }
     }
 
     // ========================================================================

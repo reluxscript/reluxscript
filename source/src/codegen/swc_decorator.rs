@@ -849,15 +849,14 @@ impl SwcDecorator {
                     matches!(&decorated_object.kind, DecoratedExprKind::Ident { name, .. } if name == "self") &&
                     (mem.property == "builder" || mem.property == "state");
 
-                // Also check for self.builder.X pattern (where object is self.builder/self.state)
+                // Check for self.builder.X pattern (methods on builder need replacement)
                 let is_method_on_builder = self.is_writer &&
                     matches!(&decorated_object.kind,
                         DecoratedExprKind::Member { object, property, field_metadata, .. }
                         if matches!(&object.kind, DecoratedExprKind::Ident { name, .. } if name == "self")
-                           && (property == "builder" || property == "state")
+                           && property == "builder"  // Only builder, NOT state
                            && matches!(&field_metadata.accessor, FieldAccessor::Replace { .. })
                     );
-
 
                 // Look up the field in SWC schema
                 let field_metadata = if is_self_builder || is_method_on_builder {

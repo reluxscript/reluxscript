@@ -69,7 +69,7 @@ impl KitchenSinkWriter {
         let name = node.ident.sym();
         if is_component(&name) {
             let sanitized = sanitize_name(&name);
-            self = Some(name.clone());
+            self.current_component = Some(name.clone());
             let metadata = ComponentMetadata { name: sanitized.clone(), has_state: false, has_effects: false };
             self.append("public class ");
             self.append(&sanitized);
@@ -80,8 +80,8 @@ impl KitchenSinkWriter {
             self.append("}");
             self.newline();
             self.newline();
-            self.push(metadata);
-            self = None
+            self.components.push(metadata);
+            self.current_component = None
         }
     }
     
@@ -111,10 +111,10 @@ impl KitchenSinkWriter {
     fn extract_state_var(&mut self, self: &mut Self) {
         if let Some(component_name) = &self.current_component {
             let sanitized = sanitize_name(component_name);
-            let updated_components = self.iter().map(|c| {
+            let updated_components = self.components.iter().map(|c| {
                 /* complex stmt */
             }).collect();
-            self = updated_components
+            self.components = updated_components
         }
         self.append("    private object _state;");
         self.newline();
@@ -123,10 +123,10 @@ impl KitchenSinkWriter {
     fn extract_effect(&mut self, self: &mut Self) {
         if let Some(component_name) = &self.current_component {
             let sanitized = sanitize_name(component_name);
-            let updated_components = self.iter().map(|c| {
+            let updated_components = self.components.iter().map(|c| {
                 /* complex stmt */
             }).collect();
-            self = updated_components
+            self.components = updated_components
         }
         self.append("    public void OnInitialized() { }");
         self.newline();
