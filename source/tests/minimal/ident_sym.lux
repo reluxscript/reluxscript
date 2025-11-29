@@ -1,0 +1,9 @@
+// Test: Accessing .sym on Ident
+plugin IdentSymTest {
+
+visit_mut_ident(ident: &mut Ident) {
+    let name = ident.sym;
+    // Should access the sym field correctly
+}
+
+}

@@ -1,0 +1,14 @@
+// Test: Helper functions should be accessible in writers
+writer HelperTest {
+
+fn is_helper(name: &str) -> bool {
+    name.starts_with("test")
+}
+
+fn process_node(node: &Expr) {
+    if is_helper("test") {
+        // Should be able to call helper function
+    }
+}
+
+}

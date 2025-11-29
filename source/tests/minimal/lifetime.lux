@@ -1,0 +1,9 @@
+// Test: Function returning references
+writer LifetimeTest {
+
+fn get_name(ident: &Ident) -> &str {
+    // Should handle lifetime correctly
+    "test"
+}
+
+}

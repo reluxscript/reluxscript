@@ -3,25 +3,40 @@
 
 use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
-use swc_ecma_visit::{VisitMut, VisitMutWith};
+use swc_ecma_visit::{VisitMut, VisitMutWith, VisitWith};
 
-pub struct MacroCallTest {}
-
-impl VisitMut for MacroCallTest {
-}
-fn test_format_macro(name: &String) -> String {
-    format!("Hello, {}", name)
+pub struct HelperTest {
+    output: String,
+    indent_level: usize,
 }
 
-fn test_println_macro(msg: &String) {
-    println!("{}", msg);
+impl HelperTest {
+    pub fn new() -> Self {
+        Self {
+            output: String::new(),
+            indent_level: 0,
+        }
+    }
+    
+    fn append(&mut self, s: &str) {
+        self.output.push_str(s);
+    }
+    
+    fn newline(&mut self) {
+        self.output.push('\n');
+    }
+    
+    pub fn to_string(&self) -> String {
+        self.output.clone()
+    }
+    
+    fn is_helper(name: &str) -> bool {
+        name.starts_with("test")
+    }
+    
+    fn process_node(node: &Expr) {
+        if is_helper("test") {
+        }
+    }
+    
 }
-
-fn test_vec_macro() -> Vec<i32> {
-    vec![1, 2, 3]
-}
-
-fn test_panic_macro() {
-    panic!("Error");
-}
-
