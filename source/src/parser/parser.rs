@@ -208,22 +208,22 @@ impl Parser {
                 } else if self.check(TokenKind::Enum) {
                     PluginItem::Enum(self.parse_enum()?)
                 } else if self.check(TokenKind::Fn) {
-                    // Check if this is a special hook (pre or exit)
+                    // Check if this is a special hook (pre, exit, or finish)
                     let func = self.parse_function()?;
                     match func.name.as_str() {
                         "pre" => PluginItem::PreHook(func),
-                        "exit" => PluginItem::ExitHook(func),
+                        "exit" | "finish" => PluginItem::ExitHook(func),
                         _ => PluginItem::Function(func),
                     }
                 } else {
                     return Err(self.error("Expected struct, enum, or fn after 'pub'"));
                 }
             } else if self.check(TokenKind::Fn) {
-                // Check if this is a special hook (pre or exit)
+                // Check if this is a special hook (pre, exit, or finish)
                 let func = self.parse_function()?;
                 match func.name.as_str() {
                     "pre" => PluginItem::PreHook(func),
-                    "exit" => PluginItem::ExitHook(func),
+                    "exit" | "finish" => PluginItem::ExitHook(func),
                     _ => PluginItem::Function(func),
                 }
             } else if self.check(TokenKind::Impl) {

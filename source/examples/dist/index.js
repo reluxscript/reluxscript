@@ -150,9 +150,9 @@ module.exports = function({ types: t }) {
     final_output += this.state.builder.join("");
     final_output += "}\n";
     const component_count = this.state.components.length;
-    final_output += `
-// Generated ${component_count} components
-`;
+    final_output += "\n// Generated ";
+    final_output += component_count.toString();
+    final_output += " components\n";
     return final_output;
   }
   

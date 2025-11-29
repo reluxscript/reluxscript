@@ -568,7 +568,7 @@ impl SwcEmitter {
             }
             DecoratedPluginItem::ExitHook(func) => {
                 self.emit_comment("Exit-hook");
-                self.emit_function(func);
+                self.emit_function_with_visibility(func, true);
             }
         }
     }
@@ -650,8 +650,13 @@ impl SwcEmitter {
     // ========================================================================
 
     fn emit_function(&mut self, func: &DecoratedFnDecl) {
+        self.emit_function_with_visibility(func, false);
+    }
+
+    fn emit_function_with_visibility(&mut self, func: &DecoratedFnDecl, is_public: bool) {
         // Function signature
-        let mut sig = format!("fn {}", func.name);
+        let visibility = if is_public { "pub " } else { "" };
+        let mut sig = format!("{}fn {}", visibility, func.name);
 
         // Check if we need lifetime parameter
         let needs_lifetime = func.return_type.as_ref()
@@ -1414,7 +1419,18 @@ impl SwcEmitter {
         match lit {
             Literal::String(s) => {
                 self.output.push('"');
-                self.output.push_str(&s.replace('\\', "\\\\").replace('"', "\\\""));
+                // Properly escape the string for Rust
+                for ch in s.chars() {
+                    match ch {
+                        '\\' => self.output.push_str("\\\\"),
+                        '"' => self.output.push_str("\\\""),
+                        '\n' => self.output.push_str("\\n"),
+                        '\r' => self.output.push_str("\\r"),
+                        '\t' => self.output.push_str("\\t"),
+                        '\0' => self.output.push_str("\\0"),
+                        _ => self.output.push(ch),
+                    }
+                }
                 self.output.push('"');
             }
             Literal::Int(n) => {

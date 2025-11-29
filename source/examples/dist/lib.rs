@@ -142,6 +142,23 @@ impl KitchenSinkWriter {
         self.newline();
     }
     
+    // Exit-hook
+    pub fn finish(self: &Self) -> String {
+        let mut final_output = String::new();
+        final_output.push_str("using System;\n");
+        final_output.push_str("using System.Collections.Generic;\n");
+        final_output.push_str("\n");
+        final_output.push_str("namespace Generated\n");
+        final_output.push_str("{\n");
+        final_output.push_str(&self.to_string());
+        final_output.push_str("}\n");
+        let component_count = self.components.len();
+        final_output.push_str("\n// Generated ");
+        final_output.push_str(&component_count.to_string());
+        final_output.push_str(" components\n");
+        final_output.into()
+    }
+    
     fn count_components_with_state(components: &Vec<ComponentMetadata>) -> i32 {
         let mut count = 0;
         for component in components {

@@ -129,7 +129,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut writer = $WRITER_STRUCT::new();
     program.visit_with(&mut writer);
 
-    let output = writer.to_string();
+    let output = writer.finish();
     fs::write(output_file, output)?;
     Ok(())
 }
