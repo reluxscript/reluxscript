@@ -1709,12 +1709,18 @@ impl SwcEmitter {
     }
 
     fn emit_parser_stmt(&mut self, stmt: &Stmt) {
+        self.emit_parser_stmt_with_context(stmt, false);
+    }
+
+    fn emit_parser_stmt_with_context(&mut self, stmt: &Stmt, is_last_in_block: bool) {
         match stmt {
             Stmt::Expr(expr_stmt) => {
                 self.emit_indent();
                 self.emit_parser_expr(&expr_stmt.expr);
-                // Check if this is an if expression (doesn't need semicolon)
-                let needs_semicolon = !matches!(expr_stmt.expr, Expr::If(_) | Expr::Block(_) | Expr::Match(_));
+                // Last expression in a block is the implicit return value (no semicolon)
+                // Also, if/block/match expressions don't need semicolons
+                let is_control_flow = matches!(expr_stmt.expr, Expr::If(_) | Expr::Block(_) | Expr::Match(_));
+                let needs_semicolon = !is_last_in_block && !is_control_flow;
                 if needs_semicolon {
                     self.output.push(';');
                 }
@@ -1748,8 +1754,10 @@ impl SwcEmitter {
                 self.emit_parser_expr(&if_stmt.condition);
                 self.output.push_str(" {\n");
                 self.indent += 1;
-                for stmt in &if_stmt.then_branch.stmts {
-                    self.emit_parser_stmt(stmt);
+                let then_stmts_len = if_stmt.then_branch.stmts.len();
+                for (i, stmt) in if_stmt.then_branch.stmts.iter().enumerate() {
+                    let is_last = i == then_stmts_len - 1;
+                    self.emit_parser_stmt_with_context(stmt, is_last);
                 }
                 self.indent -= 1;
                 self.emit_indent();
@@ -1761,8 +1769,10 @@ impl SwcEmitter {
                     self.emit_parser_expr(condition);
                     self.output.push_str(" {\n");
                     self.indent += 1;
-                    for stmt in &block.stmts {
-                        self.emit_parser_stmt(stmt);
+                    let stmts_len = block.stmts.len();
+                    for (i, stmt) in block.stmts.iter().enumerate() {
+                        let is_last = i == stmts_len - 1;
+                        self.emit_parser_stmt_with_context(stmt, is_last);
                     }
                     self.indent -= 1;
                     self.emit_indent();
@@ -1773,8 +1783,10 @@ impl SwcEmitter {
                 if let Some(ref else_branch) = if_stmt.else_branch {
                     self.output.push_str(" else {\n");
                     self.indent += 1;
-                    for stmt in &else_branch.stmts {
-                        self.emit_parser_stmt(stmt);
+                    let stmts_len = else_branch.stmts.len();
+                    for (i, stmt) in else_branch.stmts.iter().enumerate() {
+                        let is_last = i == stmts_len - 1;
+                        self.emit_parser_stmt_with_context(stmt, is_last);
                     }
                     self.indent -= 1;
                     self.emit_indent();
