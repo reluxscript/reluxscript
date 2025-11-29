@@ -5,17 +5,12 @@ use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{VisitMut, VisitMutWith, VisitWith};
 
-#[derive(Clone, Debug)]
-struct Item {
-    name: String,
-}
-
-pub struct MissingLifetimeTest {
+pub struct IdentNameFieldTest {
     output: String,
     indent_level: usize,
 }
 
-impl MissingLifetimeTest {
+impl IdentNameFieldTest {
     pub fn new() -> Self {
         Self {
             output: String::new(),
@@ -35,8 +30,12 @@ impl MissingLifetimeTest {
         self.output.clone()
     }
     
-    fn find_item<'a>(items: &Vec<Item>, name: &String) -> Option<&'a Item> {
-        None
+    fn get_name(expr: &Expr) -> Option<String> {
+        if let Expr::Ident(id) = expr {
+            Some(id.sym())
+        } else {
+            None
+        }
     }
     
 }

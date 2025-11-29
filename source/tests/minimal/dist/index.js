@@ -13,15 +13,14 @@ module.exports = function({ types: t }) {
   };
   
   
-  class Item {
-  constructor(name) {
-      this.name = name;
+  function get_name(expr) {
+    const __iflet_0 = expr;
+    if (__iflet_0 !== null) {
+      const id = __iflet_0;
+      id.name;
+    } else {
+      null;
     }
-  }
-  
-  
-  function find_item(items, name) {
-    return null;
   }
   
   return {

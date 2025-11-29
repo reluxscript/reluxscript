@@ -108,7 +108,7 @@ impl KitchenSinkWriter {
         node.visit_mut_children_with(self);
     }
     
-    fn extract_state_var(&mut self, self: &mut Self) {
+    fn extract_state_var(&mut self) {
         if let Some(component_name) = &self.current_component {
             let sanitized = Self::sanitize_name(component_name);
             let updated_components = self.components.iter().map(|c| {
@@ -120,7 +120,7 @@ impl KitchenSinkWriter {
         self.newline();
     }
     
-    fn extract_effect(&mut self, self: &mut Self) {
+    fn extract_effect(&mut self) {
         if let Some(component_name) = &self.current_component {
             let sanitized = Self::sanitize_name(component_name);
             let updated_components = self.components.iter().map(|c| {
@@ -146,7 +146,7 @@ impl KitchenSinkWriter {
         components.iter().map(|c| c.name.clone()).collect()
     }
     
-    fn find_component(components: &Vec<ComponentMetadata>, name: &String) -> Option<&ComponentMetadata> {
+    fn find_component<'a>(components: &Vec<ComponentMetadata>, name: &String) -> Option<&'a ComponentMetadata> {
         components.iter().find(|c| (c.name == /* complex expr */))
     }
     
