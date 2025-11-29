@@ -3,27 +3,237 @@
 
 module.exports = function({ types: t }) {
   
+  class HookInfo {
+  constructor(name, hook_type, args_count) {
+      this.name = name;
+      this.hook_type = hook_type;
+      this.args_count = args_count;
+    }
+  }
+  
+  class ComponentStats {
+  constructor(name, hooks, has_jsx) {
+      this.name = name;
+      this.hooks = hooks;
+      this.has_jsx = has_jsx;
+    }
+  }
+  
+  class MemberInfo {
+  constructor(object, property) {
+      this.object = object;
+      this.property = property;
+    }
+  }
+  
+  class State {
+  constructor(components, current_component, removed_count, visited_nodes) {
+      this.components = components;
+      this.current_component = current_component;
+      this.removed_count = removed_count;
+      this.visited_nodes = visited_nodes;
+    }
+  }
+  
+  function is_component_name(name) {
+    if ((name.length === 0)) {
+      return false;
+    }
+    const first_char = name[0];
+    return (first_char === first_char.toUpperCase());
+  }
+  
+  function is_hook_call(name) {
+    return (name.startsWith("use") && (name.length > 3));
+  }
+  
+  function categorize_hook(name) {
+    if (((name === "useState") || (name === "useReducer"))) {
+      return "state";
+    }
+    if (((name === "useEffect") || (name === "useLayoutEffect"))) {
+      return "effect";
+    }
+    if ((name === "useRef")) {
+      return "ref";
+    }
+    if (((name === "useMemo") || (name === "useCallback"))) {
+      return "memo";
+    }
+    return `custom:${name}`;
+  }
+  
+  function should_remove_console(method) {
+    return (((method === "log") || (method === "warn")) || (method === "debug"));
+  }
+  
+  function format_stats(stats) {
+    return `${stats.name} has ${stats.hooks.length} hooks`;
+  }
+  
+  function get_callee_name(callee) {
+    const __iflet_0 = callee;
+    if (__iflet_0 !== null) {
+      const id = __iflet_0;
+      id.name;
+    } else {
+      const __iflet_1 = callee;
+      if (__iflet_1 !== null) {
+        const member = __iflet_1;
+        member.property;
+      } else {
+        null;
+      }
+    }
+  }
+  
+  function extract_member_call(call) {
+    const __iflet_2 = call.callee;
+    if (__iflet_2 !== null) {
+      const member = __iflet_2;
+      const __iflet_3 = member.object;
+      if (__iflet_3 !== null) {
+        const obj = __iflet_3;
+        return { object: obj.name, property: member.property };
+      }
+    }
+    return null;
+  }
+  
+  function collect_hook_names(component) {
+    return component.hooks.map((h) => h.name);
+  }
+  
+  function has_hooks(component) {
+    return (component.hooks.length > 0);
+  }
+  
+  function count_by_type(component, target) {
+    let count = 0;
+    for (const hook of component.hooks) {
+      if ((hook.hook_type === target)) {
+        count += 1;
+      }
+    }
+    return count;
+  }
+  
+  function get_first_hook(stats) {
+    if ((stats.hooks.length === 0)) {
+      return null;
+    } else {
+      return stats.hooks[0].name;
+    }
+  }
+  
+  function safe_get_name(stats) {
+    if ((stats.name.length === 0)) {
+      return { ok: false, error: "No name" };
+    } else {
+      return { ok: true, value: stats.name };
+    }
+  }
+  
+  function process_component(stats) {
+    const __result = safe_get_name(stats);
+    if (!__result.ok) {
+      return { ok: false, error: __result.error };
+    }
+    const _name = __result.value;
+    const _first_hook = (get_first_hook(stats) ?? "none");
+    return { ok: true, value: undefined };
+  }
+  
+  function get_hook_label(count) {
+    if ((count > 0)) {
+      return "hooks";
+    } else {
+      return "no hooks";
+    }
+  }
+  
   let state = {};
   
   return {
     visitor: {
+      FunctionDeclaration(path) {
+        const node = path.node;
+        const name = node.id.name;
+        if (is_component_name(name)) {
+          this.state.current_component = name;
+          const stats = { name: name, hooks: [], has_jsx: false };
+          this.state.components.push(stats);
+        }
+        /* Babel auto-traverses */;
+        this.state.current_component = null;
+      },
       CallExpression(path) {
         const node = path.node;
-        const __iflet_0 = node.callee;
-        if (__iflet_0 !== null) {
-          const member = __iflet_0;
-          const __iflet_1 = member.object;
-          if (__iflet_1 !== null) {
-            const obj = __iflet_1;
-            const __iflet_2 = member.property;
-            if (__iflet_2 !== null) {
-              const prop = __iflet_2;
-              if (((obj.name === "console") && (prop.name === "log"))) {
-                path.remove();
+        const __iflet_4 = this.state.current_component;
+        if (__iflet_4 !== null && __iflet_4 !== undefined) {
+          const component_name = __iflet_4;
+          const __iflet_5 = get_callee_name(node.callee);
+          if (__iflet_5 !== null && __iflet_5 !== undefined) {
+            const callee_name = __iflet_5;
+            if (is_hook_call(callee_name)) {
+              const hook_info = { name: callee_name, hook_type: categorize_hook(callee_name), args_count: 0 };
+              for (const component of this.state.components) {
+                if ((component.name === component_name)) {
+                  component.hooks.push(hook_info);
+                  break;
+                }
               }
             }
           }
         }
+        const __iflet_6 = extract_member_call(node);
+        if (__iflet_6 !== null && __iflet_6 !== undefined) {
+          const member = __iflet_6;
+          if (((member.object === "console") && should_remove_console(member.property))) {
+            this.state.removed_count += 1;
+          }
+        }
+        /* Babel auto-traverses */;
+      },
+      Identifier(path) {
+        const node = path.node;
+        const name = node.name;
+        this.state.visited_nodes.add(name);
+        if ((name === "oldName")) {
+          path.replaceWith(t.identifier("newName"));
+        }
+        if (((node.name === String("foo") || node.name === String("bar") || node.name === String("baz")))) {
+          const new_name = `renamed_${node.name}`;
+          path.replaceWith(t.identifier(new_name));
+        }
+      },
+      JSXElement(path) {
+        const node = path.node;
+        const __iflet_7 = this.state.current_component;
+        if (__iflet_7 !== null && __iflet_7 !== undefined) {
+          const component_name = __iflet_7;
+          for (const component of this.state.components) {
+            if ((component.name === component_name)) {
+              const updated = { name: component.name, hooks: component.hooks, has_jsx: true };
+              path.replaceWith(updated);
+              break;
+            }
+          }
+        }
+        /* Babel auto-traverses */;
+      },
+      VariableDeclarator(path) {
+        const node = path.node;
+        const __iflet_8 = node.init;
+        if (__iflet_8 !== null && __iflet_8 !== undefined) {
+          const init = __iflet_8;
+          const __iflet_9 = init;
+          if (__iflet_9 !== null) {
+            const arr = __iflet_9;
+            const _size = arr.elements.length;
+          }
+        }
+        /* Babel auto-traverses */;
       }
     }
   };

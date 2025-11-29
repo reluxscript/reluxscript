@@ -763,9 +763,16 @@ impl SwcRewriter {
 
             // Struct initialization
             DecoratedExprKind::StructInit(struct_init) => {
-                // Don't rewrite struct init for now - field values are undecorated Expr
-                // They will be handled by emit_undecorated_expr in the emitter
-                DecoratedExprKind::StructInit(struct_init)
+                // Recursively rewrite field values
+                let rewritten_fields = struct_init.fields.into_iter()
+                    .map(|(name, value)| (name, self.rewrite_expr(value)))
+                    .collect();
+
+                DecoratedExprKind::StructInit(DecoratedStructInit {
+                    name: struct_init.name,
+                    fields: rewritten_fields,
+                    span: struct_init.span,
+                })
             }
 
             // Vec initialization

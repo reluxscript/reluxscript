@@ -886,13 +886,19 @@ impl SwcDecorator {
                         read_conversion: mapping.read_conversion.to_string(),
                     }
                 } else {
-                    // Fallback field mapping
-                    let swc_field = match mem.property.as_str() {
-                        "object" => "obj",
-                        "property" => "prop",
-                        "callee" => "callee",
-                        "arguments" => "args",
-                        _ => &mem.property,
+                    // Fallback field mapping - only apply for SWC types, not user-defined types
+                    let swc_field = if object_type == "UserDefined" {
+                        // Don't apply field mappings to user-defined structs
+                        &mem.property
+                    } else {
+                        // Apply field mappings for SWC types
+                        match mem.property.as_str() {
+                            "object" => "obj",
+                            "property" => "prop",
+                            "callee" => "callee",
+                            "arguments" => "args",
+                            _ => &mem.property,
+                        }
                     };
 
                     SwcFieldMetadata {
@@ -1019,7 +1025,30 @@ impl SwcDecorator {
 
             Expr::Call(call) => {
                 let callee = self.decorate_expr(&call.callee);
-                let args = call.args.iter().map(|a| self.decorate_expr(a)).collect();
+
+                // Check if this is a Result/Option constructor (Err, Ok, Some, None)
+                // If so, string literal arguments need to be converted to String
+                let callee_name = if let Expr::Ident(ref ident) = *call.callee {
+                    Some(ident.name.as_str())
+                } else {
+                    None
+                };
+
+                let needs_string_conversion = matches!(callee_name, Some("Err") | Some("Ok") | Some("Some"));
+
+                // Decorate arguments, potentially marking string literals as String type
+                let args = call.args.iter().map(|a| {
+                    let mut decorated = self.decorate_expr(a);
+
+                    // If this is a string literal argument to Err/Ok/Some, mark it as String
+                    if needs_string_conversion {
+                        if let DecoratedExprKind::Literal(Literal::String(_)) = decorated.kind {
+                            decorated.metadata.swc_type = "String".to_string();
+                        }
+                    }
+
+                    decorated
+                }).collect();
 
                 DecoratedExpr {
                     kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
