@@ -698,7 +698,8 @@ impl SwcEmitter {
             }
             sig.push_str(&param.name);
             sig.push_str(": ");
-            sig.push_str(&self.type_to_string(&param.ty));
+            // Apply lifetime to parameter types if the function has a lifetime parameter
+            sig.push_str(&self.type_to_string_with_lifetime(&param.ty, needs_lifetime));
         }
         sig.push(')');
 
@@ -1700,6 +1701,17 @@ impl SwcEmitter {
                     self.emit_parser_expr(field_expr);
                 }
                 self.output.push_str(" }");
+            }
+            Expr::Deref(deref) => {
+                self.output.push('*');
+                self.emit_parser_expr(&deref.expr);
+            }
+            Expr::Ref(ref_expr) => {
+                self.output.push('&');
+                if ref_expr.mutable {
+                    self.output.push_str("mut ");
+                }
+                self.emit_parser_expr(&ref_expr.expr);
             }
             _ => {
                 // For other expression types, emit a placeholder

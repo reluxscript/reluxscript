@@ -157,7 +157,7 @@ impl KitchenSinkWriter {
     }
     
     fn find_component<'a>(components: &Vec<ComponentMetadata>, name: &String) -> Option<&'a ComponentMetadata> {
-        components.iter().find(|c| (c.name == /* complex expr */))
+        components.iter().find(|c| (c.name == *name))
     }
     
     fn to_camel_case(s: &String) -> String {
