@@ -5,20 +5,14 @@ use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 
-#[derive(Clone, Debug)]
-struct Item {
-    name: String,
-    value: i32,
-}
-
-pub struct MapClosureIfElseTest {
+pub struct DuplicateSelfTest {
     output: String,
     indent_level: usize,
 }
 
-impl Visit for MapClosureIfElseTest {}
+impl Visit for DuplicateSelfTest {}
 
-impl MapClosureIfElseTest {
+impl DuplicateSelfTest {
     pub fn new() -> Self {
         Self {
             output: String::new(),
@@ -38,10 +32,7 @@ impl MapClosureIfElseTest {
         self.output.clone()
     }
     
-    fn update_items(items: &Vec<Item>) -> Vec<Item> {
-        items.iter().map(|item| {
-            /* complex stmt */
-        }).collect()
+    fn extract_state_var(&mut self) {
     }
     
 }

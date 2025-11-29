@@ -1184,7 +1184,18 @@ impl SwcDecorator {
             }
 
             Expr::Ref(ref_expr) => {
-                let expr = Box::new(self.decorate_expr(&ref_expr.expr));
+                let mut expr = Box::new(self.decorate_expr(&ref_expr.expr));
+
+                // IMPORTANT: If taking a reference to a field with read_conversion,
+                // we need to apply the conversion BEFORE taking the reference.
+                // Example: &node.callee where callee: Callee with read_conversion ".as_expr().unwrap()"
+                // Should become: &node.callee.as_expr().unwrap(), not &(node.callee).as_expr().unwrap()
+                if let DecoratedExprKind::Member { ref field_metadata, .. } = expr.kind {
+                    if !field_metadata.read_conversion.is_empty() {
+                        // Mark that this member access should have its conversion applied
+                        // The emit phase will handle emitting &obj.field.conversion() correctly
+                    }
+                }
 
                 DecoratedExpr {
                     kind: DecoratedExprKind::Ref {

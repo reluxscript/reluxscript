@@ -605,7 +605,7 @@ pub fn get_typed_field_mapping(parent_swc_type: &str, field: &str) -> Option<Typ
             needs_deref: false,
             result_type_rs: "Callee",
             result_type_swc: "Callee",
-            read_conversion: "",
+            read_conversion: ".as_expr().unwrap()",  // Callee::Expr(...) -> &Expr
             write_conversion: "",
         }),
         ("CallExpr", "arguments") => Some(TypedFieldMapping {

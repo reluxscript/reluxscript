@@ -3,7 +3,7 @@
 
 use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
-use swc_ecma_visit::{VisitMut, VisitMutWith, VisitWith};
+use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 
 #[derive(Clone, Debug)]
 struct ComponentMetadata {
@@ -18,6 +18,8 @@ pub struct KitchenSinkWriter {
     components: Vec<ComponentMetadata>,
     current_component: Option<String>,
 }
+
+impl Visit for KitchenSinkWriter {}
 
 impl KitchenSinkWriter {
     pub fn new() -> Self {
@@ -59,14 +61,14 @@ impl KitchenSinkWriter {
     
     fn get_callee_name(callee: &Expr) -> Option<String> {
         if let Expr::Ident(id) = callee {
-            Some(id.sym())
+            Some(id.sym.to_string())
         } else {
             None
         }
     }
     
     fn visit_mut_fn_decl(&mut self, node: &FnDecl) {
-        let name = node.ident.sym();
+        let name = node.ident.sym.to_string();
         if Self::is_component(&name) {
             let sanitized = Self::sanitize_name(&name);
             self.current_component = Some(name.clone());
@@ -76,7 +78,7 @@ impl KitchenSinkWriter {
             self.newline();
             self.append("{");
             self.newline();
-            node.visit_mut_children_with(self);
+            node.visit_children_with(self);
             self.append("}");
             self.newline();
             self.newline();
@@ -86,7 +88,7 @@ impl KitchenSinkWriter {
     }
     
     fn visit_mut_call_expr(&mut self, node: &CallExpr) {
-        if let Some(callee_name) = Self::get_callee_name(&node.callee) {
+        if let Some(callee_name) = Self::get_callee_name(&node.callee.as_expr().unwrap()) {
             if (callee_name == "useState") {
                 self.extract_state_var()
             } else {
@@ -95,24 +97,28 @@ impl KitchenSinkWriter {
                 }
             }
         }
-        node.visit_mut_children_with(self);
+        node.visit_children_with(self);
     }
     
     fn visit_mut_ident(&mut self, node: &Ident) {
-        let _name = node.sym();
+        let _name = node.sym.to_string();
     }
     
     fn visit_mut_jsx_element(&mut self, node: &JSXElement) {
         self.append("    // JSX element");
         self.newline();
-        node.visit_mut_children_with(self);
+        node.visit_children_with(self);
     }
     
     fn extract_state_var(&mut self) {
         if let Some(component_name) = &self.current_component {
             let sanitized = Self::sanitize_name(component_name);
             let updated_components = self.components.iter().map(|c| {
-                /* complex stmt */
+                if (c.name == sanitized) {
+                    ComponentMetadata { name: c.name.clone(), has_state: true, has_effects: c.has_effects }
+                } else {
+                    c.clone()
+                }
             }).collect();
             self.components = updated_components
         }
@@ -124,7 +130,11 @@ impl KitchenSinkWriter {
         if let Some(component_name) = &self.current_component {
             let sanitized = Self::sanitize_name(component_name);
             let updated_components = self.components.iter().map(|c| {
-                /* complex stmt */
+                if (c.name == sanitized) {
+                    ComponentMetadata { name: c.name.clone(), has_state: c.has_state, has_effects: true }
+                } else {
+                    c.clone()
+                }
             }).collect();
             self.components = updated_components
         }

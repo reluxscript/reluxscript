@@ -1666,6 +1666,41 @@ impl SwcEmitter {
                 self.emit_indent();
                 self.output.push('}');
             }
+            Expr::If(if_expr) => {
+                self.output.push_str("if ");
+                self.emit_parser_expr(&if_expr.condition);
+                self.output.push_str(" {\n");
+                self.indent += 1;
+                for stmt in &if_expr.then_branch.stmts {
+                    self.emit_parser_stmt(stmt);
+                }
+                self.indent -= 1;
+                self.emit_indent();
+                self.output.push('}');
+                if let Some(ref else_branch) = if_expr.else_branch {
+                    self.output.push_str(" else {\n");
+                    self.indent += 1;
+                    for stmt in &else_branch.stmts {
+                        self.emit_parser_stmt(stmt);
+                    }
+                    self.indent -= 1;
+                    self.emit_indent();
+                    self.output.push('}');
+                }
+            }
+            Expr::StructInit(struct_init) => {
+                self.output.push_str(&struct_init.name);
+                self.output.push_str(" { ");
+                for (i, (field_name, field_expr)) in struct_init.fields.iter().enumerate() {
+                    if i > 0 {
+                        self.output.push_str(", ");
+                    }
+                    self.output.push_str(field_name);
+                    self.output.push_str(": ");
+                    self.emit_parser_expr(field_expr);
+                }
+                self.output.push_str(" }");
+            }
             _ => {
                 // For other expression types, emit a placeholder
                 self.output.push_str("/* complex expr */");
@@ -1678,7 +1713,12 @@ impl SwcEmitter {
             Stmt::Expr(expr_stmt) => {
                 self.emit_indent();
                 self.emit_parser_expr(&expr_stmt.expr);
-                self.output.push_str("\n");
+                // Check if this is an if expression (doesn't need semicolon)
+                let needs_semicolon = !matches!(expr_stmt.expr, Expr::If(_) | Expr::Block(_) | Expr::Match(_));
+                if needs_semicolon {
+                    self.output.push(';');
+                }
+                self.output.push('\n');
             }
             Stmt::Return(ret) => {
                 self.emit_indent();
@@ -1688,6 +1728,59 @@ impl SwcEmitter {
                     self.emit_parser_expr(expr);
                 }
                 self.output.push_str(";\n");
+            }
+            Stmt::Let(let_stmt) => {
+                self.emit_indent();
+                self.output.push_str("let ");
+                // For simplicity, only handle simple identifier patterns
+                if let crate::parser::Pattern::Ident(ref name) = let_stmt.pattern {
+                    self.output.push_str(name);
+                } else {
+                    self.output.push_str("/* complex pattern */");
+                }
+                self.output.push_str(" = ");
+                self.emit_parser_expr(&let_stmt.init);
+                self.output.push_str(";\n");
+            }
+            Stmt::If(if_stmt) => {
+                self.emit_indent();
+                self.output.push_str("if ");
+                self.emit_parser_expr(&if_stmt.condition);
+                self.output.push_str(" {\n");
+                self.indent += 1;
+                for stmt in &if_stmt.then_branch.stmts {
+                    self.emit_parser_stmt(stmt);
+                }
+                self.indent -= 1;
+                self.emit_indent();
+                self.output.push('}');
+
+                // Handle else-if branches
+                for (condition, block) in &if_stmt.else_if_branches {
+                    self.output.push_str(" else if ");
+                    self.emit_parser_expr(condition);
+                    self.output.push_str(" {\n");
+                    self.indent += 1;
+                    for stmt in &block.stmts {
+                        self.emit_parser_stmt(stmt);
+                    }
+                    self.indent -= 1;
+                    self.emit_indent();
+                    self.output.push('}');
+                }
+
+                // Handle else branch
+                if let Some(ref else_branch) = if_stmt.else_branch {
+                    self.output.push_str(" else {\n");
+                    self.indent += 1;
+                    for stmt in &else_branch.stmts {
+                        self.emit_parser_stmt(stmt);
+                    }
+                    self.indent -= 1;
+                    self.emit_indent();
+                    self.output.push('}');
+                }
+                self.output.push('\n');
             }
             _ => {
                 self.emit_indent();

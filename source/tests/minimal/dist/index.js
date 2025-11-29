@@ -13,22 +13,7 @@ module.exports = function({ types: t }) {
   };
   
   
-  class Item {
-  constructor(name, value) {
-      this.name = name;
-      this.value = value;
-    }
-  }
-  
-  
-  function update_items(items) {
-    return items.map((item) => (() => {
-      if ((item.value > 0)) {
-        return { name: item.name, value: (item.value * 2) };
-      } else {
-        return item;
-      }
-    })());
+  function extract_state_var() {
   }
   
   return {
