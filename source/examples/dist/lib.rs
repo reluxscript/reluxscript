@@ -156,7 +156,7 @@ impl KitchenSinkWriter {
         components.iter().map(|c| c.name.clone()).collect()
     }
     
-    fn find_component<'a>(components: &Vec<ComponentMetadata>, name: &String) -> Option<&'a ComponentMetadata> {
+    fn find_component<'a>(components: &'a Vec<ComponentMetadata>, name: &'a String) -> Option<&'a ComponentMetadata> {
         components.iter().find(|c| (c.name == *name))
     }
     
