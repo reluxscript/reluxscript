@@ -1366,6 +1366,38 @@ impl SwcRewriter {
                         };
                 }
             }
+
+            // Also check for Ident with use_sym (decorated form of id.name)
+            if let DecoratedExprKind::Ident { ref ident_metadata, .. } = call.callee.kind {
+                if ident_metadata.use_sym {
+                    // Transform: id.sym() → id.sym.to_string()
+                    // The callee is already `id` with use_sym, we need to make it id.sym.to_string()
+                    return DecoratedExpr {
+                        kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                            callee: DecoratedExpr {
+                                kind: DecoratedExprKind::Member {
+                                    object: Box::new(call.callee.clone()),
+                                    property: "to_string".to_string(),
+                                    optional: false,
+                                    computed: false,
+                                    is_path: false,
+                                    field_metadata: SwcFieldMetadata::direct(
+                                        "to_string".to_string(),
+                                        "String".to_string()
+                                    ),
+                                },
+                                metadata: call.callee.metadata.clone(),
+                            },
+                            args: vec![],
+                            type_args: vec![],
+                            optional: false,
+                            is_macro: false,
+                            span: call.span,
+                        })),
+                        metadata: expr.metadata.clone(),
+                    };
+                }
+            }
         }
 
         // No transformation needed

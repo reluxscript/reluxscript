@@ -5,12 +5,18 @@ use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{VisitMut, VisitMutWith, VisitWith};
 
-pub struct IdentNameFieldTest {
+#[derive(Clone, Debug)]
+struct Item {
+    name: String,
+    value: i32,
+}
+
+pub struct MapClosureIfElseTest {
     output: String,
     indent_level: usize,
 }
 
-impl IdentNameFieldTest {
+impl MapClosureIfElseTest {
     pub fn new() -> Self {
         Self {
             output: String::new(),
@@ -30,12 +36,10 @@ impl IdentNameFieldTest {
         self.output.clone()
     }
     
-    fn get_name(expr: &Expr) -> Option<String> {
-        if let Expr::Ident(id) = expr {
-            Some(id.sym())
-        } else {
-            None
-        }
+    fn update_items(items: &Vec<Item>) -> Vec<Item> {
+        items.iter().map(|item| {
+            /* complex stmt */
+        }).collect()
     }
     
 }

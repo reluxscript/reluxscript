@@ -13,14 +13,22 @@ module.exports = function({ types: t }) {
   };
   
   
-  function get_name(expr) {
-    const __iflet_0 = expr;
-    if (__iflet_0 !== null) {
-      const id = __iflet_0;
-      id.name;
-    } else {
-      null;
+  class Item {
+  constructor(name, value) {
+      this.name = name;
+      this.value = value;
     }
+  }
+  
+  
+  function update_items(items) {
+    return items.map((item) => (() => {
+      if ((item.value > 0)) {
+        return { name: item.name, value: (item.value * 2) };
+      } else {
+        return item;
+      }
+    })());
   }
   
   return {

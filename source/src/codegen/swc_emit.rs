@@ -1131,9 +1131,22 @@ impl SwcEmitter {
                         // Should not reach here
                     }
                 }
+
+                // Apply read conversion if present (e.g., .to_string() for Atom → String)
+                if !field_metadata.read_conversion.is_empty() {
+                    self.output.push_str(&field_metadata.read_conversion);
+                }
             }
 
             DecoratedExprKind::Call(call) => {
+                // Check if callee is a Member with read_conversion that already includes ()
+                let skip_parens = if let DecoratedExprKind::Member { ref field_metadata, .. } = call.callee.kind {
+                    !field_metadata.read_conversion.is_empty() &&
+                    field_metadata.read_conversion.ends_with("()")
+                } else {
+                    false
+                };
+
                 self.emit_expr(&call.callee);
 
                 // Add ! suffix for macro calls
@@ -1141,14 +1154,17 @@ impl SwcEmitter {
                     self.output.push('!');
                 }
 
-                self.output.push('(');
-                for (i, arg) in call.args.iter().enumerate() {
-                    if i > 0 {
-                        self.output.push_str(", ");
+                // Don't add () if the callee already has it from read_conversion
+                if !skip_parens {
+                    self.output.push('(');
+                    for (i, arg) in call.args.iter().enumerate() {
+                        if i > 0 {
+                            self.output.push_str(", ");
+                        }
+                        self.emit_expr(arg);
                     }
-                    self.emit_expr(arg);
+                    self.output.push(')');
                 }
-                self.output.push(')');
             }
 
             DecoratedExprKind::Paren(inner) => {
