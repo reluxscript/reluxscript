@@ -3,7 +3,7 @@
 
 use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
-use swc_ecma_visit::{VisitMut, VisitMutWith, VisitWith};
+use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 
 #[derive(Clone, Debug)]
 struct Item {
@@ -15,6 +15,8 @@ pub struct MapClosureIfElseTest {
     output: String,
     indent_level: usize,
 }
+
+impl Visit for MapClosureIfElseTest {}
 
 impl MapClosureIfElseTest {
     pub fn new() -> Self {

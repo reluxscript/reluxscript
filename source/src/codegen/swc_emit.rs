@@ -287,7 +287,7 @@ impl SwcEmitter {
         self.emit_line("");
         self.emit_line("use swc_common::{Span, DUMMY_SP, SyntaxContext};");
         self.emit_line("use swc_ecma_ast::*;");
-        self.emit_line("use swc_ecma_visit::{VisitMut, VisitMutWith, VisitWith};");
+        self.emit_line("use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};");
 
         // Add conditional imports
         if self.uses_hashmap && self.uses_hashset {
@@ -525,7 +525,11 @@ impl SwcEmitter {
         self.emit_line("}");
         self.emit_line("");
 
-        // 3. Impl block with new(), CodeBuilder methods, and user methods
+        // 3. Empty Visit implementation (writers use immutable Visit, not VisitMut)
+        self.emit_line(&format!("impl Visit for {} {{}}", writer.name));
+        self.emit_line("");
+
+        // 4. Impl block with new(), CodeBuilder methods, and user methods
         self.emit_line(&format!("impl {} {{", writer.name));
         self.indent += 1;
 

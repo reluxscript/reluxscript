@@ -1284,8 +1284,9 @@ impl SwcRewriter {
     // TRANSFORMATION: Visit Children Method Rewrite
     // ========================================================================
 
-    /// 🔧 Transform node.visit_children(self) to node.visit_mut_children_with(self)
-    /// ReluxScript uses visit_children as an abstraction, but SWC VisitMut uses visit_mut_children_with
+    /// 🔧 Transform node.visit_children(self) to appropriate SWC method
+    /// - Plugins (mutable): node.visit_mut_children_with(self)
+    /// - Writers (immutable): node.visit_children_with(self)
     fn apply_visit_children_rewrite(&mut self, expr: DecoratedExpr) -> DecoratedExpr {
         // Check if this is a call expression
         if let DecoratedExprKind::Call(ref call) = expr.kind {
@@ -1293,18 +1294,24 @@ impl SwcRewriter {
             if let DecoratedExprKind::Member { ref object, ref property, .. } = call.callee.kind {
                 // Check if it's .visit_children
                 if property == "visit_children" {
-                    // Transform: node.visit_children(self) → node.visit_mut_children_with(self)
+                    // Choose the right method based on writer vs plugin context
+                    let method_name = if self.is_writer {
+                        "visit_children_with"
+                    } else {
+                        "visit_mut_children_with"
+                    };
+
                     return DecoratedExpr {
                         kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
                             callee: DecoratedExpr {
                                 kind: DecoratedExprKind::Member {
                                     object: object.clone(),
-                                    property: "visit_mut_children_with".to_string(),
+                                    property: method_name.to_string(),
                                     optional: false,
                                     computed: false,
                                     is_path: false,
                                     field_metadata: SwcFieldMetadata::direct(
-                                        "visit_mut_children_with".to_string(),
+                                        method_name.to_string(),
                                         "()".to_string()
                                     ),
                                 },
