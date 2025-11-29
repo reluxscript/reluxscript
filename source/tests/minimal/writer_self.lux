@@ -1,13 +1,8 @@
-// Test: Writer methods with self parameter
+// Test: Writer methods with &mut self parameter (should cause duplicate self error)
 writer WriterSelfTest {
 
-fn helper(self, node: &Expr) -> String {
-    // Should handle self parameter correctly in writers
-    "test".to_string()
-}
-
-fn process() {
-    let result = self.helper(&some_expr);
+fn helper(&mut self) {
+    // Should handle &mut self parameter correctly in writers
 }
 
 }

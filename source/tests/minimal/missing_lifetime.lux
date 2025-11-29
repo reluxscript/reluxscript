@@ -1,0 +1,12 @@
+// Test: Reproduces E0106 - missing lifetime specifier
+writer MissingLifetimeTest {
+
+struct Item {
+    name: Str,
+}
+
+fn find_item(items: &Vec<Item>, name: &Str) -> Option<&Item> {
+    None
+}
+
+}

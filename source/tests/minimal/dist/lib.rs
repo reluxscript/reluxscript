@@ -5,12 +5,17 @@ use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{VisitMut, VisitMutWith, VisitWith};
 
-pub struct HelperTest {
+#[derive(Clone, Debug)]
+struct Item {
+    name: String,
+}
+
+pub struct MissingLifetimeTest {
     output: String,
     indent_level: usize,
 }
 
-impl HelperTest {
+impl MissingLifetimeTest {
     pub fn new() -> Self {
         Self {
             output: String::new(),
@@ -30,13 +35,8 @@ impl HelperTest {
         self.output.clone()
     }
     
-    fn is_helper(name: &str) -> bool {
-        name.starts_with("test")
-    }
-    
-    fn process_node(node: &Expr) {
-        if Self::is_helper("test") {
-        }
+    fn find_item<'a>(items: &Vec<Item>, name: &String) -> Option<&'a Item> {
+        None
     }
     
 }

@@ -67,8 +67,8 @@ impl KitchenSinkWriter {
     
     fn visit_mut_fn_decl(&mut self, node: &FnDecl) {
         let name = node.ident.sym();
-        if is_component(&name) {
-            let sanitized = sanitize_name(&name);
+        if Self::is_component(&name) {
+            let sanitized = Self::sanitize_name(&name);
             self.current_component = Some(name.clone());
             let metadata = ComponentMetadata { name: sanitized.clone(), has_state: false, has_effects: false };
             self.append("public class ");
@@ -86,7 +86,7 @@ impl KitchenSinkWriter {
     }
     
     fn visit_mut_call_expr(&mut self, node: &CallExpr) {
-        if let Some(callee_name) = get_callee_name(&node.callee) {
+        if let Some(callee_name) = Self::get_callee_name(&node.callee) {
             if (callee_name == "useState") {
                 self.extract_state_var()
             } else {
@@ -110,7 +110,7 @@ impl KitchenSinkWriter {
     
     fn extract_state_var(&mut self, self: &mut Self) {
         if let Some(component_name) = &self.current_component {
-            let sanitized = sanitize_name(component_name);
+            let sanitized = Self::sanitize_name(component_name);
             let updated_components = self.components.iter().map(|c| {
                 /* complex stmt */
             }).collect();
@@ -122,7 +122,7 @@ impl KitchenSinkWriter {
     
     fn extract_effect(&mut self, self: &mut Self) {
         if let Some(component_name) = &self.current_component {
-            let sanitized = sanitize_name(component_name);
+            let sanitized = Self::sanitize_name(component_name);
             let updated_components = self.components.iter().map(|c| {
                 /* complex stmt */
             }).collect();

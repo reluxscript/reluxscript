@@ -649,13 +649,29 @@ impl SwcEmitter {
         // Function signature
         let mut sig = format!("fn {}", func.name);
 
+        // Check if we need lifetime parameter
+        let needs_lifetime = func.return_type.as_ref()
+            .map(|ty| self.type_has_reference(ty))
+            .unwrap_or(false);
+
+        // Add lifetime parameter if needed
+        if needs_lifetime {
+            sig.push_str("<'a>");
+        }
+
         // Parameters
         sig.push('(');
 
         // For SWC visitor methods (visit_mut_*) and writer helper methods, add &mut self as first parameter
         let needs_self = func.name.starts_with("visit_") ||
                         (self.is_writer && func.name.starts_with("extract_"));
-        if needs_self {
+
+        // Check if first parameter is already a self parameter
+        let first_is_self = func.params.first()
+            .map(|p| p.name == "self")
+            .unwrap_or(false);
+
+        if needs_self && !first_is_self {
             sig.push_str("&mut self");
             if !func.params.is_empty() {
                 sig.push_str(", ");
@@ -663,6 +679,16 @@ impl SwcEmitter {
         }
 
         for (i, param) in func.params.iter().enumerate() {
+            // Skip first parameter if it's self and we already added &mut self
+            if needs_self && first_is_self && i == 0 {
+                // Replace self parameter with &mut self
+                sig.push_str("&mut self");
+                if func.params.len() > 1 {
+                    sig.push_str(", ");
+                }
+                continue;
+            }
+
             if i > 0 {
                 sig.push_str(", ");
             }
@@ -675,7 +701,7 @@ impl SwcEmitter {
         // Return type
         if let Some(ref ret_ty) = func.return_type {
             sig.push_str(" -> ");
-            sig.push_str(&self.type_to_string(ret_ty));
+            sig.push_str(&self.type_to_string_with_lifetime(ret_ty, needs_lifetime));
         }
 
         sig.push_str(" {");
@@ -1392,7 +1418,23 @@ impl SwcEmitter {
     // TYPE CONVERSIONS
     // ========================================================================
 
+    /// Check if a type contains any references
+    fn type_has_reference(&self, ty: &Type) -> bool {
+        match ty {
+            Type::Reference { .. } => true,
+            Type::Container { type_args, .. } => type_args.iter().any(|t| self.type_has_reference(t)),
+            Type::Optional(inner) => self.type_has_reference(inner),
+            Type::Array { element } => self.type_has_reference(element),
+            Type::Tuple(types) => types.iter().any(|t| self.type_has_reference(t)),
+            _ => false,
+        }
+    }
+
     fn type_to_string(&self, ty: &Type) -> String {
+        self.type_to_string_with_lifetime(ty, false)
+    }
+
+    fn type_to_string_with_lifetime(&self, ty: &Type, add_lifetime: bool) -> String {
         match ty {
             Type::Primitive(name) => {
                 // Map ReluxScript/Babel types to Rust types for SWC
@@ -1413,9 +1455,10 @@ impl SwcEmitter {
             }
             Type::Reference { mutable, inner } => {
                 format!(
-                    "&{}{}",
+                    "&{}{}{}",
+                    if add_lifetime { "'a " } else { "" },
                     if *mutable { "mut " } else { "" },
-                    self.type_to_string(inner)
+                    self.type_to_string_with_lifetime(inner, add_lifetime)
                 )
             }
             Type::Container { name, type_args } => {
@@ -1426,26 +1469,26 @@ impl SwcEmitter {
                         "{}<{}>",
                         name,
                         type_args.iter()
-                            .map(|t| self.type_to_string(t))
+                            .map(|t| self.type_to_string_with_lifetime(t, add_lifetime))
                             .collect::<Vec<_>>()
                             .join(", ")
                     )
                 }
             }
             Type::Array { element } => {
-                format!("[{}]", self.type_to_string(element))
+                format!("[{}]", self.type_to_string_with_lifetime(element, add_lifetime))
             }
             Type::Tuple(types) => {
                 format!(
                     "({})",
                     types.iter()
-                        .map(|t| self.type_to_string(t))
+                        .map(|t| self.type_to_string_with_lifetime(t, add_lifetime))
                         .collect::<Vec<_>>()
                         .join(", ")
                 )
             }
             Type::Optional(inner) => {
-                format!("Option<{}>", self.type_to_string(inner))
+                format!("Option<{}>", self.type_to_string_with_lifetime(inner, add_lifetime))
             }
             Type::Unit => {
                 "()".to_string()

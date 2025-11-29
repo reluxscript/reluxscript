@@ -13,14 +13,15 @@ module.exports = function({ types: t }) {
   };
   
   
-  function is_helper(name) {
-    return name.startsWith("test");
+  class Item {
+  constructor(name) {
+      this.name = name;
+    }
   }
   
   
-  function process_node(node) {
-    if (is_helper("test")) {
-    }
+  function find_item(items, name) {
+    return null;
   }
   
   return {
