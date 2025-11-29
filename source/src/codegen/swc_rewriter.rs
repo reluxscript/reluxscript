@@ -93,6 +93,8 @@ impl SwcRewriter {
                 .into_iter()
                 .map(|item| self.rewrite_plugin_item(item))
                 .collect(),
+            hoisted_structs: writer.hoisted_structs,
+            state_struct: writer.state_struct,
         }
     }
 

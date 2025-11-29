@@ -500,20 +500,42 @@ impl SwcEmitter {
 
     fn emit_writer(&mut self, writer: &DecoratedWriter) {
         self.name = writer.name.clone();
+        self.is_writer = true;
 
-        // Writer struct
+        // 1. Emit hoisted structs at module level (before the writer struct)
+        for struct_decl in &writer.hoisted_structs {
+            self.emit_struct(struct_decl);
+        }
+
+        // 2. Emit the writer struct with output field + flattened State fields
         self.emit_line(&format!("pub struct {} {{", writer.name));
         self.indent += 1;
         self.emit_line("output: String,");
+        self.emit_line("indent_level: usize,");
+
+        // Flatten State struct fields into main struct
+        if let Some(ref state) = writer.state_struct {
+            for field in &state.fields {
+                let type_str = self.type_to_string(&field.ty);
+                self.emit_line(&format!("{}: {},", field.name, type_str));
+            }
+        }
+
         self.indent -= 1;
         self.emit_line("}");
         self.emit_line("");
 
-        // Impl block
+        // 3. Impl block with new(), CodeBuilder methods, and user methods
         self.emit_line(&format!("impl {} {{", writer.name));
         self.indent += 1;
 
-        // Emit all methods
+        // Generate new() constructor
+        self.emit_writer_constructor(&writer.state_struct);
+
+        // Generate CodeBuilder helper methods
+        self.emit_codebuilder_methods();
+
+        // Emit user-defined methods
         for item in &writer.body {
             self.emit_plugin_item(item);
         }
@@ -630,8 +652,10 @@ impl SwcEmitter {
         // Parameters
         sig.push('(');
 
-        // For SWC visitor methods (visit_mut_*), add &mut self as first parameter
-        if func.name.starts_with("visit_") && !self.is_writer {
+        // For SWC visitor methods (visit_mut_*) and writer helper methods, add &mut self as first parameter
+        let needs_self = func.name.starts_with("visit_") ||
+                        (self.is_writer && func.name.starts_with("extract_"));
+        if needs_self {
             sig.push_str("&mut self");
             if !func.params.is_empty() {
                 sig.push_str(", ");
@@ -1477,6 +1501,59 @@ impl SwcEmitter {
             CompoundAssignOp::DivAssign => "/",
         }
         .to_string()
+    }
+
+    // ========================================================================
+    // WRITER-SPECIFIC HELPERS
+    // ========================================================================
+
+    fn emit_writer_constructor(&mut self, state_struct: &Option<StructDecl>) {
+        self.emit_line("pub fn new() -> Self {");
+        self.indent += 1;
+        self.emit_line("Self {");
+        self.indent += 1;
+        self.emit_line("output: String::new(),");
+        self.emit_line("indent_level: 0,");
+
+        // Initialize State fields with defaults
+        if let Some(state) = state_struct {
+            for field in &state.fields {
+                let default_value = self.get_default_value_for_type(&field.ty);
+                self.emit_line(&format!("{}: {},", field.name, default_value));
+            }
+        }
+
+        self.indent -= 1;
+        self.emit_line("}");
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("");
+    }
+
+    fn emit_codebuilder_methods(&mut self) {
+        // append method
+        self.emit_line("fn append(&mut self, s: &str) {");
+        self.indent += 1;
+        self.emit_line("self.output.push_str(s);");
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("");
+
+        // newline method
+        self.emit_line("fn newline(&mut self) {");
+        self.indent += 1;
+        self.emit_line("self.output.push('\\n');");
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("");
+
+        // to_string method (for finish/exit hooks)
+        self.emit_line("pub fn to_string(&self) -> String {");
+        self.indent += 1;
+        self.emit_line("self.output.clone()");
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("");
     }
 
     // ========================================================================

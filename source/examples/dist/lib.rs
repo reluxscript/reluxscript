@@ -6,34 +6,160 @@ use swc_ecma_ast::*;
 use swc_ecma_visit::{VisitMut, VisitMutWith, VisitWith};
 
 #[derive(Clone, Debug)]
-struct Stats {
-    removed_count: i32,
+struct ComponentMetadata {
+    name: String,
+    has_state: bool,
+    has_effects: bool,
 }
 
-pub struct ConsoleRemover {
+pub struct KitchenSinkWriter {
+    output: String,
+    indent_level: usize,
+    components: Vec<ComponentMetadata>,
+    current_component: Option<String>,
 }
 
-impl VisitMut for ConsoleRemover {
-    fn visit_mut_call_expr(&mut self, node: &mut CallExpr) {
-        let callee = node.callee.clone();
-        let args_count = node.args.len();
-        if (args_count > 0) {
-            for arg in node.args.clone() {
-                let _temp = arg;
+impl KitchenSinkWriter {
+    pub fn new() -> Self {
+        Self {
+            output: String::new(),
+            indent_level: 0,
+            components: Vec::new(),
+            current_component: None,
+        }
+    }
+    
+    fn append(&mut self, s: &str) {
+        self.output.push_str(s);
+    }
+    
+    fn newline(&mut self) {
+        self.output.push('\n');
+    }
+    
+    pub fn to_string(&self) -> String {
+        self.output.clone()
+    }
+    
+    fn is_component(name: &String) -> bool {
+        if name.is_empty() {
+            return false;
+        }
+        let first = name.chars().next().unwrap();
+        first.is_uppercase()
+    }
+    
+    fn sanitize_name(name: &String) -> String {
+        if name.is_empty() {
+            return name.clone();
+        }
+        let first = name.chars().next().unwrap();
+        format!("{}{}", first.to_uppercase(), &name[1..])
+    }
+    
+    fn get_callee_name(callee: &Expr) -> Option<String> {
+        if let Expr::Ident(id) = callee {
+            Some(id.sym())
+        } else {
+            None
+        }
+    }
+    
+    fn visit_mut_fn_decl(&mut self, node: &FnDecl) {
+        let name = node.ident.sym();
+        if is_component(&name) {
+            let sanitized = sanitize_name(&name);
+            self = Some(name.clone());
+            let metadata = ComponentMetadata { name: sanitized.clone(), has_state: false, has_effects: false };
+            self.append("public class ");
+            self.append(&sanitized);
+            self.newline();
+            self.append("{");
+            self.newline();
+            node.visit_mut_children_with(self);
+            self.append("}");
+            self.newline();
+            self.newline();
+            self.push(metadata);
+            self = None
+        }
+    }
+    
+    fn visit_mut_call_expr(&mut self, node: &CallExpr) {
+        if let Some(callee_name) = get_callee_name(&node.callee) {
+            if (callee_name == "useState") {
+                self.extract_state_var()
+            } else {
+                if (callee_name == "useEffect") {
+                    self.extract_effect()
+                }
             }
         }
+        node.visit_mut_children_with(self);
     }
     
-    fn visit_mut_ident(&mut self, node: &mut Ident) {
-        let name = node.sym.to_string();
-        if (name == "oldName") {
-            *node = Ident { sym: "newName".into(), span: DUMMY_SP, optional: false, ctxt: SyntaxContext::empty() }.into()
+    fn visit_mut_ident(&mut self, node: &Ident) {
+        let _name = node.sym();
+    }
+    
+    fn visit_mut_jsx_element(&mut self, node: &JSXElement) {
+        self.append("    // JSX element");
+        self.newline();
+        node.visit_mut_children_with(self);
+    }
+    
+    fn extract_state_var(&mut self, self: &mut Self) {
+        if let Some(component_name) = &self.current_component {
+            let sanitized = sanitize_name(component_name);
+            let updated_components = self.iter().map(|c| {
+                /* complex stmt */
+            }).collect();
+            self = updated_components
         }
+        self.append("    private object _state;");
+        self.newline();
+    }
+    
+    fn extract_effect(&mut self, self: &mut Self) {
+        if let Some(component_name) = &self.current_component {
+            let sanitized = sanitize_name(component_name);
+            let updated_components = self.iter().map(|c| {
+                /* complex stmt */
+            }).collect();
+            self = updated_components
+        }
+        self.append("    public void OnInitialized() { }");
+        self.newline();
+    }
+    
+    fn count_components_with_state(components: &Vec<ComponentMetadata>) -> i32 {
+        let mut count = 0;
+        for component in components {
+            if component.has_state {
+                count += 1
+            }
+        }
+        count
+    }
+    
+    fn get_component_names(components: &Vec<ComponentMetadata>) -> Vec<String> {
+        components.iter().map(|c| c.name.clone()).collect()
+    }
+    
+    fn find_component(components: &Vec<ComponentMetadata>, name: &String) -> Option<&ComponentMetadata> {
+        components.iter().find(|c| (c.name == /* complex expr */))
+    }
+    
+    fn to_camel_case(s: &String) -> String {
+        if s.is_empty() {
+            return s.clone();
+        }
+        let first = s.chars().next().unwrap();
+        format!("{}{}", first.to_lowercase(), &s[1..])
+    }
+    
+    fn to_snake_case(s: &String) -> String {
+        s.to_lowercase().replace(" ", "_")
     }
     
 }
-
-fn is_console_method(name: &String) -> bool {
-    return (((name == "log") || (name == "warn")) || (name == "error"));
-}
-

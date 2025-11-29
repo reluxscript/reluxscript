@@ -132,9 +132,47 @@ impl SwcDecorator {
     }
 
     fn decorate_writer_decl(&mut self, writer: &WriterDecl) -> DecoratedWriter {
+        // Separate structs from other items
+        let mut hoisted_structs = Vec::new();
+        let mut state_struct = None;
+        let mut body_items = Vec::new();
+
+        for item in &writer.body {
+            match item {
+                PluginItem::Struct(s) => {
+                    if s.name == "State" {
+                        // Filter out CodeBuilder fields from State
+                        let mut filtered_state = s.clone();
+                        filtered_state.fields.retain(|field| {
+                            // Remove builder: CodeBuilder field
+                            if let Type::Named(name) = &field.ty {
+                                name != "CodeBuilder"
+                            } else {
+                                true
+                            }
+                        });
+                        state_struct = Some(filtered_state);
+                    } else {
+                        hoisted_structs.push(s.clone());
+                    }
+                }
+                PluginItem::Function(f) => {
+                    // Skip init() function - it's replaced by the generated new()
+                    if f.name != "init" && f.name != "finish" {
+                        body_items.push(self.decorate_plugin_item(item));
+                    }
+                }
+                _ => {
+                    body_items.push(self.decorate_plugin_item(item));
+                }
+            }
+        }
+
         DecoratedWriter {
             name: writer.name.clone(),
-            body: writer.body.iter().map(|item| self.decorate_plugin_item(item)).collect(),
+            body: body_items,
+            hoisted_structs,
+            state_struct,
         }
     }
 
@@ -805,12 +843,24 @@ impl SwcDecorator {
                 let object_type = &decorated_object.metadata.swc_type;
 
                 // Check for writer-specific field replacements (self.builder → self)
+                // This handles both direct access: self.builder, self.state
+                // And method calls on them: self.builder.append() where object is self.builder
                 let is_self_builder = self.is_writer &&
                     matches!(&decorated_object.kind, DecoratedExprKind::Ident { name, .. } if name == "self") &&
                     (mem.property == "builder" || mem.property == "state");
 
+                // Also check for self.builder.X pattern (where object is self.builder/self.state)
+                let is_method_on_builder = self.is_writer &&
+                    matches!(&decorated_object.kind,
+                        DecoratedExprKind::Member { object, property, field_metadata, .. }
+                        if matches!(&object.kind, DecoratedExprKind::Ident { name, .. } if name == "self")
+                           && (property == "builder" || property == "state")
+                           && matches!(&field_metadata.accessor, FieldAccessor::Replace { .. })
+                    );
+
+
                 // Look up the field in SWC schema
-                let field_metadata = if is_self_builder {
+                let field_metadata = if is_self_builder || is_method_on_builder {
                     // In writers, self.builder and self.state should be replaced with just "self"
                     SwcFieldMetadata {
                         swc_field_name: mem.property.clone(),
@@ -1577,6 +1627,10 @@ pub struct DecoratedPlugin {
 pub struct DecoratedWriter {
     pub name: String,
     pub body: Vec<DecoratedPluginItem>,
+    /// Structs that should be emitted at module level (before the writer struct)
+    pub hoisted_structs: Vec<StructDecl>,
+    /// The State struct (if present), whose fields will be flattened into the writer
+    pub state_struct: Option<StructDecl>,
 }
 
 #[derive(Debug, Clone)]
