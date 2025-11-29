@@ -28,6 +28,9 @@ pub struct SwcRewriter {
 
     /// Whether we're in a writer context (affects self.builder → self)
     is_writer: bool,
+
+    /// Helper function names (non-visitor functions) in current plugin/writer
+    helper_functions: Vec<String>,
 }
 
 impl SwcRewriter {
@@ -36,6 +39,7 @@ impl SwcRewriter {
         Self {
             temp_var_counter: 0,
             is_writer: false,
+            helper_functions: Vec::new(),
         }
     }
 
@@ -44,6 +48,7 @@ impl SwcRewriter {
         Self {
             temp_var_counter: 0,
             is_writer: true,
+            helper_functions: Vec::new(),
         }
     }
 
@@ -77,6 +82,17 @@ impl SwcRewriter {
     }
 
     fn rewrite_plugin(&mut self, plugin: DecoratedPlugin) -> DecoratedPlugin {
+        // First pass: collect helper function names
+        self.helper_functions.clear();
+        for item in &plugin.body {
+            if let DecoratedPluginItem::Function(func) = item {
+                if !func.name.starts_with("visit_") && !func.name.starts_with("visit_mut_") {
+                    self.helper_functions.push(func.name.clone());
+                }
+            }
+        }
+
+        // Second pass: rewrite with helper function knowledge
         DecoratedPlugin {
             name: plugin.name,
             body: plugin.body
@@ -87,6 +103,16 @@ impl SwcRewriter {
     }
 
     fn rewrite_writer(&mut self, writer: DecoratedWriter) -> DecoratedWriter {
+        // First pass: collect helper function names
+        self.helper_functions.clear();
+        for item in &writer.body {
+            if let DecoratedPluginItem::Function(func) = item {
+                // All functions in writers are helpers (no visit methods)
+                self.helper_functions.push(func.name.clone());
+            }
+        }
+
+        // Second pass: rewrite with helper function knowledge
         DecoratedWriter {
             name: writer.name,
             body: writer.body
@@ -615,6 +641,7 @@ impl SwcRewriter {
         let expr = self.apply_field_replacements(expr);
         let expr = self.apply_context_remove(expr);
         let expr = self.apply_codegen_helpers(expr);
+        let expr = self.apply_helper_function_calls(expr);
         let expr = self.apply_field_conversions(expr);
         let expr = self.apply_visit_children_rewrite(expr);
         let expr = self.apply_atom_to_string_conversion(expr);
@@ -1148,6 +1175,54 @@ impl SwcRewriter {
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // No transformation needed
+        expr
+    }
+
+    // ========================================================================
+    // TRANSFORMATION: Helper Function Calls
+    // ========================================================================
+
+    /// 🔧 Add Self:: prefix to helper function calls
+    /// transforms: is_helper("test") → Self::is_helper("test")
+    fn apply_helper_function_calls(&mut self, expr: DecoratedExpr) -> DecoratedExpr {
+        // Check if this is a call expression with a simple identifier callee
+        if let DecoratedExprKind::Call(ref call) = expr.kind {
+            if let DecoratedExprKind::Ident { ref name, .. } = call.callee.kind {
+                // Check if this is a helper function call
+                if self.helper_functions.contains(name) {
+                    // Transform: helper_func(args) → Self::helper_func(args)
+                    return DecoratedExpr {
+                        kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                            callee: DecoratedExpr {
+                                kind: DecoratedExprKind::Member {
+                                    object: Box::new(DecoratedExpr {
+                                        kind: DecoratedExprKind::Ident {
+                                            name: "Self".to_string(),
+                                            ident_metadata: SwcIdentifierMetadata::name(),
+                                        },
+                                        metadata: Self::simple_metadata("type"),
+                                    }),
+                                    property: name.clone(),
+                                    optional: false,
+                                    computed: false,
+                                    is_path: true,  // Use :: separator
+                                    field_metadata: SwcFieldMetadata::direct(name.clone(), "fn".to_string()),
+                                },
+                                metadata: Self::simple_metadata("fn"),
+                            },
+                            args: call.args.clone(),
+                            type_args: call.type_args.clone(),
+                            optional: call.optional,
+                            is_macro: call.is_macro,
+                            span: call.span,
+                        })),
+                        metadata: expr.metadata.clone(),
+                    };
                 }
             }
         }

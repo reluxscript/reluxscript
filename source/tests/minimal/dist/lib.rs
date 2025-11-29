@@ -35,7 +35,7 @@ impl HelperTest {
     }
     
     fn process_node(node: &Expr) {
-        if is_helper("test") {
+        if Self::is_helper("test") {
         }
     }
     
