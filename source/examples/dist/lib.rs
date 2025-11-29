@@ -153,9 +153,7 @@ impl KitchenSinkWriter {
         final_output.push_str(&self.to_string());
         final_output.push_str("}\n");
         let component_count = self.components.len();
-        final_output.push_str("\n// Generated ");
-        final_output.push_str(&component_count.to_string());
-        final_output.push_str(" components\n");
+        final_output.push_str(&format!("\n// Generated {} components\n", component_count));
         final_output.into()
     }
     
