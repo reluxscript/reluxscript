@@ -158,13 +158,13 @@ module.exports = function({ types: t }) {
   
   return {
     pre(file) {
-      init(file);
+      this.state = init(file);
     },
     
     visitor: {
       Program: {
         exit(path, state) {
-          finish(path.node, state, builder);
+          return finish.call(this, path.node, state, builder);
         }
       },
       

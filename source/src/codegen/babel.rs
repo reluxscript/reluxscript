@@ -610,7 +610,7 @@ impl BabelGenerator {
         if let Some(pre_fn) = pre_hook {
             self.emit_line("pre(file) {");
             self.indent += 1;
-            self.emit_line(&format!("{}(file);", pre_fn.name));
+            self.emit_line(&format!("this.state = {}(file);", pre_fn.name));
             self.indent -= 1;
             self.emit_line("},");
             self.emit_line("");
@@ -626,7 +626,7 @@ impl BabelGenerator {
             self.indent += 1;
             self.emit_line("exit(path, state) {");
             self.indent += 1;
-            self.emit_line(&format!("{}(path.node, state, builder);", exit_fn.name));
+            self.emit_line(&format!("return {}.call(this, path.node, state, builder);", exit_fn.name));
             self.indent -= 1;
             self.emit_line("}");
             self.indent -= 1;
