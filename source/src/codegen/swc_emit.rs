@@ -1220,15 +1220,8 @@ impl SwcEmitter {
                     self.output.push_str(field_name);
                     self.output.push_str(": ");
 
-                    // Check if this is a string literal - add .into() for String fields
-                    let is_string_literal = matches!(field_expr, Expr::Literal(Literal::String(_)));
-                    if is_string_literal {
-                        self.output.push('(');
-                    }
-                    self.emit_undecorated_expr(field_expr);
-                    if is_string_literal {
-                        self.output.push_str(").into()");
-                    }
+                    // Emit the decorated field expression
+                    self.emit_expr(field_expr);
                 }
                 self.output.push_str(" }");
             }
@@ -1868,6 +1861,7 @@ impl SwcEmitter {
     // ========================================================================
 
     /// Emit undecorated parser Expr (fallback for expressions that aren't decorated yet)
+    /// This is only used for closures and other edge cases that haven't been fully decorated
     fn emit_undecorated_expr(&mut self, expr: &Expr) {
         match expr {
             Expr::Ident(ident) => {
@@ -1910,19 +1904,6 @@ impl SwcEmitter {
                     self.emit_undecorated_expr(elem);
                 }
                 self.output.push(']');
-            }
-            Expr::StructInit(struct_init) => {
-                self.output.push_str(&struct_init.name);
-                self.output.push_str(" { ");
-                for (i, (field_name, field_expr)) in struct_init.fields.iter().enumerate() {
-                    if i > 0 {
-                        self.output.push_str(", ");
-                    }
-                    self.output.push_str(field_name);
-                    self.output.push_str(": ");
-                    self.emit_undecorated_expr(field_expr);
-                }
-                self.output.push_str(" }");
             }
             _ => {
                 self.output.push_str("/* undecorated expr */");

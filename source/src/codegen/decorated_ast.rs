@@ -85,7 +85,7 @@ pub enum DecoratedExprKind {
         object: Box<DecoratedExpr>,
         index: Box<DecoratedExpr>,
     },
-    StructInit(crate::parser::StructInitExpr), // TODO: Decorate if needed
+    StructInit(DecoratedStructInit),
     VecInit(Vec<DecoratedExpr>),
     If(Box<DecoratedIfExpr>),
     Match(Box<DecoratedMatchExpr>),
@@ -143,6 +143,14 @@ pub struct DecoratedRegexCall {
     pub pattern: String,
     pub replacement_arg: Option<DecoratedExpr>,
     pub metadata: SwcRegexMetadata,
+    pub span: Span,
+}
+
+/// Decorated struct initialization
+#[derive(Debug, Clone)]
+pub struct DecoratedStructInit {
+    pub name: String,
+    pub fields: Vec<(String, DecoratedExpr)>,
     pub span: Span,
 }
 

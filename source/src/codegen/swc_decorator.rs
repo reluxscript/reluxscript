@@ -1088,8 +1088,19 @@ impl SwcDecorator {
                 // Map ReluxScript type to SWC type
                 let swc_type = self.reluxscript_to_swc_type(&struct_init.name);
 
+                // Recursively decorate field expressions
+                let decorated_fields = struct_init.fields.iter()
+                    .map(|(field_name, field_expr)| {
+                        (field_name.clone(), self.decorate_expr(field_expr))
+                    })
+                    .collect();
+
                 DecoratedExpr {
-                    kind: DecoratedExprKind::StructInit(struct_init.clone()),
+                    kind: DecoratedExprKind::StructInit(DecoratedStructInit {
+                        name: struct_init.name.clone(),
+                        fields: decorated_fields,
+                        span: struct_init.span,
+                    }),
                     metadata: SwcExprMetadata {
                         swc_type,
                         is_boxed: false,

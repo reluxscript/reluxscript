@@ -763,7 +763,8 @@ impl SwcRewriter {
 
             // Struct initialization
             DecoratedExprKind::StructInit(struct_init) => {
-                // Don't rewrite struct init for now
+                // Don't rewrite struct init for now - field values are undecorated Expr
+                // They will be handled by emit_undecorated_expr in the emitter
                 DecoratedExprKind::StructInit(struct_init)
             }
 
@@ -1428,8 +1429,10 @@ impl SwcRewriter {
     /// 🔧 Transform AST node struct initialization to add required fields
     /// transforms: Identifier { name: "x" } → Ident { sym: "x".into(), span: DUMMY_SP }
     fn apply_ast_struct_init(&mut self, expr: DecoratedExpr) -> DecoratedExpr {
-        use crate::parser::{Expr, StructInitExpr, IdentExpr, MemberExpr, CallExpr, Literal};
+        use crate::codegen::decorated_ast::{DecoratedStructInit};
+        use crate::codegen::swc_metadata::{FieldAccessor};
         use crate::lexer::Span;
+        use crate::type_system::SwcTypeKind;
 
         if let DecoratedExprKind::StructInit(ref struct_init) = expr.kind {
             // Check if this is an AST node type that needs transformation
@@ -1439,26 +1442,51 @@ impl SwcRewriter {
             if struct_init.name == "Identifier" && swc_type == "Ident" {
                 let mut new_fields = Vec::new();
 
-                // Map each field - working with undecorated Expr from StructInit
+                // Map each field - working with DecoratedExpr from DecoratedStructInit
                 for (field_name, field_expr) in &struct_init.fields {
                     if field_name == "name" {
                         // name → sym with .into()
-                        // Create: field_expr.into()
-                        let into_call = Expr::Call(CallExpr {
-                            callee: Box::new(Expr::Member(MemberExpr {
-                                object: Box::new(field_expr.clone()),
-                                property: "into".to_string(),
+                        // Create: field_expr.into() as a DecoratedExpr
+                        let into_call = DecoratedExpr {
+                            kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                                callee: DecoratedExpr {
+                                    kind: DecoratedExprKind::Member {
+                                        object: Box::new(field_expr.clone()),
+                                        property: "into".to_string(),
+                                        optional: false,
+                                        computed: false,
+                                        is_path: false,
+                                        field_metadata: SwcFieldMetadata {
+                                            swc_field_name: "into".to_string(),
+                                            accessor: FieldAccessor::Direct,
+                                            field_type: "".to_string(),
+                                            source_field: None,
+                                            span: None,
+                                            read_conversion: String::new(),
+                                        },
+                                    },
+                                    metadata: SwcExprMetadata {
+                                        swc_type: "".to_string(),
+                                        is_boxed: false,
+                                        is_optional: false,
+                                        type_kind: SwcTypeKind::Unknown,
+                                        span: None,
+                                    },
+                                },
+                                args: vec![],
+                                type_args: vec![],
                                 optional: false,
-                                computed: false,
-                                is_path: false,
+                                is_macro: false,
                                 span: Span::new(0, 0, 0, 0),
                             })),
-                            args: vec![],
-                            type_args: vec![],
-                            optional: false,
-                            is_macro: false,
-                            span: Span::new(0, 0, 0, 0),
-                        });
+                            metadata: SwcExprMetadata {
+                                swc_type: "Atom".to_string(),
+                                is_boxed: false,
+                                is_optional: false,
+                                type_kind: SwcTypeKind::Unknown,
+                                span: None,
+                            },
+                        };
                         new_fields.push(("sym".to_string(), into_call));
                     } else {
                         new_fields.push((field_name.clone(), field_expr.clone()));
@@ -1469,10 +1497,23 @@ impl SwcRewriter {
                 if !new_fields.iter().any(|(name, _)| name == "span") {
                     new_fields.push((
                         "span".to_string(),
-                        Expr::Ident(IdentExpr {
-                            name: "DUMMY_SP".to_string(),
-                            span: Span::new(0, 0, 0, 0),
-                        })
+                        DecoratedExpr {
+                            kind: DecoratedExprKind::Ident {
+                                name: "DUMMY_SP".to_string(),
+                                ident_metadata: SwcIdentifierMetadata {
+                                    use_sym: false,
+                                    deref_pattern: None,
+                                    span: None,
+                                },
+                            },
+                            metadata: SwcExprMetadata {
+                                swc_type: "Span".to_string(),
+                                is_boxed: false,
+                                is_optional: false,
+                                type_kind: SwcTypeKind::Unknown,
+                                span: None,
+                            },
+                        }
                     ));
                 }
 
@@ -1480,7 +1521,16 @@ impl SwcRewriter {
                 if !new_fields.iter().any(|(name, _)| name == "optional") {
                     new_fields.push((
                         "optional".to_string(),
-                        Expr::Literal(Literal::Bool(false))
+                        DecoratedExpr {
+                            kind: DecoratedExprKind::Literal(Literal::Bool(false)),
+                            metadata: SwcExprMetadata {
+                                swc_type: "bool".to_string(),
+                                is_boxed: false,
+                                is_optional: false,
+                                type_kind: SwcTypeKind::Unknown,
+                                span: None,
+                            },
+                        }
                     ));
                 }
 
@@ -1489,17 +1539,30 @@ impl SwcRewriter {
                 if !new_fields.iter().any(|(name, _)| name == "ctxt") {
                     new_fields.push((
                         "ctxt".to_string(),
-                        Expr::Ident(IdentExpr {
-                            name: "SyntaxContext::empty()".to_string(),
-                            span: Span::new(0, 0, 0, 0),
-                        })
+                        DecoratedExpr {
+                            kind: DecoratedExprKind::Ident {
+                                name: "SyntaxContext::empty()".to_string(),
+                                ident_metadata: SwcIdentifierMetadata {
+                                    use_sym: false,
+                                    deref_pattern: None,
+                                    span: None,
+                                },
+                            },
+                            metadata: SwcExprMetadata {
+                                swc_type: "SyntaxContext".to_string(),
+                                is_boxed: false,
+                                is_optional: false,
+                                type_kind: SwcTypeKind::Unknown,
+                                span: None,
+                            },
+                        }
                     ));
                 }
 
                 // Return transformed struct init with updated fields
                 // Wrap in DecoratedExpr so it can be converted with .into() if needed
                 let ident_expr = DecoratedExpr {
-                    kind: DecoratedExprKind::StructInit(StructInitExpr {
+                    kind: DecoratedExprKind::StructInit(DecoratedStructInit {
                         name: swc_type.clone(),
                         fields: new_fields,
                         span: struct_init.span,

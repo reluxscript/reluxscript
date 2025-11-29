@@ -54,7 +54,7 @@ impl VisitMut for KitchenSinkPlugin {
         if let Some(component_name) = &self.state.current_component {
             if let Some(callee_name) = Self::get_callee_name(&node.callee.as_expr().unwrap()) {
                 if Self::is_hook_call(&callee_name) {
-                    let hook_info = HookInfo { name: callee_name.clone(), hook_type: categorize_hook(/* undecorated expr */), args_count: 0 };
+                    let hook_info = HookInfo { name: callee_name.clone(), hook_type: categorize_hook(&callee_name), args_count: 0 };
                     for component in &mut self.state.components {
                         if (component.name == *component_name) {
                             component.hooks.push(hook_info);
@@ -179,7 +179,7 @@ impl KitchenSinkPlugin {
         if let Callee::Expr(__callee_expr) = &&call.callee.as_expr().unwrap() {
             if let Expr::Member(member) = __callee_expr.as_ref() {
                 if let Expr::Ident(obj) = &member.obj {
-                    return Some(MemberInfo { object: obj.name.clone(), property: member.property.clone() });
+                    return Some(MemberInfo { object: obj.sym.to_string().clone(), property: member.prop.clone() });
                 }
             }
         }
