@@ -4,187 +4,235 @@
 use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
+use std::collections::HashSet;
 
 #[derive(Clone, Debug)]
-struct ComponentMetadata {
+struct HookInfo {
     name: String,
-    has_state: bool,
-    has_effects: bool,
+    hook_type: String,
+    args_count: i32,
 }
 
-pub struct KitchenSinkWriter {
-    output: String,
-    indent_level: usize,
-    components: Vec<ComponentMetadata>,
+#[derive(Clone, Debug)]
+struct ComponentStats {
+    name: String,
+    hooks: Vec<HookInfo>,
+    has_jsx: bool,
+}
+
+#[derive(Clone, Debug)]
+struct MemberInfo {
+    object: String,
+    property: String,
+}
+
+#[derive(Clone, Debug)]
+struct State {
+    components: Vec<ComponentStats>,
     current_component: Option<String>,
+    removed_count: i32,
+    visited_nodes: HashSet<String>,
 }
 
-impl Visit for KitchenSinkWriter {}
+pub struct KitchenSinkPlugin {
+    pub state: State,
+}
 
-impl KitchenSinkWriter {
-    pub fn new() -> Self {
-        Self {
-            output: String::new(),
-            indent_level: 0,
-            components: Vec::new(),
-            current_component: None,
+impl VisitMut for KitchenSinkPlugin {
+    fn visit_mut_fn_decl(&mut self, node: &mut FnDecl) {
+        let name = node.ident.sym.to_string();
+        if Self::is_component_name(&name) {
+            self.state.current_component = Some(name.clone());
+            let stats = ComponentStats { name: name.clone(), hooks: vec![], has_jsx: false };
+            self.state.components.push(stats)
+        }
+        node.visit_mut_children_with(self);
+        self.state.current_component = None;
+    }
+    
+    fn visit_mut_call_expr(&mut self, node: &mut CallExpr) {
+        if let Some(component_name) = &self.state.current_component {
+            if let Some(callee_name) = Self::get_callee_name(&node.callee.as_expr().unwrap()) {
+                if Self::is_hook_call(&callee_name) {
+                    let hook_info = HookInfo { name: callee_name.clone(), hook_type: categorize_hook(/* undecorated expr */), args_count: 0 };
+                    for component in &mut self.state.components {
+                        if (component.name == *component_name) {
+                            component.hooks.push(hook_info);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(member) = Self::extract_member_call(node) {
+            if ((member.obj == "console") && Self::should_remove_console(&member.prop)) {
+                self.state.removed_count += 1
+            }
+        }
+        node.visit_mut_children_with(self);
+    }
+    
+    fn visit_mut_ident(&mut self, node: &mut Ident) {
+        let name = node.sym.to_string();
+        self.state.visited_nodes.insert(name.clone());
+        if (name == "oldName") {
+            *node = Ident { sym: "newName".into(), span: DUMMY_SP, optional: false, ctxt: SyntaxContext::empty() }.into()
+        }
+        if match node.sym.to_string().as_str() {
+            "foo" | "bar" | "baz" => {
+                true
+            }
+            _ => {
+                false
+            }
+        } {
+            let new_name = format!("renamed_{}", node.sym.to_string());
+            *node = Ident { sym: new_name.into(), span: DUMMY_SP, optional: false, ctxt: SyntaxContext::empty() }.into()
         }
     }
     
-    fn append(&mut self, s: &str) {
-        self.output.push_str(s);
+    fn visit_mut_jsx_element(&mut self, node: &mut JSXElement) {
+        if let Some(component_name) = &self.state.current_component {
+            for component in &mut self.state.components {
+                if (component.name == *component_name) {
+                    let updated = ComponentStats { name: component.name.clone(), hooks: component.hooks.clone(), has_jsx: true };
+                    *component = updated;
+                    break;
+                }
+            }
+        }
+        node.visit_mut_children_with(self);
     }
     
-    fn newline(&mut self) {
-        self.output.push('\n');
+    fn visit_mut_var_declarator(&mut self, node: &mut VarDeclarator) {
+        if let Some(init) = &node.init {
+            if let Expr::Array(arr) = init.as_ref() {
+                let _size = arr.elems.len();
+            }
+        }
+        node.visit_mut_children_with(self);
     }
     
-    pub fn to_string(&self) -> String {
-        self.output.clone()
+}
+
+impl KitchenSinkPlugin {
+    pub fn new() -> Self {
+        Self {
+            state: State {
+                components: Vec::new(),
+                current_component: None,
+                removed_count: 0,
+                visited_nodes: HashSet::new(),
+            },
+        }
     }
     
-    fn is_component(name: &String) -> bool {
+    fn is_component_name(name: &String) -> bool {
         if name.is_empty() {
             return false;
         }
-        let first = name.chars().next().unwrap();
-        first.is_uppercase()
+        let first_char = name.chars().next().unwrap();
+        first_char.is_uppercase()
     }
     
-    fn sanitize_name(name: &String) -> String {
-        if name.is_empty() {
-            return name.clone();
+    fn is_hook_call(name: &String) -> bool {
+        (name.starts_with("use") && (name.len() > 3))
+    }
+    
+    fn categorize_hook(name: &String) -> String {
+        if ((name == "useState") || (name == "useReducer")) {
+            return "state".into();
         }
-        let first = name.chars().next().unwrap();
-        format!("{}{}", first.to_uppercase(), &name[1..])
+        if ((name == "useEffect") || (name == "useLayoutEffect")) {
+            return "effect".into();
+        }
+        if (name == "useRef") {
+            return "ref".into();
+        }
+        if ((name == "useMemo") || (name == "useCallback")) {
+            return "memo".into();
+        }
+        return format!("custom:{}", name);
+    }
+    
+    fn should_remove_console(method: &String) -> bool {
+        (((method == "log") || (method == "warn")) || (method == "debug"))
+    }
+    
+    fn format_stats(stats: &ComponentStats) -> String {
+        format!("{} has {} hooks", stats.name, stats.hooks.len())
     }
     
     fn get_callee_name(callee: &Expr) -> Option<String> {
         if let Expr::Ident(id) = callee {
             Some(id.sym.to_string())
         } else {
-            None
-        }
-    }
-    
-    fn visit_mut_fn_decl(&mut self, node: &FnDecl) {
-        let name = node.ident.sym.to_string();
-        if Self::is_component(&name) {
-            let sanitized = Self::sanitize_name(&name);
-            self.current_component = Some(name.clone());
-            let metadata = ComponentMetadata { name: sanitized.clone(), has_state: false, has_effects: false };
-            self.append("public class ");
-            self.append(&sanitized);
-            self.newline();
-            self.append("{");
-            self.newline();
-            node.visit_children_with(self);
-            self.append("}");
-            self.newline();
-            self.newline();
-            self.components.push(metadata);
-            self.current_component = None
-        }
-    }
-    
-    fn visit_mut_call_expr(&mut self, node: &CallExpr) {
-        if let Some(callee_name) = Self::get_callee_name(&node.callee.as_expr().unwrap()) {
-            if (callee_name == "useState") {
-                self.extract_state_var()
+            if let Expr::Member(member) = callee {
+                Some(member.prop.clone())
             } else {
-                if (callee_name == "useEffect") {
-                    self.extract_effect()
+                None
+            }
+        }
+    }
+    
+    fn extract_member_call(call: &CallExpr) -> Option<MemberInfo> {
+        if let Callee::Expr(__callee_expr) = &&call.callee.as_expr().unwrap() {
+            if let Expr::Member(member) = __callee_expr.as_ref() {
+                if let Expr::Ident(obj) = &member.obj {
+                    return Some(MemberInfo { object: obj.name.clone(), property: member.property.clone() });
                 }
             }
         }
-        node.visit_children_with(self);
+        None
     }
     
-    fn visit_mut_ident(&mut self, node: &Ident) {
-        let _name = node.sym.to_string();
+    fn collect_hook_names(component: &ComponentStats) -> Vec<String> {
+        component.hooks.iter().map(|h| h.name.clone()).collect()
     }
     
-    fn visit_mut_jsx_element(&mut self, node: &JSXElement) {
-        self.append("    // JSX element");
-        self.newline();
-        node.visit_children_with(self);
+    fn has_hooks(component: &ComponentStats) -> bool {
+        (component.hooks.len() > 0)
     }
     
-    fn extract_state_var(&mut self) {
-        if let Some(component_name) = &self.current_component {
-            let sanitized = Self::sanitize_name(component_name);
-            let updated_components = self.components.iter().map(|c| {
-                if (c.name == sanitized) {
-                    ComponentMetadata { name: c.name.clone(), has_state: true, has_effects: c.has_effects }
-                } else {
-                    c.clone()
-                }
-            }).collect();
-            self.components = updated_components
-        }
-        self.append("    private object _state;");
-        self.newline();
-    }
-    
-    fn extract_effect(&mut self) {
-        if let Some(component_name) = &self.current_component {
-            let sanitized = Self::sanitize_name(component_name);
-            let updated_components = self.components.iter().map(|c| {
-                if (c.name == sanitized) {
-                    ComponentMetadata { name: c.name.clone(), has_state: c.has_state, has_effects: true }
-                } else {
-                    c.clone()
-                }
-            }).collect();
-            self.components = updated_components
-        }
-        self.append("    public void OnInitialized() { }");
-        self.newline();
-    }
-    
-    // Exit-hook
-    pub fn finish(self: &Self) -> String {
-        let mut final_output = String::new();
-        final_output.push_str("using System;\n");
-        final_output.push_str("using System.Collections.Generic;\n");
-        final_output.push_str("\n");
-        final_output.push_str("namespace Generated\n");
-        final_output.push_str("{\n");
-        final_output.push_str(&self.to_string());
-        final_output.push_str("}\n");
-        let component_count = self.components.len();
-        final_output.push_str(&format!("\n// Generated {} components\n", component_count));
-        final_output.into()
-    }
-    
-    fn count_components_with_state(components: &Vec<ComponentMetadata>) -> i32 {
+    fn count_by_type(component: &ComponentStats, target: &String) -> i32 {
         let mut count = 0;
-        for component in components {
-            if component.has_state {
+        for hook in &component.hooks {
+            if (hook.hook_type == *target) {
                 count += 1
             }
         }
         count
     }
     
-    fn get_component_names(components: &Vec<ComponentMetadata>) -> Vec<String> {
-        components.iter().map(|c| c.name.clone()).collect()
-    }
-    
-    fn find_component<'a>(components: &'a Vec<ComponentMetadata>, name: &'a String) -> Option<&'a ComponentMetadata> {
-        components.iter().find(|c| (c.name == *name))
-    }
-    
-    fn to_camel_case(s: &String) -> String {
-        if s.is_empty() {
-            return s.clone();
+    fn get_first_hook(stats: &ComponentStats) -> Option<String> {
+        if stats.hooks.is_empty() {
+            None
+        } else {
+            Some(stats.hooks[0].name.to_string())
         }
-        let first = s.chars().next().unwrap();
-        format!("{}{}", first.to_lowercase(), &s[1..])
     }
     
-    fn to_snake_case(s: &String) -> String {
-        s.to_lowercase().replace(" ", "_")
+    fn safe_get_name(stats: &ComponentStats) -> Result<String, String> {
+        if stats.name.is_empty() {
+            Err("No name")
+        } else {
+            Ok(stats.name.to_string())
+        }
+    }
+    
+    fn process_component(stats: &ComponentStats) -> Result<(), String> {
+        let _name = Self::safe_get_name(stats)?;
+        let _first_hook = Self::get_first_hook(stats).unwrap_or("none".into());
+        Ok(())
+    }
+    
+    fn get_hook_label(count: i32) -> String {
+        if (count > 0) {
+            "hooks".to_string()
+        } else {
+            "no hooks".to_string()
+        }
     }
     
 }
+

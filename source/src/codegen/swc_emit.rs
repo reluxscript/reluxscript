@@ -446,7 +446,11 @@ impl SwcEmitter {
         self.emit_line("}");
         self.emit_line("");
 
-        // Emit impl block with constructor if has state
+        // Emit impl block with constructor and helper functions
+        self.emit_line(&format!("impl {} {{", plugin.name));
+        self.indent += 1;
+
+        // Emit constructor if has state
         if has_state {
             // Get the State struct to initialize fields
             let state_struct = plugin.body.iter().find_map(|item| {
@@ -459,9 +463,6 @@ impl SwcEmitter {
             });
 
             if let Some(state) = state_struct {
-                self.emit_line(&format!("impl {} {{", plugin.name));
-                self.indent += 1;
-
                 self.emit_line("pub fn new() -> Self {");
                 self.indent += 1;
                 self.emit_line("Self {");
@@ -481,14 +482,19 @@ impl SwcEmitter {
                 self.emit_line("}");
                 self.indent -= 1;
                 self.emit_line("}");
-
-                self.indent -= 1;
-                self.emit_line("}");
                 self.emit_line("");
             }
+        } else {
+            // Emit simple constructor for plugins without state
+            self.emit_line("pub fn new() -> Self {");
+            self.indent += 1;
+            self.emit_line("Self {}");
+            self.indent -= 1;
+            self.emit_line("}");
+            self.emit_line("");
         }
 
-        // Emit helper functions outside VisitMut impl
+        // Emit helper functions inside impl block
         for item in &plugin.body {
             if let DecoratedPluginItem::Function(func) = item {
                 if !func.name.starts_with("visit_") {
@@ -496,6 +502,10 @@ impl SwcEmitter {
                 }
             }
         }
+
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("");
     }
 
     fn emit_writer(&mut self, writer: &DecoratedWriter) {

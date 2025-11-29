@@ -2,52 +2,74 @@
 // Do not edit manually
 
 module.exports = function({ types: t }) {
-  const builder = {
-    _output: [],
-    _indentLevel: 0,
-    append(s) { this._output.push(s); },
-    newline() { this._output.push('\n'); },
-    indent() { this._indentLevel++; },
-    dedent() { this._indentLevel--; },
-    toString() { return this._output.join(''); }
-  };
   
-  
-  class ComponentMetadata {
-  constructor(name, has_state, has_effects) {
+  class HookInfo {
+  constructor(name, hook_type, args_count) {
       this.name = name;
-      this.has_state = has_state;
-      this.has_effects = has_effects;
+      this.hook_type = hook_type;
+      this.args_count = args_count;
     }
   }
   
+  class ComponentStats {
+  constructor(name, hooks, has_jsx) {
+      this.name = name;
+      this.hooks = hooks;
+      this.has_jsx = has_jsx;
+    }
+  }
+  
+  class MemberInfo {
+  constructor(object, property) {
+      this.object = object;
+      this.property = property;
+    }
+  }
   
   class State {
-  constructor(builder, components, current_component) {
-      this.builder = builder;
+  constructor(components, current_component, removed_count, visited_nodes) {
       this.components = components;
       this.current_component = current_component;
+      this.removed_count = removed_count;
+      this.visited_nodes = visited_nodes;
     }
   }
   
-  
-  function is_component(name) {
+  function is_component_name(name) {
     if ((name.length === 0)) {
       return false;
     }
-    const first = name[0];
-    return (first === first.toUpperCase());
+    const first_char = name[0];
+    return (first_char === first_char.toUpperCase());
   }
   
+  function is_hook_call(name) {
+    return (name.startsWith("use") && (name.length > 3));
+  }
   
-  function sanitize_name(name) {
-    if ((name.length === 0)) {
-      return name;
+  function categorize_hook(name) {
+    if (((name === "useState") || (name === "useReducer"))) {
+      return "state";
     }
-    const first = name[0];
-    return `${first.toUpperCase()}${name.slice(1)}`;
+    if (((name === "useEffect") || (name === "useLayoutEffect"))) {
+      return "effect";
+    }
+    if ((name === "useRef")) {
+      return "ref";
+    }
+    if (((name === "useMemo") || (name === "useCallback"))) {
+      return "memo";
+    }
+    return `custom:${name}`;
   }
   
+  function should_remove_console(method) {
+    return (((method === "log") || (method === "warn")) || (method === "debug"));
+  }
+  
+  function format_stats(stats) {
+    return `${stats.name} has ${stats.hooks.length} hooks`;
+  }
   
   function get_callee_name(callee) {
     const __iflet_0 = callee;
@@ -55,164 +77,164 @@ module.exports = function({ types: t }) {
       const id = __iflet_0;
       id.name;
     } else {
-      null;
+      const __iflet_1 = callee;
+      if (__iflet_1 !== null) {
+        const member = __iflet_1;
+        member.property;
+      } else {
+        null;
+      }
     }
   }
   
-  
-  function extract_state_var() {
-    const __iflet_1 = this.state.current_component;
-    if (__iflet_1 !== null && __iflet_1 !== undefined) {
-      const component_name = __iflet_1;
-      const sanitized = sanitize_name(component_name);
-      const updated_components = this.state.components.map((c) => (() => {
-        if ((c.name === sanitized)) {
-          return { name: c.name, has_state: true, has_effects: c.has_effects };
-        } else {
-          return c;
-        }
-      })());
-      this.state.components = updated_components;
+  function extract_member_call(call) {
+    const __iflet_2 = call.callee;
+    if (__iflet_2 !== null) {
+      const member = __iflet_2;
+      const __iflet_3 = member.object;
+      if (__iflet_3 !== null) {
+        const obj = __iflet_3;
+        return { object: obj.name, property: member.property };
+      }
     }
-    this.state.builder.push("    private object _state;");
-    return this.state.builder.push("\n");
+    return null;
   }
   
-  
-  function extract_effect() {
-    const __iflet_2 = this.state.current_component;
-    if (__iflet_2 !== null && __iflet_2 !== undefined) {
-      const component_name = __iflet_2;
-      const sanitized = sanitize_name(component_name);
-      const updated_components = this.state.components.map((c) => (() => {
-        if ((c.name === sanitized)) {
-          return { name: c.name, has_state: c.has_state, has_effects: true };
-        } else {
-          return c;
-        }
-      })());
-      this.state.components = updated_components;
-    }
-    this.state.builder.push("    public void OnInitialized() { }");
-    return this.state.builder.push("\n");
+  function collect_hook_names(component) {
+    return component.hooks.map((h) => h.name);
   }
   
+  function has_hooks(component) {
+    return (component.hooks.length > 0);
+  }
   
-  function count_components_with_state(components) {
+  function count_by_type(component, target) {
     let count = 0;
-    for (const component of components) {
-      if (component.has_state) {
+    for (const hook of component.hooks) {
+      if ((hook.hook_type === target)) {
         count += 1;
       }
     }
     return count;
   }
   
-  
-  function get_component_names(components) {
-    return components.map((c) => c.name);
-  }
-  
-  
-  function find_component(components, name) {
-    return components.find((c) => (c.name === name));
-  }
-  
-  
-  function to_camel_case(s) {
-    if ((s.length === 0)) {
-      return s;
+  function get_first_hook(stats) {
+    if ((stats.hooks.length === 0)) {
+      return null;
+    } else {
+      return stats.hooks[0].name;
     }
-    const first = s[0];
-    return `${first.toLowerCase()}${s.slice(1)}`;
   }
   
-  
-  function to_snake_case(s) {
-    return s.toLowerCase().replace(" ", "_");
+  function safe_get_name(stats) {
+    if ((stats.name.length === 0)) {
+      return { ok: false, error: "No name" };
+    } else {
+      return { ok: true, value: stats.name };
+    }
   }
   
-  // Pre-hook
-  
-  function init() {
-    return { builder: [], components: [], current_component: null };
+  function process_component(stats) {
+    const __result = safe_get_name(stats);
+    if (!__result.ok) {
+      return { ok: false, error: __result.error };
+    }
+    const _name = __result.value;
+    const _first_hook = (get_first_hook(stats) ?? "none");
+    return { ok: true, value: undefined };
   }
   
-  // Exit hook
-  
-  function finish() {
-    let final_output = "";
-    final_output += "using System;\n";
-    final_output += "using System.Collections.Generic;\n";
-    final_output += "\n";
-    final_output += "namespace Generated\n";
-    final_output += "{\n";
-    final_output += this.state.builder.join("");
-    final_output += "}\n";
-    const component_count = this.state.components.length;
-    final_output += `
-// Generated ${component_count} components
-`;
-    return final_output;
+  function get_hook_label(count) {
+    if ((count > 0)) {
+      return "hooks";
+    } else {
+      return "no hooks";
+    }
   }
+  
+  let state = {};
   
   return {
-    pre(file) {
-      this.state = init(file);
-    },
-    
     visitor: {
-      Program: {
-        exit(path, state) {
-          return finish.call(this, path.node, state, builder);
-        }
-      },
-      
       FunctionDeclaration(path) {
         const node = path.node;
         const name = node.id.name;
-        if (is_component(name)) {
-          const sanitized = sanitize_name(name);
+        if (is_component_name(name)) {
           this.state.current_component = name;
-          const metadata = { name: sanitized, has_state: false, has_effects: false };
-          this.state.builder.push("public class ");
-          this.state.builder.push(sanitized);
-          this.state.builder.push("\n");
-          this.state.builder.push("{");
-          this.state.builder.push("\n");
-          /* Babel auto-traverses */;
-          this.state.builder.push("}");
-          this.state.builder.push("\n");
-          this.state.builder.push("\n");
-          this.state.components.push(metadata);
-          this.state.current_component = null;
+          const stats = { name: name, hooks: [], has_jsx: false };
+          this.state.components.push(stats);
         }
+        /* Babel auto-traverses */;
+        this.state.current_component = null;
       },
       CallExpression(path) {
         const node = path.node;
-        const __iflet_3 = get_callee_name(node.callee);
-        if (__iflet_3 !== null && __iflet_3 !== undefined) {
-          const callee_name = __iflet_3;
-          if ((callee_name === "useState")) {
-            this.extract_state_var();
-          } else {
-            if ((callee_name === "useEffect")) {
-              this.extract_effect();
+        const __iflet_4 = this.state.current_component;
+        if (__iflet_4 !== null && __iflet_4 !== undefined) {
+          const component_name = __iflet_4;
+          const __iflet_5 = get_callee_name(node.callee);
+          if (__iflet_5 !== null && __iflet_5 !== undefined) {
+            const callee_name = __iflet_5;
+            if (is_hook_call(callee_name)) {
+              const hook_info = { name: callee_name, hook_type: categorize_hook(callee_name), args_count: 0 };
+              for (const component of this.state.components) {
+                if ((component.name === component_name)) {
+                  component.hooks.push(hook_info);
+                  break;
+                }
+              }
             }
+          }
+        }
+        const __iflet_6 = extract_member_call(node);
+        if (__iflet_6 !== null && __iflet_6 !== undefined) {
+          const member = __iflet_6;
+          if (((member.object === "console") && should_remove_console(member.property))) {
+            this.state.removed_count += 1;
           }
         }
         /* Babel auto-traverses */;
       },
       Identifier(path) {
         const node = path.node;
-        const _name = node.name;
+        const name = node.name;
+        this.state.visited_nodes.add(name);
+        if ((name === "oldName")) {
+          path.replaceWith(t.identifier("newName"));
+        }
+        if (((node.name === String("foo") || node.name === String("bar") || node.name === String("baz")))) {
+          const new_name = `renamed_${node.name}`;
+          path.replaceWith(t.identifier(new_name));
+        }
       },
       JSXElement(path) {
         const node = path.node;
-        this.state.builder.push("    // JSX element");
-        this.state.builder.push("\n");
+        const __iflet_7 = this.state.current_component;
+        if (__iflet_7 !== null && __iflet_7 !== undefined) {
+          const component_name = __iflet_7;
+          for (const component of this.state.components) {
+            if ((component.name === component_name)) {
+              const updated = { name: component.name, hooks: component.hooks, has_jsx: true };
+              path.replaceWith(updated);
+              break;
+            }
+          }
+        }
         /* Babel auto-traverses */;
       },
+      VariableDeclarator(path) {
+        const node = path.node;
+        const __iflet_8 = node.init;
+        if (__iflet_8 !== null && __iflet_8 !== undefined) {
+          const init = __iflet_8;
+          const __iflet_9 = init;
+          if (__iflet_9 !== null) {
+            const arr = __iflet_9;
+            const _size = arr.elements.length;
+          }
+        }
+        /* Babel auto-traverses */;
+      }
     }
   };
 };
