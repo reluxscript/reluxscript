@@ -1,0 +1,9 @@
+// Test: Direct field access on Pattern (should fail - Pat is an enum)
+// Error: no field `elements` on type `swc_ecma_ast::Pat`
+
+plugin TestPatternFieldAccess {
+    fn visit_variable_declarator(node: &VariableDeclarator) {
+        // This should fail - can't access .elements directly on Pat enum
+        let elements = node.name.elements;
+    }
+}

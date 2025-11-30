@@ -1,0 +1,12 @@
+// Test: Direct field access on Expr (should fail - Expr is an enum)
+// Error: no field `value` on type `&swc_ecma_ast::Expr`
+
+plugin TestExprFieldAccess {
+    fn visit_call_expression(node: &CallExpression) {
+        if node.arguments.len() > 0 {
+            let arg = &node.arguments[0].expr;
+            // This should fail - can't access .value directly on Expr enum
+            let val = arg.value;
+        }
+    }
+}

@@ -1,0 +1,16 @@
+// Test: traverse() capturing with lifetimes
+// Error: missing lifetime specifier
+
+plugin TestTraverseCapturing {
+    fn visit_function_declaration(node: &FunctionDeclaration) {
+        let mut counter = 0;
+
+        if let Some(body) = &node.body {
+            traverse(body) capturing [&mut counter] {
+                fn visit_call_expression(call: &CallExpression) {
+                    counter += 1;
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,18 @@
+// Test: Serialize trait on Expr
+// Error: the trait bound `swc_ecma_ast::Expr: serde::Serialize` is not satisfied
+
+use json;
+
+plugin TestSerializeExpr {
+    #[derive(Serialize)]
+    struct MyStruct {
+        // This should fail - Expr doesn't implement Serialize
+        expr: Option<Box<Expr>>,
+    }
+
+    fn visit_call_expression(node: &CallExpression) {
+        let s = MyStruct {
+            expr: None,
+        };
+    }
+}

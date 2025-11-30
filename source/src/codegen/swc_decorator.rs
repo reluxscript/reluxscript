@@ -310,6 +310,7 @@ impl SwcDecorator {
     fn decorate_impl_block(&mut self, impl_block: &ImplBlock) -> DecoratedImplBlock {
         DecoratedImplBlock {
             target: impl_block.target.clone(),
+            lifetimes: vec![],
             items: impl_block.items.iter().map(|m| self.decorate_fn_decl(m)).collect(),
         }
     }
@@ -2029,5 +2030,6 @@ pub struct DecoratedFnDecl {
 #[derive(Debug, Clone)]
 pub struct DecoratedImplBlock {
     pub target: String,
+    pub lifetimes: Vec<String>,
     pub items: Vec<DecoratedFnDecl>,
 }

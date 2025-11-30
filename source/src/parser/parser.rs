@@ -346,6 +346,7 @@ impl Parser {
             name,
             fields,
             derives: Vec::new(),  // Will be populated by semantic analysis
+            lifetimes: Vec::new(),  // Will be populated by semantic analysis
             span: start_span,
         })
     }

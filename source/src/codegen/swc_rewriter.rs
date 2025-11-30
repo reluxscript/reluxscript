@@ -161,6 +161,7 @@ impl SwcRewriter {
     fn rewrite_impl_block(&mut self, impl_block: DecoratedImplBlock) -> DecoratedImplBlock {
         DecoratedImplBlock {
             target: impl_block.target,
+            lifetimes: impl_block.lifetimes,
             items: impl_block.items
                 .into_iter()
                 .map(|m| self.rewrite_fn_decl(m))

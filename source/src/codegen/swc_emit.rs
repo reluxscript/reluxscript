@@ -649,14 +649,38 @@ impl SwcEmitter {
             self.emit_line(&format!("#[derive({})]", struct_decl.derives.join(", ")));
         } else {
             // Default derives for user structs in SWC
-            self.emit_line("#[derive(Clone, Debug)]");
+            // Don't derive Clone if struct has mutable reference fields (can't be cloned)
+            let has_mut_refs = struct_decl.fields.iter().any(|f| {
+                matches!(f.ty, Type::Reference { mutable: true, .. })
+            });
+            if has_mut_refs {
+                self.emit_line("#[derive(Debug)]");
+            } else {
+                self.emit_line("#[derive(Clone, Debug)]");
+            }
         }
 
-        self.emit_line(&format!("struct {} {{", struct_decl.name));
+        // Emit struct with optional lifetime parameters
+        let lifetimes_str = if !struct_decl.lifetimes.is_empty() {
+            format!("<{}>", struct_decl.lifetimes.join(", "))
+        } else {
+            String::new()
+        };
+        self.emit_line(&format!("struct {}{} {{", struct_decl.name, lifetimes_str));
         self.indent += 1;
 
+        // If struct has lifetimes, add lifetime annotations to reference types
+        let has_lifetimes = !struct_decl.lifetimes.is_empty();
+        let has_serialize = struct_decl.derives.iter().any(|d| d == "Serialize");
+
         for field in &struct_decl.fields {
-            let type_str = self.type_to_string(&field.ty);
+            // If field contains AST types and struct derives Serialize, skip serialization only
+            // (not deserialization, so we don't need Default implementation)
+            if has_serialize && self.contains_ast_type(&field.ty) {
+                self.emit_line("#[serde(skip_serializing)]");
+            }
+
+            let type_str = self.type_to_string_with_lifetime(&field.ty, has_lifetimes);
             self.emit_line(&format!("{}: {},", field.name, type_str));
         }
 
@@ -710,7 +734,13 @@ impl SwcEmitter {
     }
 
     fn emit_impl_block(&mut self, impl_block: &DecoratedImplBlock) {
-        self.emit_line(&format!("impl {} {{", impl_block.target));
+        // Emit impl with optional lifetime parameters
+        let lifetimes_str = if !impl_block.lifetimes.is_empty() {
+            format!("<{}>", impl_block.lifetimes.join(", "))
+        } else {
+            String::new()
+        };
+        self.emit_line(&format!("impl{} {} {{", lifetimes_str, impl_block.target));
         self.indent += 1;
 
         for method in &impl_block.items {
@@ -781,8 +811,16 @@ impl SwcEmitter {
             }
             sig.push_str(&param.name);
             sig.push_str(": ");
-            // Apply lifetime to parameter types if the function has a lifetime parameter
-            sig.push_str(&self.type_to_string_with_lifetime(&param.ty, needs_lifetime));
+
+            // For visitor methods in plugins (not writers), make references mutable
+            let param_type_str = if needs_self && !self.is_writer {
+                // This is a visitor method in a plugin - need &mut references
+                self.make_reference_mutable(&param.ty, needs_lifetime)
+            } else {
+                // Writer or non-visitor method - use type as-is
+                self.type_to_string_with_lifetime(&param.ty, needs_lifetime)
+            };
+            sig.push_str(&param_type_str);
         }
         sig.push(')');
 
@@ -1646,6 +1684,59 @@ impl SwcEmitter {
 
     fn type_to_string(&self, ty: &Type) -> String {
         self.type_to_string_with_lifetime(ty, false)
+    }
+
+    /// Convert immutable references to mutable references for plugin visitor methods
+    fn make_reference_mutable(&self, ty: &Type, add_lifetime: bool) -> String {
+        match ty {
+            Type::Reference { mutable: false, inner } => {
+                // Convert &T to &mut T
+                format!(
+                    "&{}mut {}",
+                    if add_lifetime { "'a " } else { "" },
+                    self.type_to_string_with_lifetime(inner, add_lifetime)
+                )
+            }
+            Type::Reference { mutable: true, inner } => {
+                // Already mutable
+                format!(
+                    "&{}mut {}",
+                    if add_lifetime { "'a " } else { "" },
+                    self.type_to_string_with_lifetime(inner, add_lifetime)
+                )
+            }
+            _ => {
+                // Not a reference type - return as-is
+                self.type_to_string_with_lifetime(ty, add_lifetime)
+            }
+        }
+    }
+
+    /// Check if a type contains AST node types (which can't be serialized)
+    fn contains_ast_type(&self, ty: &Type) -> bool {
+        match ty {
+            Type::Named(name) => {
+                // Common AST node type names
+                matches!(name.as_str(),
+                    "Expr" | "Stmt" | "Pattern" | "Declaration" |
+                    "FunctionDeclaration" | "VariableDeclarator" | "CallExpression" |
+                    "MemberExpression" | "Identifier" | "Literal" |
+                    "JSXElement" | "JSXFragment" | "ArrayExpression" | "ObjectExpression" |
+                    "BinaryExpression" | "UnaryExpression" | "AssignmentExpression" |
+                    "ReturnStatement" | "IfStatement" | "WhileStatement" |
+                    "BlockStatement" | "ExpressionStatement"
+                )
+            }
+            Type::Container { type_args, .. } => {
+                // Check if any type argument contains AST types
+                type_args.iter().any(|t| self.contains_ast_type(t))
+            }
+            Type::Optional(inner) => self.contains_ast_type(inner),
+            Type::Reference { inner, .. } => self.contains_ast_type(inner),
+            Type::Array { element } => self.contains_ast_type(element),
+            Type::Tuple(types) => types.iter().any(|t| self.contains_ast_type(t)),
+            _ => false,
+        }
     }
 
     fn type_to_string_with_lifetime(&self, ty: &Type, add_lifetime: bool) -> String {

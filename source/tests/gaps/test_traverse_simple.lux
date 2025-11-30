@@ -1,0 +1,14 @@
+// Test: traverse() capturing with lifetimes - simplified version
+// This should compile successfully now!
+
+plugin TestTraverseSimple {
+    fn visit_expression_statement(node: &ExpressionStatement) {
+        let mut count = 0;
+
+        traverse(&node.expression) capturing [&mut count] {
+            fn visit_call_expression(call: &CallExpression) {
+                count += 1;
+            }
+        }
+    }
+}

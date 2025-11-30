@@ -75,6 +75,7 @@ pub struct StructDecl {
     pub name: String,
     pub fields: Vec<StructField>,
     pub derives: Vec<String>,  // Traits to derive (e.g., "Clone", "Debug")
+    pub lifetimes: Vec<String>,  // Lifetime parameters (e.g., vec!["'a", "'b"])
     pub span: Span,
 }
 

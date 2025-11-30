@@ -280,6 +280,7 @@ impl SwcHoister {
                     name: struct_name.clone(),
                     fields: struct_fields,
                     derives: vec![], // TODO: Add derives if needed
+                    lifetimes: if has_captures { vec!["'a".to_string()] } else { vec![] },
                     span: traverse.span,
                 };
 
@@ -363,8 +364,15 @@ impl SwcHoister {
                     impl_methods.push(impl_method);
                 }
 
+                let struct_name_with_lifetime = if has_captures {
+                    format!("{}<'a>", struct_name)
+                } else {
+                    struct_name.clone()
+                };
+
                 let impl_block = DecoratedImplBlock {
-                    target: format!("VisitMut for {}", struct_name),
+                    target: format!("VisitMut for {}", struct_name_with_lifetime),
+                    lifetimes: if has_captures { vec!["'a".to_string()] } else { vec![] },
                     items: impl_methods,
                 };
 
@@ -585,11 +593,15 @@ impl SwcHoister {
         state: &[crate::parser::LetStmt],
         params: &[crate::parser::Param],
     ) -> DecoratedBlock {
-        // Collect all captured variable names
+        // Collect all captured variable names and their mutability
         let mut captured_vars = HashSet::new();
+        let mut mutable_captures = HashSet::new();
         for capture in captures {
             eprintln!("DEBUG: Registering captured variable: {}", capture.name);
             captured_vars.insert(capture.name.clone());
+            if capture.mutable {
+                mutable_captures.insert(capture.name.clone());
+            }
         }
         for let_stmt in state {
             if let Pattern::Ident(name) = &let_stmt.pattern {
@@ -600,6 +612,7 @@ impl SwcHoister {
         // Create a transformer with parameter type information
         let mut transformer = CaptureTransformer {
             captured_vars,
+            mutable_captures,
             params: params.to_vec(),
             writer_type: self.current_writer.clone(),
         };
@@ -619,6 +632,7 @@ impl SwcHoister {
 /// Helper to transform captured variable references to self.var
 struct CaptureTransformer {
     captured_vars: HashSet<String>,
+    mutable_captures: HashSet<String>,
     params: Vec<crate::parser::Param>,
     writer_type: Option<String>,
 }
@@ -741,6 +755,39 @@ impl CaptureTransformer {
                 DecoratedExpr {
                     kind: DecoratedExprKind::Assign {
                         left: Box::new(self.transform_expr(*left)),
+                        right: Box::new(self.transform_expr(*right)),
+                    },
+                    metadata: expr.metadata,
+                }
+            }
+            DecoratedExprKind::CompoundAssign { left, op, right } => {
+                let transformed_left = self.transform_expr(*left);
+                // If left side is a mutable capture (self.x where x is &mut), wrap in deref
+                let final_left = if let DecoratedExprKind::Member { ref property, .. } = transformed_left.kind {
+                    if self.mutable_captures.contains(property) {
+                        // Wrap in *(...)
+                        DecoratedExpr {
+                            kind: DecoratedExprKind::Unary {
+                                op: crate::parser::UnaryOp::Deref,
+                                operand: Box::new(transformed_left.clone()),
+                                unary_metadata: crate::codegen::swc_metadata::SwcUnaryMetadata {
+                                    override_op: None,
+                                    span: transformed_left.metadata.span,
+                                },
+                            },
+                            metadata: transformed_left.metadata.clone(),
+                        }
+                    } else {
+                        transformed_left
+                    }
+                } else {
+                    transformed_left
+                };
+
+                DecoratedExpr {
+                    kind: DecoratedExprKind::CompoundAssign {
+                        left: Box::new(final_left),
+                        op,
                         right: Box::new(self.transform_expr(*right)),
                     },
                     metadata: expr.metadata,

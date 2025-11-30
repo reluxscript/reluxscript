@@ -1,0 +1,11 @@
+// Test: Direct field access on FunctionDeclaration
+// Error: no field `body` on type `&swc_ecma_ast::FnDecl`
+
+plugin TestFnDeclFieldAccess {
+    fn visit_function_declaration(node: &FunctionDeclaration) {
+        // This should fail - field name might be wrong or needs unwrapping
+        if let Some(body) = &node.body {
+            // Process body
+        }
+    }
+}
