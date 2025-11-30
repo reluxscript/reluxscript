@@ -1109,7 +1109,26 @@ impl SwcEmitter {
             }
 
             DecoratedExprKind::Unary { op, operand, unary_metadata } => {
-                // Check for operator override
+                // Special handling for & on Box fields
+                if matches!(op, crate::parser::UnaryOp::Ref) {
+                    // Check if operand is a known Box field
+                    let is_known_box_field = if let DecoratedExprKind::Member { field_metadata, .. } = &operand.kind {
+                        field_metadata.field_type.starts_with("Box<") ||
+                        field_metadata.swc_field_name == "obj" ||
+                        field_metadata.swc_field_name == "expr"
+                    } else {
+                        false
+                    };
+
+                    if is_known_box_field {
+                        // Emit &* for Box fields
+                        self.output.push_str("&*");
+                        self.emit_expr(operand);
+                        return;
+                    }
+                }
+
+                // Normal unary operator
                 if let Some(ref override_op) = unary_metadata.override_op {
                     self.output.push_str(override_op);
                 } else {
@@ -1315,7 +1334,18 @@ impl SwcEmitter {
                     if matches!(&field_metadata.accessor, FieldAccessor::BoxedAsRef | FieldAccessor::BoxedRefDeref)
                 );
 
-                if needs_deref {
+                // FALLBACK: Check for known Box field names (for pattern-bound variables)
+                let is_known_box_field = if let DecoratedExprKind::Member { field_metadata, .. } = &inner.kind {
+                    // Check if field type is Box<T>
+                    field_metadata.field_type.starts_with("Box<") ||
+                    // ALSO check known SWC field names (for when type info is missing)
+                    field_metadata.swc_field_name == "obj" ||     // MemberExpr.obj: Box<Expr>
+                    field_metadata.swc_field_name == "expr"       // Common Box<Expr> field
+                } else {
+                    false
+                };
+
+                if needs_deref || is_known_box_field {
                     // Emit &* for boxed field access (e.g., &member.obj → &*member.obj)
                     self.output.push_str("&*");
                 } else {

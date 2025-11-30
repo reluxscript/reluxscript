@@ -787,10 +787,15 @@ impl SwcDecorator {
                         read_conversion: String::new(),
                     }
                 } else if let Some(mapping) = get_typed_field_mapping(object_type, &mem.property) {
-                    // We have precise mapping - but suppress .as_ref()!
+                    // We have precise mapping - use BoxedRefDeref for Box fields
+                    let is_boxed = mapping.result_type_swc.starts_with("Box<");
                     SwcFieldMetadata {
                         swc_field_name: mapping.swc_field.to_string(),
-                        accessor: FieldAccessor::Direct,  // Always use Direct, not BoxedAsRef
+                        accessor: if is_boxed {
+                            FieldAccessor::BoxedRefDeref  // For Box<T> fields like member.obj
+                        } else {
+                            FieldAccessor::Direct
+                        },
                         field_type: mapping.result_type_swc.to_string(),
                         source_field: Some(mem.property.clone()),
                         span: Some(mem.span),
