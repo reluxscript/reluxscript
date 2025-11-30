@@ -61,9 +61,16 @@ module.exports = function({ types: t }) {
   return {
     visitor: {
       CallExpression(path) {
-        if (path.node.callee.type === 'MemberExpression') {
-          if (path.node.callee.object.name === 'console') {
-            path.remove();
+        const node = path.node;
+        const __iflet_0 = node.callee;
+        if (__iflet_0 !== null) {
+          const member = __iflet_0;
+          const __iflet_1 = member.object;
+          if (__iflet_1 !== null) {
+            const obj = __iflet_1;
+            if (obj.name === "console") {
+              path.remove();
+            }
           }
         }
       }
@@ -77,14 +84,22 @@ module.exports = function({ types: t }) {
 
 **SWC (Rust)**
 ```rust
-pub struct RemoveConsole;
+pub struct RemoveConsole {}
 
 impl VisitMut for RemoveConsole {
     fn visit_mut_call_expr(&mut self, node: &mut CallExpr) {
-        if let Callee::Expr(box Expr::Member(member)) = &node.callee {
-            if let Expr::Ident(obj) = &*member.obj {
-                if obj.sym == "console" {
-                    // Remove node
+        if let Callee::Expr(__callee_expr) = &node.callee {
+            if let Expr::Member(member) = __callee_expr.as_ref() {
+                if let Expr::Ident(obj) = &*member.obj.as_ref() {
+                    if (&*obj.sym.to_string() == "console") {
+                        node.callee = Callee::Expr(Box::new(
+                            Expr::Ident(Ident::new(
+                                "undefined".into(),
+                                DUMMY_SP,
+                                SyntaxContext::empty()
+                            ))
+                        ))
+                    }
                 }
             }
         }
@@ -201,11 +216,8 @@ experimental = { plugins = [["./dist/lib.so", {}]] }
 - **Format Strings**: `format!("Hello, {}!", name)`
 - **Import/Export**: Multi-file projects with `use` declarations
 - **Verbatim Blocks**: `babel! { }` and `swc! { }` for platform-specific code
-
-### 🚧 In Development
-
-- **Regex Support**: `Regex::matches()`, `Regex::find()`, `Regex::captures()` (see [REGEX_SUPPORT.md](docs/REGEX_SUPPORT.md))
-- **Custom AST Properties**: Unified metadata tracking across both targets (see [CUSTOM_AST_PROPERTIES.md](docs/CUSTOM_AST_PROPERTIES.md))
+- **Regex Support**: `Regex::matches()`, `Regex::find()`, `Regex::captures()`, etc. (see [REGEX_SUPPORT.md](docs/REGEX_SUPPORT.md))
+- **Custom AST Properties**: Attach metadata to AST nodes with `__` prefix (see [CUSTOM_AST_PROPERTIES.md](docs/CUSTOM_AST_PROPERTIES.md))
 
 ### ❌ Not Supported
 
@@ -334,8 +346,8 @@ reluxscript/
 ├── docs/                        # Documentation
 │   ├── reluxscript-specification.md  # Language spec
 │   ├── COMPILER_ARCHITECTURE.md      # Internals guide
-│   ├── REGEX_SUPPORT.md              # Regex feature (WIP)
-│   └── CUSTOM_AST_PROPERTIES.md      # AST props feature (WIP)
+│   ├── REGEX_SUPPORT.md              # Regex feature
+│   └── CUSTOM_AST_PROPERTIES.md      # AST props feature
 ├── minimact/                    # Real-world example
 │   ├── babel-plugin-minimact/  # Original Babel plugin
 │   └── reluxscript-plugin-minimact/  # ReluxScript port
@@ -346,8 +358,8 @@ reluxscript/
 
 - **[Language Specification](docs/reluxscript-specification.md)** - Complete language reference
 - **[Compiler Architecture](docs/COMPILER_ARCHITECTURE.md)** - Internals and development guide
-- **[Regex Support](docs/REGEX_SUPPORT.md)** - Pattern matching feature (in development)
-- **[Custom AST Properties](docs/CUSTOM_AST_PROPERTIES.md)** - Metadata tracking (in development)
+- **[Regex Support](docs/REGEX_SUPPORT.md)** - Pattern matching with `Regex::` namespace
+- **[Custom AST Properties](docs/CUSTOM_AST_PROPERTIES.md)** - Attach metadata to AST nodes
 
 ## Real-World Example: Minimact
 

@@ -7,6 +7,17 @@ export default defineConfig({
   description: 'Write AST transformations once. Compile to Babel, SWC, and beyond.',
   ignoreDeadLinks: true,
 
+  markdown: {
+    theme: {
+      light: 'github-light',
+      dark: 'github-dark'
+    },
+    languageAlias: {
+      'reluxscript': 'rust',
+      'lux': 'rust'
+    }
+  },
+
   themeConfig: {
     logo: '/logo.png',
 
