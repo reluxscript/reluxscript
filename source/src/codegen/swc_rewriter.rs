@@ -570,9 +570,31 @@ impl SwcRewriter {
             };
 
             // Build the outer if-let: if let Callee::Expr(__callee_expr) = &node.callee
-            // Use the condition as-is (it's already a reference from the original if-let)
+            // Ensure the condition is wrapped in a Ref if it's not already one
             let rewritten_condition = self.rewrite_expr(condition);
-            let ref_condition = rewritten_condition;
+            let ref_condition = if matches!(rewritten_condition.kind, DecoratedExprKind::Unary { op: crate::parser::UnaryOp::Ref, .. }) {
+                // Already a reference, use as-is
+                rewritten_condition
+            } else {
+                // Need to wrap in &
+                DecoratedExpr {
+                    kind: DecoratedExprKind::Unary {
+                        op: crate::parser::UnaryOp::Ref,
+                        operand: Box::new(rewritten_condition.clone()),
+                        unary_metadata: crate::codegen::swc_metadata::SwcUnaryMetadata {
+                            override_op: None,
+                            span: None,
+                        },
+                    },
+                    metadata: SwcExprMetadata {
+                        swc_type: format!("&{}", rewritten_condition.metadata.swc_type),
+                        is_boxed: false,
+                        is_optional: false,
+                        type_kind: crate::type_system::SwcTypeKind::Unknown,
+                        span: None,
+                    },
+                }
+            };
 
             DecoratedIfStmt {
                 condition: ref_condition,
