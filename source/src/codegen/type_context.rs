@@ -511,6 +511,24 @@ pub fn get_swc_variant_in_context(rs_type: &str, context: &str) -> (String, Stri
         };
     }
 
+    // Handle Option context - Option enum variants
+    if context == "Option" || context.starts_with("Option<") {
+        return match rs_type {
+            "Some" => ("Option".into(), "Some".into(), "Some".into()),
+            "None" => ("Option".into(), "None".into(), "None".into()),
+            _ => ("Option".into(), rs_type.to_string(), rs_type.to_string()),
+        };
+    }
+
+    // Handle Result context - Result enum variants
+    if context == "Result" || context.starts_with("Result<") {
+        return match rs_type {
+            "Ok" => ("Result".into(), "Ok".into(), "Ok".into()),
+            "Err" => ("Result".into(), "Err".into(), "Err".into()),
+            _ => ("Result".into(), rs_type.to_string(), rs_type.to_string()),
+        };
+    }
+
     // Handle TsTypeElement context - TypeScript interface members
     if context == "TsTypeElement" {
         return match rs_type {
@@ -768,8 +786,8 @@ pub fn get_typed_field_mapping(parent_swc_type: &str, field: &str) -> Option<Typ
             swc_field: "value",
             needs_deref: false,
             result_type_rs: "Str",
-            result_type_swc: "JsWord",
-            read_conversion: ".to_string()",
+            result_type_swc: "Atom",
+            read_conversion: ".as_ref()",  // Atom.as_ref() returns &str
             write_conversion: ".into()",
         }),
         ("Number", "value") => Some(TypedFieldMapping {

@@ -10,7 +10,7 @@ pub struct TestShadowingSimple {
 
 impl VisitMut for TestShadowingSimple {
     fn visit_mut_call_expr(&mut self, node: &mut CallExpr) {
-        if let Lit::Str(arg) = node.args[0].expr {
+        if let Expr::Lit(Lit::Str(arg)) = node.args[0].expr.as_ref() {
             let x = arg.value;
         }
     }

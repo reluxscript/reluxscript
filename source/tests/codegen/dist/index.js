@@ -3,8 +3,12 @@
 
 module.exports = function({ types: t }) {
   
-  function test(name) {
-    return /^test$/.test(name);
+  function test(opt) {
+    const __iflet_0 = opt;
+    if (__iflet_0 !== null && __iflet_0 !== undefined) {
+      const value = __iflet_0;
+      const x = value;
+    }
   }
   
   let state = {};

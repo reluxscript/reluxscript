@@ -85,7 +85,7 @@ struct __InlineVisitor_0<'a> {
 
 impl<'a> VisitMut for __InlineVisitor_0<'a> {
     fn visit_mut_var_declarator(&mut self, decl: &mut VarDeclarator) {
-        if let Some(init) = &decl.init {
+        if let Option::Some(init) = &decl.init {
             if matches!(init, CallExpression) {
                 MinimactTranspiler::extract_hook_from_call(init, &decl.name, &mut self.component)
             }
@@ -93,7 +93,7 @@ impl<'a> VisitMut for __InlineVisitor_0<'a> {
     }
     
     fn visit_mut_return_stmt(&mut self, ret: &mut ReturnStmt) {
-        if let Some(arg) = &ret.arg {
+        if let Option::Some(arg) = &ret.arg {
             if matches!(arg, JSXElement) {
                 self.component.render_body = Some(arg.clone())
             }
@@ -171,7 +171,7 @@ impl MinimactTranspiler {
         if (node.function.params.len() > 0) {
             Self::extract_props(&node.function.params[0], &mut component)
         }
-        if let Some(body) = &node.function.body {
+        if let Option::Some(body) = &node.function.body {
             body.visit_mut_with(&mut __InlineVisitor_0 { component: &mut component })
         }
         self.components.push(component);
@@ -204,15 +204,15 @@ impl MinimactTranspiler {
     }
     
     fn extract_props(param: &Pat, component: &mut ComponentInfo) {
-        if let ObjectPattern = param {
+        if let Pat::Object(__inner) = param {
             for prop in &param.properties {
-                if let ObjectPatternProperty = prop {
-                    let prop_name = prop.key.name.to_string();
+                if let UserDefined::ObjectPatternProperty(__inner) = prop {
+                    let prop_name = __inner.key.name.clone();
                     component.props.push(PropInfo { name: prop_name, prop_type: "dynamic".to_string(), optional: false })
                 }
             }
         } else {
-            if let Identifier = param {
+            if let Expr::Ident(__inner) = param {
             }
         }
     }
@@ -283,10 +283,10 @@ impl MinimactTranspiler {
         let mut deps = vec![];
         if (call.args.len() > 1) {
             let deps_arg = &call.args[1];
-            if let ArrayExpression = deps_arg {
+            if let Expr::Array(__inner) = deps_arg {
                 for elem in &deps_arg.elements {
-                    if let Identifier = elem {
-                        deps.push(elem.name.to_string())
+                    if let Expr::Ident(__inner) = elem {
+                        deps.push(__inner.sym.to_string().clone())
                     }
                 }
             }
@@ -315,29 +315,29 @@ impl MinimactTranspiler {
     }
     
     fn expr_to_csharp(expr: &Expr) -> String {
-        if let StringLiteral = expr {
-            return format!("\"{}\"", expr.value);
+        if let Expr::Lit(Lit::Str(__inner)) = expr {
+            return format!("\"{}\"", __inner.value.as_ref());
         } else {
-            if let NumericLiteral = expr {
-                return expr.value.to_string();
+            if let Expr::Lit(Lit::Num(__inner)) = expr {
+                return __inner.value.to_string();
             } else {
-                if let BooleanLiteral = expr {
-                    return if expr.value {
-                        "true".to_string()
+                if let Expr::Lit(Lit::Bool(__inner)) = expr {
+                    return if __inner.value {
+                        "true"
                     } else {
-                        "false".to_string()
+                        "false"
                     }.to_string();
                 } else {
-                    if let NullLiteral = expr {
+                    if let Expr::Lit(Lit::Null(__inner)) = expr {
                         return "null".to_string();
                     } else {
-                        if let Identifier = expr {
-                            return expr.name.to_string();
+                        if let Expr::Ident(__inner) = expr {
+                            return __inner.sym.to_string().clone();
                         } else {
-                            if let ArrayExpression = expr {
+                            if let Expr::Array(__inner) = expr {
                                 return "new List<dynamic>()".to_string();
                             } else {
-                                if let ObjectExpression = expr {
+                                if let Expr::Object(__inner) = expr {
                                     return "new Dictionary<string, dynamic>()".to_string();
                                 }
                             }
@@ -350,24 +350,24 @@ impl MinimactTranspiler {
     }
     
     fn infer_csharp_type(expr: &Expr) -> String {
-        if let StringLiteral = expr {
+        if let Expr::Lit(Lit::Str(__inner)) = expr {
             return "string".to_string();
         } else {
-            if let NumericLiteral = expr {
-                let val = expr.value;
+            if let Expr::Lit(Lit::Num(__inner)) = expr {
+                let val = __inner.value;
                 if (val == val.floor()) {
                     return "int".to_string();
                 } else {
                     return "double".to_string();
                 }
             } else {
-                if let BooleanLiteral = expr {
+                if let Expr::Lit(Lit::Bool(__inner)) = expr {
                     return "bool".to_string();
                 } else {
-                    if let ArrayExpression = expr {
+                    if let Expr::Array(__inner) = expr {
                         return "List<dynamic>".to_string();
                     } else {
-                        if let ObjectExpression = expr {
+                        if let Expr::Object(__inner) = expr {
                             return "Dictionary<string, dynamic>".to_string();
                         }
                     }

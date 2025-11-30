@@ -17,7 +17,7 @@
 use crate::parser::*;
 use crate::type_system::{TypeContext, SwcTypeKind};
 use crate::mapping::{get_node_mapping, get_field_mapping};
-use super::type_context::{get_typed_field_mapping, map_reluxscript_to_swc};
+use super::type_context::{get_typed_field_mapping, map_reluxscript_to_swc, get_swc_variant_in_context};
 use super::swc_metadata::*;
 use super::decorated_ast::*;
 use std::collections::HashMap;
@@ -553,6 +553,16 @@ impl SwcDecorator {
     /// 🎯 CONTEXT-AWARE PATTERN DECORATION
     /// This is where we solve the MemberProp vs Expr problem!
     fn decorate_pattern_with_context(&mut self, pattern: &Pattern, expected_type: &str) -> DecoratedPattern {
+        // Strip Box<T> wrapper from expected type if present
+        // Box<Expr> → Expr, Box<Pat> → Pat
+        let expected_type = if expected_type.starts_with("Box<") && expected_type.ends_with(">") {
+            let stripped = expected_type.trim_start_matches("Box<").trim_end_matches(">");
+            eprintln!("[DEBUG PATTERN] Stripped Box: {} -> {}", expected_type, stripped);
+            stripped
+        } else {
+            expected_type
+        };
+
         match pattern {
             Pattern::Variant { name, inner } => {
                 // Parse the variant name: "Expression::Identifier" or "Callee::MemberExpression"
@@ -598,8 +608,31 @@ impl SwcDecorator {
                 } else {
                     // Simple variants like Some, None, Ok, Err
                     // Also handles struct-like patterns like CallExpression(_)
-                    // Use node mapping for accurate type conversion
-                    if let Some(mapping) = get_node_mapping(name) {
+                    // Also handles literals like StringLiteral, NumericLiteral
+
+                    // First try context-aware mapping for literals
+                    let (enum_name, variant, _struct_name) = get_swc_variant_in_context(name, expected_type);
+                    eprintln!("[DEBUG PATTERN] get_swc_variant_in_context('{}', '{}') = ('{}', '{}', ...)", name, expected_type, enum_name, variant);
+
+                    // Check if this is a nested pattern (variant contains '(' indicating nested enum)
+                    // Example: variant = "Lit(Lit::Str" means we need Expr::Lit(Lit::Str(binding))
+                    if variant.contains('(') {
+                        // Nested pattern detected - build complete pattern with inner binding
+                        let inner_binding = if let Some(Pattern::Ident(ref binding_name)) = inner.as_ref().map(|p| &**p) {
+                            binding_name.clone()
+                        } else {
+                            "_".to_string()  // Default to wildcard if no binding
+                        };
+                        eprintln!("[DEBUG PATTERN] Using nested pattern: {}::{}({})))", enum_name, variant, inner_binding);
+                        // Complete pattern: "Expr::Lit(Lit::Str(arg))"
+                        // Need to close both the inner Lit::Str() and outer Expr::Lit()
+                        format!("{}::{}({}))", enum_name, variant, inner_binding)
+                    } else if enum_name != expected_type {
+                        // Context-aware mapping found a different enum (e.g., Lit vs Expr)
+                        eprintln!("[DEBUG PATTERN] Using simple pattern: {}::{}", enum_name, variant);
+                        format!("{}::{}", enum_name, variant)
+                    } else if let Some(mapping) = get_node_mapping(name) {
+                        // Use node mapping for struct types like CallExpression
                         let full_pattern = mapping.swc_pattern.to_string();
                         // Strip the binding name if present, keep only the enum variant
                         self.strip_pattern_binding(&full_pattern)
@@ -1222,13 +1255,26 @@ impl SwcDecorator {
                 let object = Box::new(self.decorate_expr(&index.object));
                 let index_expr = Box::new(self.decorate_expr(&index.index));
 
+                // Infer element type from array/vector type
+                // For Vec<T>, element type is T
+                let object_type = &object.metadata.swc_type;
+                let element_type = if object_type.starts_with("Vec<") {
+                    // Extract T from Vec<T>
+                    object_type.trim_start_matches("Vec<")
+                        .trim_end_matches('>')
+                        .to_string()
+                } else {
+                    // Unknown array type, use Unknown
+                    "UserDefined".to_string()
+                };
+
                 DecoratedExpr {
                     kind: DecoratedExprKind::Index {
                         object,
                         index: index_expr,
                     },
                     metadata: SwcExprMetadata {
-                        swc_type: "UserDefined".to_string(),
+                        swc_type: element_type,
                         is_boxed: false,
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,

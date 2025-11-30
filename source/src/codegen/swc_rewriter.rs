@@ -336,12 +336,35 @@ impl SwcRewriter {
 
         let pattern = if_stmt.pattern.as_ref().map(|p| self.rewrite_pattern(p.clone()));
 
+        // Extract scrutinee name BEFORE transforming condition
+        let scrutinee_name = if let DecoratedExprKind::Ident { ref name, .. } = condition.kind {
+            Some(name.clone())
+        } else {
+            None
+        };
+
         // Add .as_ref() to scrutinee if matching against Box<T>
         if let Some(ref pat) = pattern {
             condition = self.add_asref_for_box_match(condition, pat);
         }
 
-        let then_branch = self.rewrite_block(if_stmt.then_branch);
+        // Rewrite then branch, potentially replacing scrutinee with binding
+        let then_branch = if let (Some(ref pat), Some(ref name)) = (&pattern, &scrutinee_name) {
+            // Extract the binding name from the pattern (e.g., __inner from Expr::Lit(Lit::Str(__inner)))
+            if let Some(binding_name) = self.extract_innermost_binding(pat) {
+                // Extract the binding type from the pattern (e.g., Str from Expr::Lit(Lit::Str(__inner)))
+                let binding_type = self.extract_binding_type_from_pattern(pat);
+                eprintln!("[REWRITER] If-let: scrutinee '{}' -> binding '{}' (type: {})", name, binding_name, binding_type);
+                // Rewrite the block, replacing scrutinee with binding
+                self.rewrite_block_with_scrutinee_replacement_typed(if_stmt.then_branch, name, &binding_name, &binding_type)
+            } else {
+                eprintln!("[REWRITER] If-let: No binding found in pattern");
+                self.rewrite_block(if_stmt.then_branch)
+            }
+        } else {
+            // No scrutinee name or pattern, just rewrite normally
+            self.rewrite_block(if_stmt.then_branch)
+        };
         let then_branch = self.convert_block_tail_string_literal(then_branch);
         let else_branch = if_stmt.else_branch.map(|b| self.rewrite_block(b));
         let else_branch = else_branch.map(|b| self.convert_block_tail_string_literal(b));
@@ -2523,6 +2546,372 @@ impl SwcRewriter {
                 span: crate::lexer::Span::new(0, 0, 0, 0),
             })),
             metadata: Self::simple_metadata("Option<T>"),
+        }
+    }
+
+    /// Extract the innermost binding name from a pattern
+    /// Example: Expr::Lit(Lit::Str(__inner)) → Some("__inner")
+    fn extract_innermost_binding(&self, pattern: &DecoratedPattern) -> Option<String> {
+        match &pattern.kind {
+            DecoratedPatternKind::Ident(name) => Some(name.clone()),
+            DecoratedPatternKind::Variant { inner, .. } => {
+                inner.as_ref().and_then(|p| self.extract_innermost_binding(p))
+            }
+            DecoratedPatternKind::Tuple(patterns) if patterns.len() == 1 => {
+                self.extract_innermost_binding(&patterns[0])
+            }
+            _ => None,
+        }
+    }
+
+    /// Rewrite a block, replacing member access on scrutinee with binding
+    /// Example: expr.value → __inner.value
+    fn rewrite_block_with_scrutinee_replacement(
+        &mut self,
+        block: DecoratedBlock,
+        scrutinee_name: &str,
+        binding_name: &str,
+    ) -> DecoratedBlock {
+        let stmts = block.stmts.into_iter().map(|stmt| {
+            self.rewrite_stmt_replacing_scrutinee(stmt, scrutinee_name, binding_name)
+        }).collect();
+        DecoratedBlock { stmts }
+    }
+
+    fn rewrite_stmt_replacing_scrutinee(
+        &mut self,
+        stmt: DecoratedStmt,
+        scrutinee_name: &str,
+        binding_name: &str,
+    ) -> DecoratedStmt {
+        match stmt {
+            DecoratedStmt::Expr(expr) => {
+                DecoratedStmt::Expr(self.rewrite_expr_replacing_scrutinee(expr, scrutinee_name, binding_name))
+            }
+            DecoratedStmt::Return(ret) => {
+                DecoratedStmt::Return(ret.map(|v| self.rewrite_expr_replacing_scrutinee(v, scrutinee_name, binding_name)))
+            }
+            DecoratedStmt::Let(let_stmt) => {
+                DecoratedStmt::Let(DecoratedLetStmt {
+                    init: self.rewrite_expr_replacing_scrutinee(let_stmt.init, scrutinee_name, binding_name),
+                    ..let_stmt
+                })
+            }
+            // For other statement types, recursively rewrite
+            _ => self.rewrite_stmt(stmt),
+        }
+    }
+
+    fn rewrite_expr_replacing_scrutinee(
+        &mut self,
+        expr: DecoratedExpr,
+        scrutinee_name: &str,
+        binding_name: &str,
+    ) -> DecoratedExpr {
+        // Check if this is member access on the scrutinee
+        if let DecoratedExprKind::Member { object, property, .. } = &expr.kind {
+            if let DecoratedExprKind::Ident { name, .. } = &object.kind {
+                if name == scrutinee_name {
+                    // Replace scrutinee with binding
+                    // We need to recompute field_metadata for the new object type (binding)
+                    // The binding type is stored in object.metadata.swc_type, but we need
+                    // to map the field for the ACTUAL type the binding represents
+
+                    // Keep the original field metadata - the typed version will be used
+                    // when called from if-let statements
+                    let field_metadata = if let DecoratedExprKind::Member { field_metadata, .. } = &expr.kind {
+                        field_metadata.clone()
+                    } else {
+                        SwcFieldMetadata::direct(property.clone(), "Unknown".to_string())
+                    };
+
+                    return DecoratedExpr {
+                        kind: DecoratedExprKind::Member {
+                            object: Box::new(DecoratedExpr {
+                                kind: DecoratedExprKind::Ident {
+                                    name: binding_name.to_string(),
+                                    ident_metadata: SwcIdentifierMetadata::name(),
+                                },
+                                metadata: object.metadata.clone(),
+                            }),
+                            property: property.clone(),
+                            optional: false,
+                            computed: false,
+                            is_path: false,
+                            field_metadata,
+                        },
+                        metadata: expr.metadata.clone(),
+                    };
+                }
+            }
+        }
+
+        // For non-member access, recursively process the expression structure
+        // but continue looking for scrutinee replacements in nested expressions
+        match expr.kind {
+            DecoratedExprKind::Call(mut call) => {
+                // Recursively replace in callee (e.g., expr.value in expr.value.to_string())
+                call.callee = self.rewrite_expr_replacing_scrutinee(call.callee, scrutinee_name, binding_name);
+                // Also replace in arguments
+                call.args = call.args.into_iter()
+                    .map(|arg| self.rewrite_expr_replacing_scrutinee(arg, scrutinee_name, binding_name))
+                    .collect();
+                DecoratedExpr {
+                    kind: DecoratedExprKind::Call(call),
+                    metadata: expr.metadata,
+                }
+            }
+            DecoratedExprKind::Binary { mut left, op, mut right, binary_metadata } => {
+                left = Box::new(self.rewrite_expr_replacing_scrutinee(*left, scrutinee_name, binding_name));
+                right = Box::new(self.rewrite_expr_replacing_scrutinee(*right, scrutinee_name, binding_name));
+                DecoratedExpr {
+                    kind: DecoratedExprKind::Binary { left, op, right, binary_metadata },
+                    metadata: expr.metadata,
+                }
+            }
+            DecoratedExprKind::If(mut if_expr) => {
+                if_expr.condition = self.rewrite_expr_replacing_scrutinee(if_expr.condition, scrutinee_name, binding_name);
+                if_expr.then_branch = self.rewrite_block_with_scrutinee_replacement(if_expr.then_branch, scrutinee_name, binding_name);
+                if_expr.else_branch = if_expr.else_branch.map(|e| self.rewrite_block_with_scrutinee_replacement(e, scrutinee_name, binding_name));
+                DecoratedExpr {
+                    kind: DecoratedExprKind::If(if_expr),
+                    metadata: expr.metadata,
+                }
+            }
+            DecoratedExprKind::Unary { op, mut operand, unary_metadata } => {
+                operand = Box::new(self.rewrite_expr_replacing_scrutinee(*operand, scrutinee_name, binding_name));
+                DecoratedExpr {
+                    kind: DecoratedExprKind::Unary { op, operand, unary_metadata },
+                    metadata: expr.metadata,
+                }
+            }
+            DecoratedExprKind::Paren(mut inner) => {
+                inner = Box::new(self.rewrite_expr_replacing_scrutinee(*inner, scrutinee_name, binding_name));
+                DecoratedExpr {
+                    kind: DecoratedExprKind::Paren(inner),
+                    metadata: expr.metadata,
+                }
+            }
+            DecoratedExprKind::Index { mut object, mut index } => {
+                object = Box::new(self.rewrite_expr_replacing_scrutinee(*object, scrutinee_name, binding_name));
+                index = Box::new(self.rewrite_expr_replacing_scrutinee(*index, scrutinee_name, binding_name));
+                DecoratedExpr {
+                    kind: DecoratedExprKind::Index { object, index },
+                    metadata: expr.metadata,
+                }
+            }
+            DecoratedExprKind::VecInit(elements) => {
+                let elements = elements.into_iter()
+                    .map(|e| self.rewrite_expr_replacing_scrutinee(e, scrutinee_name, binding_name))
+                    .collect();
+                DecoratedExpr {
+                    kind: DecoratedExprKind::VecInit(elements),
+                    metadata: expr.metadata,
+                }
+            }
+            DecoratedExprKind::Return(value) => {
+                let value = value.map(|v| Box::new(self.rewrite_expr_replacing_scrutinee(*v, scrutinee_name, binding_name)));
+                DecoratedExpr {
+                    kind: DecoratedExprKind::Return(value),
+                    metadata: expr.metadata,
+                }
+            }
+            DecoratedExprKind::Assign { mut left, mut right } => {
+                left = Box::new(self.rewrite_expr_replacing_scrutinee(*left, scrutinee_name, binding_name));
+                right = Box::new(self.rewrite_expr_replacing_scrutinee(*right, scrutinee_name, binding_name));
+                DecoratedExpr {
+                    kind: DecoratedExprKind::Assign { left, right },
+                    metadata: expr.metadata,
+                }
+            }
+            DecoratedExprKind::Match(mut match_expr) => {
+                match_expr.expr = self.rewrite_expr_replacing_scrutinee(match_expr.expr, scrutinee_name, binding_name);
+                match_expr.arms = match_expr.arms.into_iter().map(|mut arm| {
+                    arm.guard = arm.guard.map(|g| self.rewrite_expr_replacing_scrutinee(g, scrutinee_name, binding_name));
+                    arm.body = self.rewrite_block_with_scrutinee_replacement(arm.body, scrutinee_name, binding_name);
+                    arm
+                }).collect();
+                DecoratedExpr {
+                    kind: DecoratedExprKind::Match(match_expr),
+                    metadata: expr.metadata,
+                }
+            }
+            DecoratedExprKind::Block(block) => {
+                let block = self.rewrite_block_with_scrutinee_replacement(block, scrutinee_name, binding_name);
+                DecoratedExpr {
+                    kind: DecoratedExprKind::Block(block),
+                    metadata: expr.metadata,
+                }
+            }
+            DecoratedExprKind::Member { mut object, property, optional, computed, is_path, field_metadata } => {
+                // This handles non-scrutinee member access (scrutinee member access already handled above)
+                // Recursively process the object in case it contains scrutinee access
+                // E.g., expr.value.to_string() - object is expr.value (needs replacement)
+                object = Box::new(self.rewrite_expr_replacing_scrutinee(*object, scrutinee_name, binding_name));
+                DecoratedExpr {
+                    kind: DecoratedExprKind::Member { object, property, optional, computed, is_path, field_metadata },
+                    metadata: expr.metadata,
+                }
+            }
+            // For leaf expressions (already handled member access matches above), return as-is
+            _ => expr,
+        }
+    }
+
+    /// Extract the binding type from a pattern
+    /// E.g., Expr::Lit(Lit::Str(__inner)) -> "Str"
+    ///       Pat::Ident -> "BindingIdent"
+    ///       Expr::Ident -> "Ident"
+    fn extract_binding_type_from_pattern(&self, pattern: &DecoratedPattern) -> String {
+        // Get the swc_pattern from metadata
+        let swc_pattern = &pattern.metadata.swc_pattern;
+
+        eprintln!("[DEBUG] extract_binding_type from pattern: {}", swc_pattern);
+
+        // Parse patterns like "Expr::Lit(Lit::Str(__inner))" or "Pat::Ident(__inner)"
+        // We want the innermost type before the binding
+
+        // Find the last occurrence of "::" before a "("
+        if let Some(last_paren) = swc_pattern.rfind('(') {
+            let before_paren = &swc_pattern[..last_paren];
+            if let Some(last_colon) = before_paren.rfind("::") {
+                let type_name = &before_paren[last_colon + 2..];
+                eprintln!("[DEBUG] Extracted type (with binding): {}", type_name);
+                return type_name.to_string();
+            }
+        }
+
+        // No binding in pattern - extract the last part after ::
+        // E.g., "Expr::Ident" -> "Ident", "Pat::Object" -> "ObjectPat"
+        if let Some(last_colon) = swc_pattern.rfind("::") {
+            let type_name = &swc_pattern[last_colon + 2..];
+            eprintln!("[DEBUG] Extracted type (no binding): {}", type_name);
+            // For Pat::Ident, it's actually BindingIdent
+            if type_name == "Ident" && swc_pattern.starts_with("Pat::") {
+                return "BindingIdent".to_string();
+            }
+            return type_name.to_string();
+        }
+
+        // Fallback: Unknown type
+        eprintln!("[DEBUG] Could not extract type, using Unknown");
+        "Unknown".to_string()
+    }
+
+    /// Rewrite block replacing scrutinee with binding, with type information
+    fn rewrite_block_with_scrutinee_replacement_typed(
+        &mut self,
+        block: DecoratedBlock,
+        scrutinee_name: &str,
+        binding_name: &str,
+        binding_type: &str,
+    ) -> DecoratedBlock {
+        DecoratedBlock {
+            stmts: block.stmts.into_iter().map(|stmt| {
+                self.rewrite_stmt_replacing_scrutinee_typed(stmt, scrutinee_name, binding_name, binding_type)
+            }).collect(),
+        }
+    }
+
+    fn rewrite_stmt_replacing_scrutinee_typed(
+        &mut self,
+        stmt: DecoratedStmt,
+        scrutinee_name: &str,
+        binding_name: &str,
+        binding_type: &str,
+    ) -> DecoratedStmt {
+        match stmt {
+            DecoratedStmt::Expr(expr) => {
+                DecoratedStmt::Expr(self.rewrite_expr_replacing_scrutinee_typed(expr, scrutinee_name, binding_name, binding_type))
+            }
+            DecoratedStmt::Let(mut let_stmt) => {
+                let_stmt.init = self.rewrite_expr_replacing_scrutinee_typed(let_stmt.init, scrutinee_name, binding_name, binding_type);
+                DecoratedStmt::Let(let_stmt)
+            }
+            DecoratedStmt::Return(value) => {
+                DecoratedStmt::Return(value.map(|v| self.rewrite_expr_replacing_scrutinee_typed(v, scrutinee_name, binding_name, binding_type)))
+            }
+            _ => self.rewrite_stmt(stmt),
+        }
+    }
+
+    fn rewrite_expr_replacing_scrutinee_typed(
+        &mut self,
+        expr: DecoratedExpr,
+        scrutinee_name: &str,
+        binding_name: &str,
+        binding_type: &str,
+    ) -> DecoratedExpr {
+        // Check if this is member access on the scrutinee
+        if let DecoratedExprKind::Member { object, property, .. } = &expr.kind {
+            if let DecoratedExprKind::Ident { name, .. } = &object.kind {
+                if name == scrutinee_name {
+                    // Replace scrutinee with binding
+                    // Recompute field metadata based on the binding type
+                    let field_metadata = self.get_field_metadata_for_type(binding_type, property);
+
+                    return DecoratedExpr {
+                        kind: DecoratedExprKind::Member {
+                            object: Box::new(DecoratedExpr {
+                                kind: DecoratedExprKind::Ident {
+                                    name: binding_name.to_string(),
+                                    ident_metadata: SwcIdentifierMetadata::name(),
+                                },
+                                metadata: object.metadata.clone(),
+                            }),
+                            property: property.clone(),
+                            optional: false,
+                            computed: false,
+                            is_path: false,
+                            field_metadata,
+                        },
+                        metadata: expr.metadata.clone(),
+                    };
+                }
+            }
+        }
+
+        // Recursively process all expression types
+        match expr.kind {
+            DecoratedExprKind::Call(mut call) => {
+                call.callee = self.rewrite_expr_replacing_scrutinee_typed(call.callee, scrutinee_name, binding_name, binding_type);
+                call.args = call.args.into_iter()
+                    .map(|arg| self.rewrite_expr_replacing_scrutinee_typed(arg, scrutinee_name, binding_name, binding_type))
+                    .collect();
+                DecoratedExpr {
+                    kind: DecoratedExprKind::Call(call),
+                    metadata: expr.metadata,
+                }
+            }
+            DecoratedExprKind::Member { mut object, property, optional, computed, is_path, field_metadata } => {
+                object = Box::new(self.rewrite_expr_replacing_scrutinee_typed(*object, scrutinee_name, binding_name, binding_type));
+                DecoratedExpr {
+                    kind: DecoratedExprKind::Member { object, property, optional, computed, is_path, field_metadata },
+                    metadata: expr.metadata,
+                }
+            }
+            // For other expression types, use the non-typed version
+            _ => self.rewrite_expr_replacing_scrutinee(expr, scrutinee_name, binding_name),
+        }
+    }
+
+    /// Get field metadata for a specific type and field name
+    fn get_field_metadata_for_type(&self, type_name: &str, field_name: &str) -> SwcFieldMetadata {
+        use crate::codegen::type_context::get_typed_field_mapping;
+
+        // Try to get typed field mapping
+        if let Some(mapping) = get_typed_field_mapping(type_name, field_name) {
+            SwcFieldMetadata {
+                swc_field_name: mapping.swc_field.to_string(),
+                field_type: mapping.result_type_swc.to_string(),
+                accessor: FieldAccessor::Direct,  // TODO: determine from mapping
+                source_field: Some(field_name.to_string()),
+                span: None,
+                read_conversion: mapping.read_conversion.to_string(),
+            }
+        } else {
+            // Fallback: direct field access
+            SwcFieldMetadata::direct(field_name.to_string(), type_name.to_string())
         }
     }
 }

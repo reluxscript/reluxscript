@@ -155,7 +155,31 @@ impl SwcLowering {
 
                 // Extract scrutinee and pattern
                 let scrutinee = matches_expr.scrutinee.clone();
-                let pattern = matches_expr.pattern.clone();
+                let mut pattern = matches_expr.pattern.clone();
+
+                // If the pattern is an identifier (like StringLiteral), wrap it as a variant with a binding
+                // This allows field access on the matched value
+                // Example: StringLiteral → StringLiteral(__inner)
+                eprintln!("[LOWERING] Pattern: {:?}", pattern);
+                match &pattern {
+                    Pattern::Ident(name) => {
+                        eprintln!("[LOWERING] Pattern is Ident({}), wrapping with __inner binding", name);
+                        pattern = Pattern::Variant {
+                            name: name.clone(),
+                            inner: Some(Box::new(Pattern::Ident("__inner".to_string()))),
+                        };
+                    }
+                    Pattern::Variant { name, inner } if inner.is_none() => {
+                        eprintln!("[LOWERING] Pattern is Variant without binding, adding __inner");
+                        pattern = Pattern::Variant {
+                            name: name.clone(),
+                            inner: Some(Box::new(Pattern::Ident("__inner".to_string()))),
+                        };
+                    }
+                    _ => {
+                        eprintln!("[LOWERING] Pattern already has binding or is complex, keeping as-is");
+                    }
+                }
 
                 // Set the if-let pattern and replace condition
                 if_stmt.pattern = Some(pattern);

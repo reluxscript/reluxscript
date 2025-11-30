@@ -3,14 +3,24 @@
 
 use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
-use swc_ecma_visit::{VisitMut, VisitMutWith};
-use regex::Regex as RegexPattern;
+use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 
-pub struct RegexSimple {}
-
-impl VisitMut for RegexSimple {
+pub struct TestSome {
 }
-fn test(name: &String) -> bool {
-    RegexPattern::new(r"^test$").unwrap().is_match(name)
+
+impl VisitMut for TestSome {
+}
+
+impl TestSome {
+    pub fn new() -> Self {
+        Self {}
+    }
+    
+    fn test(opt: &Option<String>) {
+        if let Some(value) = opt {
+            let x = value.clone();
+        }
+    }
+    
 }
 
