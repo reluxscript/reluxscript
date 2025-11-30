@@ -49,7 +49,7 @@ impl Parser {
             self.skip_newlines();
         }
 
-        let decl = if self.check(TokenKind::Plugin) {
+        let mut decl = if self.check(TokenKind::Plugin) {
             TopLevelDecl::Plugin(self.parse_plugin()?)
         } else if self.check(TokenKind::Writer) {
             TopLevelDecl::Writer(self.parse_writer()?)
@@ -57,6 +57,24 @@ impl Parser {
             // No plugin/writer keyword - treat as standalone module
             TopLevelDecl::Module(self.parse_module()?)
         };
+
+        // After parsing plugin/writer, continue parsing module-level items (helper functions, etc.)
+        // These are added to the plugin/writer body per the spec (see section 19)
+        self.skip_newlines();
+        if !self.is_at_end() {
+            let module_items = self.parse_plugin_body()?;
+            match &mut decl {
+                TopLevelDecl::Plugin(plugin) => {
+                    // Add module-level items to plugin body
+                    plugin.body.extend(module_items);
+                }
+                TopLevelDecl::Writer(writer) => {
+                    // Add module-level items to writer body
+                    writer.body.extend(module_items);
+                }
+                _ => {}
+            }
+        }
 
         Ok(Program {
             uses,
@@ -196,7 +214,10 @@ impl Parser {
                 break;
             }
 
-            let item = if self.check(TokenKind::Struct) {
+            // Parse attributes (e.g., #[derive(Clone, Debug)])
+            let attributes = self.parse_attributes()?;
+
+            let mut item = if self.check(TokenKind::Struct) {
                 PluginItem::Struct(self.parse_struct()?)
             } else if self.check(TokenKind::Enum) {
                 PluginItem::Enum(self.parse_enum()?)
@@ -232,10 +253,56 @@ impl Parser {
                 return Err(self.error("Expected struct, enum, fn, or impl"));
             };
 
+            // Apply attributes to struct/enum if present
+            if !attributes.is_empty() {
+                match &mut item {
+                    PluginItem::Struct(s) => s.derives = attributes.clone(),
+                    PluginItem::Enum(e) => e.derives = attributes.clone(),
+                    _ => {} // Other items don't support attributes yet
+                }
+            }
+
             items.push(item);
         }
 
         Ok(items)
+    }
+
+    /// Parse attributes like #[derive(Clone, Debug)]
+    fn parse_attributes(&mut self) -> ParseResult<Vec<String>> {
+        let mut derives = Vec::new();
+
+        while self.check(TokenKind::Hash) {
+            self.advance(); // consume '#'
+            self.expect(TokenKind::LBracket)?;
+
+            // For now, only handle derive attributes
+            let attr_name = self.expect_ident()?;
+            if attr_name == "derive" {
+                self.expect(TokenKind::LParen)?;
+
+                // Parse comma-separated list of derives
+                loop {
+                    let derive_name = self.expect_ident()?;
+                    derives.push(derive_name);
+
+                    if self.check(TokenKind::Comma) {
+                        self.advance();
+                        self.skip_newlines(); // Allow newlines after comma
+                    } else {
+                        break;
+                    }
+                }
+
+                self.expect(TokenKind::RParen)?;
+            }
+            // Ignore other attributes for now
+
+            self.expect(TokenKind::RBracket)?;
+            self.skip_newlines(); // Allow newlines after attribute
+        }
+
+        Ok(derives)
     }
 
     /// Parse struct declaration
@@ -361,6 +428,7 @@ impl Parser {
         Ok(EnumDecl {
             name,
             variants,
+            derives: Vec::new(),  // Will be populated by parse_plugin_body
             span: start_span,
         })
     }

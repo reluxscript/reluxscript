@@ -46,8 +46,20 @@ pub struct SwcDecorator {
 
 impl SwcDecorator {
     pub fn new() -> Self {
+        let mut type_env = HashMap::new();
+
+        // Register built-in types
+        // CodeBuilder is a built-in type that maps to String in SWC
+        type_env.insert("CodeBuilder".to_string(), TypeContext {
+            reluxscript_type: "CodeBuilder".to_string(),
+            swc_type: "String".to_string(),
+            kind: SwcTypeKind::Primitive,
+            known_variant: None,
+            needs_deref: false,
+        });
+
         Self {
-            type_env: HashMap::new(),
+            type_env,
             current_params: HashMap::new(),
             semantic_type_env: None,
             is_writer: false,
@@ -57,8 +69,20 @@ impl SwcDecorator {
 
     /// Create a new decorator with semantic type information
     pub fn with_semantic_types(semantic_type_env: crate::semantic::TypeEnv) -> Self {
+        let mut type_env = HashMap::new();
+
+        // Register built-in types
+        // CodeBuilder is a built-in type that maps to String in SWC
+        type_env.insert("CodeBuilder".to_string(), TypeContext {
+            reluxscript_type: "CodeBuilder".to_string(),
+            swc_type: "String".to_string(),
+            kind: SwcTypeKind::Primitive,
+            known_variant: None,
+            needs_deref: false,
+        });
+
         Self {
-            type_env: HashMap::new(),
+            type_env,
             current_params: HashMap::new(),
             semantic_type_env: Some(semantic_type_env),
             is_writer: false,

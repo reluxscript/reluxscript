@@ -91,6 +91,7 @@ pub struct StructField {
 pub struct EnumDecl {
     pub name: String,
     pub variants: Vec<EnumVariant>,
+    pub derives: Vec<String>,  // Traits to derive (e.g., "Clone", "Debug")
     pub span: Span,
 }
 

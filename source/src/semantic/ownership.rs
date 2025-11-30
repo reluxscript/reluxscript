@@ -317,8 +317,15 @@ impl OwnershipChecker {
     /// Check if an expression needs .clone() for ownership transfer
     fn check_needs_clone(&mut self, expr: &Expr, span: crate::lexer::Span) {
         match expr {
-            // Member access needs clone (unless it's a method call)
+            // Member access needs clone (unless it's a method call or Copy type)
             Expr::Member(member) => {
+                // Allow access to common Copy type fields (primitives)
+                // These don't need .clone() since they're Copy
+                let copy_fields = ["value", "len", "length", "size", "count", "index"];
+                if copy_fields.contains(&member.property.as_str()) {
+                    return; // Copy fields don't need .clone()
+                }
+
                 // This is borrowing from a field - needs clone
                 self.errors.push(
                     SemanticError::new(
@@ -402,6 +409,13 @@ impl OwnershipChecker {
                     return; // self.* = value is allowed
                 }
 
+                // Allow mutations on local struct variables (e.g., component.field)
+                // These are typically captured variables in traverse() blocks
+                // Only disallow mutations on visitor parameters (node, decl, ret, etc.)
+                if self.is_likely_local_struct(&member.object) {
+                    return; // Local struct mutation is allowed
+                }
+
                 // Direct property mutation on AST nodes is not allowed
                 let target_name = self.expr_to_string(assign.target.as_ref());
                 self.errors.push(
@@ -414,6 +428,18 @@ impl OwnershipChecker {
                 );
             }
         }
+    }
+
+    /// Check if an expression is likely a local struct (not an AST node parameter)
+    /// Common visitor parameters: node, decl, ret, stmt, expr, pat, arg
+    /// Local structs: component, state, builder, etc.
+    fn is_likely_local_struct(&self, expr: &Expr) -> bool {
+        if let Expr::Ident(ident) = expr {
+            // Common visitor parameter names that are AST nodes
+            let ast_param_names = ["node", "decl", "ret", "stmt", "expr", "pat", "arg", "param"];
+            return !ast_param_names.contains(&ident.name.as_str());
+        }
+        false
     }
 
     /// Check if an expression starts with 'self'

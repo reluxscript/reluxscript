@@ -1,0 +1,27 @@
+/// Test module-level helper functions after writer block
+writer ModuleLevelTest {
+    struct State {
+        count: i32,
+    }
+
+    fn init() -> State {
+        State { count: 0 }
+    }
+
+    fn visit_jsx_element(node: &JSXElement, ctx: &Context) {
+        // Call module-level helper
+        if is_valid_element(node) {
+            self.state.count = self.state.count + 1;
+        }
+    }
+
+    fn finish(&self) -> i32 {
+        self.state.count
+    }
+}
+
+// Module-level helper function (defined after writer block)
+fn is_valid_element(node: &JSXElement) -> bool {
+    // Simple check - always return true for this test
+    true
+}

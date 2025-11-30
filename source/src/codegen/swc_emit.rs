@@ -1228,6 +1228,16 @@ impl SwcEmitter {
             }
 
             DecoratedExprKind::Call(call) => {
+                // Special handling for CodeBuilder::new() -> String::new()
+                if let DecoratedExprKind::Member { object, property, .. } = &call.callee.kind {
+                    if let DecoratedExprKind::Ident { name, .. } = &object.kind {
+                        if name == "CodeBuilder" && property == "new" {
+                            self.output.push_str("String::new()");
+                            return;
+                        }
+                    }
+                }
+
                 // Check if callee is a Member with read_conversion that already includes ()
                 let skip_parens = if let DecoratedExprKind::Member { ref field_metadata, .. } = call.callee.kind {
                     !field_metadata.read_conversion.is_empty() &&
