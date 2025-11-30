@@ -1,0 +1,19 @@
+/// Simple traverse test with SWC-native types
+plugin TraverseTest {
+    struct State {
+        expr_count: i32,
+    }
+
+    fn visit_jsx_element(node: &mut JSXElement, ctx: &Context) {
+        // Test traverse with inline visitor
+        traverse(node) {
+            let mut count = 0;
+
+            fn visit_expr(e: &Expr) {
+                count = count + 1;
+            }
+        }
+
+        self.state.expr_count = self.state.expr_count + 1;
+    }
+}

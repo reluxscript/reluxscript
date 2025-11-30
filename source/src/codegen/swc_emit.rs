@@ -152,6 +152,17 @@ impl SwcEmitter {
                 }
             }
             DecoratedTopLevelDecl::Writer(writer) => {
+                // Check hoisted structs (module-level structs)
+                for struct_decl in &writer.hoisted_structs {
+                    self.detect_hashmap_hashset_in_struct(struct_decl);
+                }
+
+                // Check State struct
+                if let Some(state_struct) = &writer.state_struct {
+                    self.detect_hashmap_hashset_in_struct(state_struct);
+                }
+
+                // Check items in writer body
                 for item in &writer.body {
                     match item {
                         DecoratedPluginItem::Function(func) => {
@@ -164,8 +175,16 @@ impl SwcEmitter {
                     }
                 }
             }
-            DecoratedTopLevelDecl::Undecorated(_) => {
-                // Undecorated code (interfaces, modules) - skip
+            DecoratedTopLevelDecl::Undecorated(top_level) => {
+                // Scan module-level items for HashMap/HashSet usage
+                use crate::parser::{TopLevelDecl, PluginItem};
+                if let TopLevelDecl::Module(module) = top_level {
+                    for item in &module.items {
+                        if let PluginItem::Struct(struct_decl) = item {
+                            self.detect_hashmap_hashset_in_struct(struct_decl);
+                        }
+                    }
+                }
             }
         }
     }
@@ -540,9 +559,16 @@ impl SwcEmitter {
         self.name = writer.name.clone();
         self.is_writer = true;
 
-        // 1. Emit hoisted structs at module level (before the writer struct)
+        // 1. Emit hoisted structs and impl blocks at module level (before the writer struct)
         for struct_decl in &writer.hoisted_structs {
             self.emit_struct(struct_decl);
+        }
+
+        // Emit hoisted impl blocks from body at module level
+        for item in &writer.body {
+            if let DecoratedPluginItem::Impl(impl_block) = item {
+                self.emit_impl_block(impl_block);
+            }
         }
 
         // 2. Emit the writer struct with output field + flattened State fields
@@ -577,9 +603,11 @@ impl SwcEmitter {
         // Generate CodeBuilder helper methods
         self.emit_codebuilder_methods();
 
-        // Emit user-defined methods
+        // Emit user-defined methods (skip Impl blocks as they were emitted at module level)
         for item in &writer.body {
-            self.emit_plugin_item(item);
+            if !matches!(item, DecoratedPluginItem::Impl(_)) {
+                self.emit_plugin_item(item);
+            }
         }
 
         self.indent -= 1;
@@ -721,8 +749,10 @@ impl SwcEmitter {
         sig.push('(');
 
         // For SWC visitor methods (visit_mut_*) and writer helper methods, add &mut self as first parameter
+        // Writer methods (write_*, generate_*, etc.) also need &mut self
         let needs_self = func.name.starts_with("visit_") ||
-                        (self.is_writer && func.name.starts_with("extract_"));
+                        (self.is_writer && func.name.starts_with("extract_")) ||
+                        (self.is_writer && !func.name.starts_with("new"));
 
         // Check if first parameter is already a self parameter
         let first_is_self = func.params.first()
@@ -736,18 +766,18 @@ impl SwcEmitter {
             }
         }
 
+        let mut emitted_self = false;
         for (i, param) in func.params.iter().enumerate() {
             // Skip first parameter if it's self and we already added &mut self
             if needs_self && first_is_self && i == 0 {
                 // Replace self parameter with &mut self
                 sig.push_str("&mut self");
-                if func.params.len() > 1 {
-                    sig.push_str(", ");
-                }
+                emitted_self = true;
                 continue;
             }
 
-            if i > 0 {
+            // Add comma before parameter if needed
+            if emitted_self || i > 0 {
                 sig.push_str(", ");
             }
             sig.push_str(&param.name);
@@ -902,7 +932,7 @@ impl SwcEmitter {
             }
 
             DecoratedStmt::Traverse(traverse) => {
-                self.emit_line(&format!("// Traverse: {:?}", traverse));
+                self.emit_traverse_stmt(traverse);
             }
 
             DecoratedStmt::Function(func_decl) => {
@@ -1234,6 +1264,44 @@ impl SwcEmitter {
                         if name == "CodeBuilder" && property == "new" {
                             self.output.push_str("String::new()");
                             return;
+                        }
+                    }
+
+                    // CodeBuilder method call transformations
+                    // Check if object is CodeBuilder type (String)
+                    if object.metadata.swc_type == "String" || object.metadata.swc_type == "CodeBuilder" {
+                        match property.as_str() {
+                            "append_line" => {
+                                // builder.append_line(s) -> { builder.push_str(s); builder.push_str("\n"); }
+                                self.output.push_str("{ ");
+                                self.emit_expr(object);
+                                self.output.push_str(".push_str(");
+                                if !call.args.is_empty() {
+                                    self.emit_expr(&call.args[0]);
+                                }
+                                self.output.push_str("); ");
+                                self.emit_expr(object);
+                                self.output.push_str(".push_str(\"\\n\"); }");
+                                return;
+                            }
+                            "newline" => {
+                                // builder.newline() -> builder.push_str("\n")
+                                self.emit_expr(object);
+                                self.output.push_str(".push_str(\"\\n\")");
+                                return;
+                            }
+                            "indent" | "dedent" => {
+                                // builder.indent() / builder.dedent() -> () (no-op for local CodeBuilder)
+                                self.output.push_str("()");
+                                return;
+                            }
+                            "to_string" => {
+                                // builder.to_string() -> builder.clone()
+                                self.emit_expr(object);
+                                self.output.push_str(".clone()");
+                                return;
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -1719,6 +1787,40 @@ impl SwcEmitter {
         self.emit_line("fn append(&mut self, s: &str) {");
         self.indent += 1;
         self.emit_line("self.output.push_str(s);");
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("");
+
+        // append_line method
+        self.emit_line("fn append_line(&mut self, s: &str) {");
+        self.indent += 1;
+        self.emit_line("for _ in 0..self.indent_level {");
+        self.indent += 1;
+        self.emit_line("self.output.push_str(\"    \");");
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("self.output.push_str(s);");
+        self.emit_line("self.output.push('\\n');");
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("");
+
+        // indent method
+        self.emit_line("fn indent(&mut self) {");
+        self.indent += 1;
+        self.emit_line("self.indent_level += 1;");
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("");
+
+        // dedent method
+        self.emit_line("fn dedent(&mut self) {");
+        self.indent += 1;
+        self.emit_line("if self.indent_level > 0 {");
+        self.indent += 1;
+        self.emit_line("self.indent_level -= 1;");
+        self.indent -= 1;
+        self.emit_line("}");
         self.indent -= 1;
         self.emit_line("}");
         self.emit_line("");
@@ -2321,4 +2423,11 @@ impl SwcEmitter {
         self.emit_line("}");
         self.emit_line("");
     }
+
+    fn emit_traverse_stmt(&mut self, _traverse: &crate::parser::TraverseStmt) {
+        // Traverse statements should have been transformed by the Hoister stage
+        // If we see one here, it's a placeholder that should emit a comment
+        self.emit_line("// Traverse statement (should have been hoisted)");
+    }
 }
+

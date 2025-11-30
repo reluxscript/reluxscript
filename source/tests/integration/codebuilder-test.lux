@@ -1,0 +1,13 @@
+/// Test CodeBuilder methods
+writer TestWriter {
+    struct State {}
+
+    fn write_program(program: &Program) -> String {
+        self.append_line("fn main() {");
+        self.indent();
+        self.append_line("println!(\"Hello\");");
+        self.dedent();
+        self.append_line("}");
+        self.to_string()
+    }
+}

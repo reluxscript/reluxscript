@@ -12,6 +12,7 @@ pub mod swc_metadata;
 pub mod decorated_ast;
 pub mod swc_decorator;
 pub mod swc_rewriter;
+pub mod swc_hoister;
 pub mod swc_emit;
 
 pub use babel::BabelGenerator;
@@ -22,6 +23,7 @@ pub use swc_metadata::*;
 pub use decorated_ast::*;
 pub use swc_decorator::SwcDecorator;
 pub use swc_rewriter::SwcRewriter;
+pub use swc_hoister::SwcHoister;
 pub use swc_emit::SwcEmitter;
 
 /// Target platform for code generation
@@ -77,15 +79,18 @@ pub fn generate_with_types(
     };
 
     let swc = if target == Target::Swc || target == Target::Both {
-        // NEW 3-STAGE PIPELINE: Decorate (with types) → Rewrite → Emit
+        // NEW 4-STAGE PIPELINE: Decorate (with types) → Rewrite → Hoist → Emit
         let mut decorator = SwcDecorator::with_semantic_types(type_env);
         let decorated_program = decorator.decorate_program(program);
 
         let mut rewriter = SwcRewriter::new();
         let rewritten_program = rewriter.rewrite_program(decorated_program);
 
+        let mut hoister = SwcHoister::new();
+        let hoisted_program = hoister.hoist_program(rewritten_program);
+
         let mut emitter = SwcEmitter::new();
-        Some(emitter.emit_program(&rewritten_program))
+        Some(emitter.emit_program(&hoisted_program))
     } else {
         None
     };

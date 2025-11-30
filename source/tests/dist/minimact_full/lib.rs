@@ -4,6 +4,7 @@
 use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
+use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use serde_json;
 use std::fs;
@@ -76,6 +77,30 @@ struct HookSignature {
     hook_type: String,
 }
 
+#[derive(Clone, Debug)]
+struct __InlineVisitor_0 {
+    component: &mut i32,
+}
+
+impl VisitMut for __InlineVisitor_0 {
+    fn visit_mut_var_declarator(&mut self, decl: &mut VarDeclarator) {
+        if let Some(init) = &decl.init {
+            if matches!(init, CallExpression) {
+                extract_hook_from_call(init, &decl.id, &mut component)
+            }
+        }
+    }
+    
+    fn visit_mut_return_stmt(&mut self, ret: &mut ReturnStmt) {
+        if let Some(arg) = &ret.argument {
+            if matches!(arg, JSXElement) {
+                component.render_body = Some(arg.clone())
+            }
+        }
+    }
+    
+}
+
 pub struct MinimactTranspiler {
     output: String,
     indent_level: usize,
@@ -103,6 +128,24 @@ impl MinimactTranspiler {
         self.output.push_str(s);
     }
     
+    fn append_line(&mut self, s: &str) {
+        for _ in 0..self.indent_level {
+            self.output.push_str("    ");
+        }
+        self.output.push_str(s);
+        self.output.push('\n');
+    }
+    
+    fn indent(&mut self) {
+        self.indent_level += 1;
+    }
+    
+    fn dedent(&mut self) {
+        if self.indent_level > 0 {
+            self.indent_level -= 1;
+        }
+    }
+    
     fn newline(&mut self) {
         self.output.push('\n');
     }
@@ -121,13 +164,13 @@ impl MinimactTranspiler {
             Self::extract_props(&node.function.params[0], &mut component)
         }
         if let Some(body) = &node.body {
-            // Traverse: TraverseStmt { target: Ident(IdentExpr { name: "body", span: Span { start: 1664, end: 1668, line: 59, column: 22 } }), captures: [Capture { name: "component", mutable: true, span: Span { start: 1681, end: 1682, line: 59, column: 39 } }], kind: Inline(InlineVisitor { state: [], methods: [FnDecl { is_pub: false, name: "visit_variable_declarator", type_params: [], params: [Param { name: "decl", ty: Reference { mutable: false, inner: Named("VariableDeclarator") }, span: Span { start: 1745, end: 1749, line: 60, column: 46 } }], return_type: None, where_clause: [], body: Block { stmts: [If(IfStmt { condition: Unary(UnaryExpr { op: Ref, operand: Member(MemberExpr { object: Ident(IdentExpr { name: "decl", span: Span { start: 1816, end: 1820, line: 61, column: 42 } }), property: "init", optional: false, computed: false, is_path: false, span: Span { start: 1826, end: 1827, line: 61, column: 52 } }), span: Span { start: 1815, end: 1816, line: 61, column: 41 } }), pattern: Some(Variant { name: "Some", inner: Some(Ident("init")) }), then_branch: Block { stmts: [If(IfStmt { condition: Matches(MatchesExpr { scrutinee: Ident(IdentExpr { name: "init", span: Span { start: 1865, end: 1869, line: 62, column: 37 } }), pattern: Ident("CallExpression"), span: Span { start: 1856, end: 1864, line: 62, column: 28 } }), pattern: None, then_branch: Block { stmts: [Expr(ExprStmt { expr: Call(CallExpr { callee: Ident(IdentExpr { name: "extract_hook_from_call", span: Span { start: 1918, end: 1940, line: 63, column: 29 } }), args: [Ident(IdentExpr { name: "init", span: Span { start: 1941, end: 1945, line: 63, column: 52 } }), Ref(RefExpr { mutable: false, expr: Member(MemberExpr { object: Ident(IdentExpr { name: "decl", span: Span { start: 1948, end: 1952, line: 63, column: 59 } }), property: "id", optional: false, computed: false, is_path: false, span: Span { start: 1955, end: 1956, line: 63, column: 66 } }), span: Span { start: 1947, end: 1948, line: 63, column: 58 } }), Ref(RefExpr { mutable: true, expr: Ident(IdentExpr { name: "component", span: Span { start: 1962, end: 1971, line: 63, column: 73 } }), span: Span { start: 1957, end: 1958, line: 63, column: 68 } })], type_args: [], optional: false, is_macro: false, span: Span { start: 1918, end: 1940, line: 63, column: 29 } }), span: Span { start: 1918, end: 1940, line: 63, column: 29 } })], span: Span { start: 1887, end: 1888, line: 62, column: 59 } }, else_if_branches: [], else_branch: None, span: Span { start: 1853, end: 1855, line: 62, column: 25 } })], span: Span { start: 1826, end: 1827, line: 61, column: 52 } }, else_if_branches: [], else_branch: None, span: Span { start: 1795, end: 1797, line: 61, column: 21 } })], span: Span { start: 1772, end: 1773, line: 60, column: 73 } }, span: Span { start: 1716, end: 1718, line: 60, column: 17 } }, FnDecl { is_pub: false, name: "visit_return_statement", type_params: [], params: [Param { name: "ret", ty: Reference { mutable: false, inner: Named("ReturnStatement") }, span: Span { start: 2088, end: 2091, line: 68, column: 43 } }], return_type: None, where_clause: [], body: Block { stmts: [If(IfStmt { condition: Unary(UnaryExpr { op: Ref, operand: Member(MemberExpr { object: Ident(IdentExpr { name: "ret", span: Span { start: 2154, end: 2157, line: 69, column: 41 } }), property: "argument", optional: false, computed: false, is_path: false, span: Span { start: 2167, end: 2168, line: 69, column: 54 } }), span: Span { start: 2153, end: 2154, line: 69, column: 40 } }), pattern: Some(Variant { name: "Some", inner: Some(Ident("arg")) }), then_branch: Block { stmts: [If(IfStmt { condition: Matches(MatchesExpr { scrutinee: Ident(IdentExpr { name: "arg", span: Span { start: 2206, end: 2209, line: 70, column: 37 } }), pattern: Ident("JSXElement"), span: Span { start: 2197, end: 2205, line: 70, column: 28 } }), pattern: None, then_branch: Block { stmts: [Expr(ExprStmt { expr: Assign(AssignExpr { target: Member(MemberExpr { object: Ident(IdentExpr { name: "component", span: Span { start: 2254, end: 2263, line: 71, column: 29 } }), property: "render_body", optional: false, computed: false, is_path: false, span: Span { start: 2276, end: 2277, line: 71, column: 51 } }), value: Call(CallExpr { callee: Ident(IdentExpr { name: "Some", span: Span { start: 2278, end: 2282, line: 71, column: 53 } }), args: [Call(CallExpr { callee: Member(MemberExpr { object: Ident(IdentExpr { name: "arg", span: Span { start: 2283, end: 2286, line: 71, column: 58 } }), property: "clone", optional: false, computed: false, is_path: false, span: Span { start: 2292, end: 2293, line: 71, column: 67 } }), args: [], type_args: [], optional: false, is_macro: false, span: Span { start: 2294, end: 2295, line: 71, column: 69 } })], type_args: [], optional: false, is_macro: false, span: Span { start: 2278, end: 2282, line: 71, column: 53 } }), span: Span { start: 2295, end: 2296, line: 71, column: 70 } }), span: Span { start: 2254, end: 2263, line: 71, column: 29 } })], span: Span { start: 2223, end: 2224, line: 70, column: 54 } }, else_if_branches: [], else_branch: None, span: Span { start: 2194, end: 2196, line: 70, column: 25 } })], span: Span { start: 2167, end: 2168, line: 69, column: 54 } }, else_if_branches: [], else_branch: None, span: Span { start: 2134, end: 2136, line: 69, column: 21 } })], span: Span { start: 2111, end: 2112, line: 68, column: 66 } }, span: Span { start: 2062, end: 2064, line: 68, column: 17 } }], span: Span { start: 1697, end: 1698, line: 59, column: 55 } }), span: Span { start: 1655, end: 1663, line: 59, column: 13 } }
+            body.visit_mut_with(&mut __InlineVisitor_0 { component: &mut component })
         }
         self.components.push(component);
     }
     
     // Exit-hook
-    pub fn finish(self: &Self) -> TranspilerOutput {
+    pub fn finish(&mut self) -> TranspilerOutput {
         let mut csharp_code = String::new();
         for component in &self.components {
             let code = Self::generate_csharp_class(&component);
@@ -144,11 +187,11 @@ impl MinimactTranspiler {
         TranspilerOutput { csharp: csharp_code, templates: json::to_string_pretty(&all_templates).unwrap(), hooks: json::to_string_pretty(&self.hooks).unwrap() }
     }
     
-    fn component_info_new(name: String) -> ComponentInfo {
+    fn component_info_new(&mut self, name: String) -> ComponentInfo {
         ComponentInfo { name: name, props: vec![], use_state: vec![], use_effect: vec![], use_ref: vec![], event_handlers: vec![], render_body: None, templates: HashMap::new() }
     }
     
-    fn is_pascal_case(name: &String) -> bool {
+    fn is_pascal_case(&mut self, name: &String) -> bool {
         if (name.len() == 0) {
             return false;
         }
@@ -302,7 +345,7 @@ impl MinimactTranspiler {
         component.use_ref.push(RefInfo { name: ref_name, initial_value: initial_value });
     }
     
-    fn expr_to_csharp(expr: &Expr) -> String {
+    fn expr_to_csharp(&mut self, expr: &Expr) -> String {
         if match expr {
             StringLiteral => {
                 true
@@ -386,7 +429,7 @@ impl MinimactTranspiler {
         return "null".to_string();
     }
     
-    fn infer_csharp_type(expr: &Expr) -> String {
+    fn infer_csharp_type(&mut self, expr: &Expr) -> String {
         if match expr {
             StringLiteral => {
                 true
@@ -449,38 +492,38 @@ impl MinimactTranspiler {
         return "dynamic".to_string();
     }
     
-    fn generate_csharp_class(component: &ComponentInfo) -> String {
+    fn generate_csharp_class(&mut self, component: &ComponentInfo) -> String {
         let mut builder = String::new();
-        builder.append_line(&"using Minimact.Core;");
-        builder.append_line(&"using Minimact.VDom;");
-        builder.append_line(&"using System.Collections.Generic;");
-        builder.newline();
-        builder.append_line(&format!("public class {} : MinimactComponent", component.name));
-        builder.append_line(&"{");
-        builder.indent();
+        { builder.push_str(&"using Minimact.Core;"); builder.push_str("\n"); };
+        { builder.push_str(&"using Minimact.VDom;"); builder.push_str("\n"); };
+        { builder.push_str(&"using System.Collections.Generic;"); builder.push_str("\n"); };
+        builder.push_str("\n");
+        { builder.push_str(&format!("public class {} : MinimactComponent", component.name)); builder.push_str("\n"); };
+        { builder.push_str(&"{"); builder.push_str("\n"); };
+        ();
         for state in &component.use_state {
-            builder.append_line(&format!("[State] private {} {} = {};", state.state_type, state.name, state.initial_value))
+            { builder.push_str(&format!("[State] private {} {} = {};", state.state_type, state.name, state.initial_value)); builder.push_str("\n"); }
         }
         for ref_info in &component.use_ref {
-            builder.append_line(&format!("[Ref] private object {} = {};", ref_info.name, ref_info.initial_value))
+            { builder.push_str(&format!("[Ref] private object {} = {};", ref_info.name, ref_info.initial_value)); builder.push_str("\n"); }
         }
         if ((component.use_state.len() > 0) || (component.use_ref.len() > 0)) {
-            builder.newline()
+            builder.push_str("\n")
         }
-        builder.append_line(&"protected override VNode Render()");
-        builder.append_line(&"{");
-        builder.indent();
+        { builder.push_str(&"protected override VNode Render()"); builder.push_str("\n"); };
+        { builder.push_str(&"{"); builder.push_str("\n"); };
+        ();
         if component.render_body.is_some() {
-            builder.append_line(&"// TODO: Generate VNode from JSX");
-            builder.append_line(&"return new VNull();")
+            { builder.push_str(&"// TODO: Generate VNode from JSX"); builder.push_str("\n"); };
+            { builder.push_str(&"return new VNull();"); builder.push_str("\n"); }
         } else {
-            builder.append_line(&"return new VNull();")
+            { builder.push_str(&"return new VNull();"); builder.push_str("\n"); }
         }
-        builder.dedent();
-        builder.append_line(&"}");
-        builder.dedent();
-        builder.append_line(&"}");
-        return builder.to_string();
+        ();
+        { builder.push_str(&"}"); builder.push_str("\n"); };
+        ();
+        { builder.push_str(&"}"); builder.push_str("\n"); };
+        return builder.clone();
     }
     
 }

@@ -294,7 +294,7 @@ impl SwcDecorator {
         }
     }
 
-    fn decorate_stmt(&mut self, stmt: &Stmt) -> DecoratedStmt {
+    pub fn decorate_stmt(&mut self, stmt: &Stmt) -> DecoratedStmt {
         match stmt {
             Stmt::Let(let_stmt) => {
                 // First decorate the initializer to get its type
@@ -867,7 +867,7 @@ impl SwcDecorator {
     }
 
     /// Decorate an expression and infer its SWC type
-    fn decorate_expr(&mut self, expr: &Expr) -> DecoratedExpr {
+    pub fn decorate_expr(&mut self, expr: &Expr) -> DecoratedExpr {
         match expr {
             Expr::Ident(ident_expr) => {
                 let name = &ident_expr.name;
@@ -1108,6 +1108,21 @@ impl SwcDecorator {
             Expr::Call(call) => {
                 let callee = self.decorate_expr(&call.callee);
 
+                // Check for CodeBuilder::new() -> returns String type
+                let return_type = if let Expr::Member(ref mem) = *call.callee {
+                    if let Expr::Ident(ref obj_ident) = *mem.object {
+                        if obj_ident.name == "CodeBuilder" && mem.property == "new" {
+                            Some("String")
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
                 // Check if this is a Result/Option constructor (Err, Ok, Some, None)
                 // If so, string literal arguments need to be converted to String
                 let callee_name = if let Expr::Ident(ref ident) = *call.callee {
@@ -1142,7 +1157,7 @@ impl SwcDecorator {
                         span: call.span,
                     })),
                     metadata: SwcExprMetadata {
-                        swc_type: "UserDefined".to_string(),
+                        swc_type: return_type.unwrap_or("UserDefined").to_string(),
                         is_boxed: false,
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
