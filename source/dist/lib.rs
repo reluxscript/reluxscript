@@ -52,7 +52,7 @@ impl VisitMut for KitchenSinkPlugin {
     
     fn visit_mut_call_expr(&mut self, node: &mut CallExpr) {
         if let Some(component_name) = &self.state.current_component {
-            if let Some(callee_name) = Self::get_callee_name(&node.callee.as_expr().unwrap()) {
+            if let Some(callee_name) = Self::get_callee_name(&*node.callee.as_expr().unwrap()) {
                 if Self::is_hook_call(&callee_name) {
                     let hook_info = HookInfo { name: callee_name.clone(), hook_type: Self::categorize_hook(&callee_name), args_count: 0 };
                     for component in &mut self.state.components {
@@ -65,7 +65,7 @@ impl VisitMut for KitchenSinkPlugin {
             }
         }
         if let Some(member) = Self::extract_member_call(node) {
-            if ((member.object == "console") && Self::should_remove_console(&member.property)) {
+            if ((member.object == "console") && Self::should_remove_console(&*member.property)) {
                 self.state.removed_count += 1
             }
         }
@@ -168,7 +168,17 @@ impl KitchenSinkPlugin {
             Some(id.sym.to_string())
         } else {
             if let Expr::Member(member) = callee {
-                Some(member.prop.clone())
+                Some(match &member.prop {
+                    MemberProp::Ident(id) => {
+                        id.sym.to_string()
+                    }
+                    MemberProp::Computed(_) => {
+                        "[computed]".to_string()
+                    }
+                    MemberProp::PrivateName(name) => {
+                        format!("#{}", name.name)
+                    }
+                })
             } else {
                 None
             }
@@ -179,7 +189,17 @@ impl KitchenSinkPlugin {
         if let Callee::Expr(__callee_expr) = &&call.callee.as_expr().unwrap() {
             if let Expr::Member(member) = __callee_expr.as_ref() {
                 if let Expr::Ident(obj) = &member.obj {
-                    return Some(MemberInfo { object: obj.sym.to_string(), property: member.prop.clone() });
+                    return Some(MemberInfo { object: obj.sym.to_string(), property: match &member.prop {
+                        MemberProp::Ident(id) => {
+                            id.sym.to_string()
+                        }
+                        MemberProp::Computed(_) => {
+                            "[computed]".to_string()
+                        }
+                        MemberProp::PrivateName(name) => {
+                            format!("#{}", name.name)
+                        }
+                    } });
                 }
             }
         }

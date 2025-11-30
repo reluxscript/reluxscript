@@ -1309,7 +1309,20 @@ impl SwcEmitter {
             }
 
             DecoratedExprKind::Ref { mutable, expr: inner } => {
-                self.output.push('&');
+                // Check if inner is a boxed field access that needs dereferencing
+                let needs_deref = matches!(&inner.kind,
+                    DecoratedExprKind::Member { field_metadata, .. }
+                    if matches!(&field_metadata.accessor, FieldAccessor::BoxedAsRef | FieldAccessor::BoxedRefDeref)
+                );
+
+                if needs_deref {
+                    // Emit &* for boxed field access (e.g., &member.obj → &*member.obj)
+                    self.output.push_str("&*");
+                } else {
+                    // Normal reference
+                    self.output.push('&');
+                }
+
                 if *mutable {
                     self.output.push_str("mut ");
                 }

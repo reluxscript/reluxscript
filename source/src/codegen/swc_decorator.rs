@@ -16,7 +16,7 @@
 
 use crate::parser::*;
 use crate::type_system::{TypeContext, SwcTypeKind};
-use crate::mapping::get_node_mapping;
+use crate::mapping::{get_node_mapping, get_field_mapping};
 use super::type_context::{get_typed_field_mapping, map_reluxscript_to_swc};
 use super::swc_metadata::*;
 use super::decorated_ast::*;
@@ -431,6 +431,18 @@ impl SwcDecorator {
         match pattern {
             Pattern::Ident(name) => {
                 // Simple identifier binding
+                // Don't overwrite existing bindings with less specific types
+                if let Some(existing) = self.type_env.get(name) {
+                    // Only overwrite if the new type is more specific
+                    let is_new_less_specific = bound_type == "UserDefined" || bound_type == "Unknown";
+                    let is_existing_specific = existing.swc_type != "UserDefined" && existing.swc_type != "Unknown";
+
+                    if is_existing_specific && is_new_less_specific {
+                        eprintln!("[DEBUG] Skipping pattern binding: {} (already bound to {})",  name, existing.swc_type);
+                        return;
+                    }
+                }
+                eprintln!("[DEBUG] Registering pattern binding: {} -> {}", name, bound_type);
                 self.type_env.insert(name.clone(), TypeContext {
                     reluxscript_type: bound_type.to_string(),
                     swc_type: bound_type.to_string(),
@@ -449,11 +461,25 @@ impl SwcDecorator {
                         if parts.len() == 2 {
                             // Convert "MemberExpression" to "MemberExpr" using mapping
                             let (_swc_type, _kind) = map_reluxscript_to_swc(parts[1]);
+                            eprintln!("[DEBUG] Variant {} -> inner type: {}", name, _swc_type);
                             _swc_type
                         } else {
+                            eprintln!("[DEBUG] Variant {} (parts != 2) -> {}", name, bound_type);
+                            bound_type.to_string()
+                        }
+                    } else if name == "Some" {
+                        // Special case: Some(x) unwraps Option<T> → T
+                        // Extract T from Option<T>
+                        if bound_type.starts_with("Option<") && bound_type.ends_with('>') {
+                            let inner = &bound_type[7..bound_type.len()-1];
+                            eprintln!("[DEBUG] Variant Some unwraps {} -> {}", bound_type, inner);
+                            inner.to_string()
+                        } else {
+                            eprintln!("[DEBUG] Variant Some but bound_type not Option: {}", bound_type);
                             bound_type.to_string()
                         }
                     } else {
+                        eprintln!("[DEBUG] Variant {} (no ::) -> {}", name, bound_type);
                         bound_type.to_string()
                     };
                     self.register_pattern_bindings(inner_pattern, &inner_type);
@@ -668,13 +694,22 @@ impl SwcDecorator {
             }
 
             Pattern::Struct { name, fields } => {
-                let decorated_fields = fields.iter()
-                    .map(|(fname, fpat)| (fname.clone(), self.decorate_pattern_with_context(fpat, "Unknown")))
-                    .collect();
-
                 // Map the struct name to SWC type (e.g., CallExpression → CallExpr)
-                // Use reluxscript_to_swc_type which maps to the plain type name
                 let swc_name = self.reluxscript_to_swc_type(name);
+
+                // Decorate fields with proper type information from field mappings
+                let decorated_fields = fields.iter()
+                    .map(|(fname, fpat)| {
+                        // Look up field mapping to get the SWC type
+                        let field_type = if let Some(mapping) = get_field_mapping(name, fname) {
+                            mapping.swc_type.to_string()
+                        } else {
+                            "Unknown".to_string()
+                        };
+
+                        (fname.clone(), self.decorate_pattern_with_context(fpat, &field_type))
+                    })
+                    .collect();
 
                 DecoratedPattern {
                     kind: DecoratedPatternKind::Struct {
@@ -807,9 +842,15 @@ impl SwcDecorator {
                 // Look up type in environment (local first, then semantic)
                 let type_ctx = self.type_env.get(name)
                     .cloned()
+                    .map(|ctx| {
+                        eprintln!("[DEBUG] Ident '{}' found in type_env: {}", name, ctx.swc_type);
+                        ctx
+                    })
                     .unwrap_or_else(|| {
+                        eprintln!("[DEBUG] Ident '{}' not found in type_env", name);
                         // Try semantic type environment
                         if let Some(swc_type_str) = self.lookup_semantic_type(name) {
+                            eprintln!("[DEBUG] Found '{}' in semantic: {}", name, swc_type_str);
                             TypeContext {
                                 reluxscript_type: name.clone(),
                                 swc_type: swc_type_str.clone(),
@@ -818,6 +859,7 @@ impl SwcDecorator {
                                 needs_deref: false,
                             }
                         } else {
+                            eprintln!("[DEBUG] '{}' -> UserDefined (not found)", name);
                             TypeContext::unknown()
                         }
                     });
@@ -841,6 +883,9 @@ impl SwcDecorator {
                 // First, decorate the object to get its type
                 let decorated_object = Box::new(self.decorate_expr(&mem.object));
                 let object_type = &decorated_object.metadata.swc_type;
+                eprintln!("[DEBUG] Member access: {}.{} (object type: {})",
+                    format!("{:?}", mem.object).chars().take(30).collect::<String>(),
+                    mem.property, object_type);
 
                 // Check for writer-specific field replacements (self.builder → self)
                 // This handles both direct access: self.builder, self.state
@@ -873,6 +918,8 @@ impl SwcDecorator {
                     }
                 } else if let Some(mapping) = get_typed_field_mapping(object_type, &mem.property) {
                     // We have precise mapping!
+                    eprintln!("[DEBUG] Field mapping found: {}.{} → {}.{} (needs_deref: {})",
+                        object_type, mem.property, object_type, mapping.swc_field, mapping.needs_deref);
                     SwcFieldMetadata {
                         swc_field_name: mapping.swc_field.to_string(),
                         accessor: if mapping.needs_deref {
@@ -886,6 +933,8 @@ impl SwcDecorator {
                         read_conversion: mapping.read_conversion.to_string(),
                     }
                 } else {
+                    eprintln!("[DEBUG] NO field mapping for: {}.{} - using fallback",
+                        object_type, mem.property);
                     // Fallback field mapping - only apply for SWC types, not user-defined types
                     let swc_field = if object_type == "UserDefined" {
                         // Don't apply field mappings to user-defined structs
@@ -1567,7 +1616,7 @@ impl SwcDecorator {
 
     /// Map ReluxScript type to SWC type
     fn map_type_to_swc(&self, ty: &Type) -> Type {
-        use crate::mapping::get_node_mapping;
+        use crate::mapping::{get_node_mapping, get_field_mapping};
 
         match ty {
             Type::Named(name) => {
