@@ -1,0 +1,36 @@
+// Minimal test for pattern matching on AST nodes
+plugin PatternMatchingTest {
+    fn test_pattern_variants(pattern: &Pattern) -> Str {
+        match pattern {
+            // Should emit: Pat::Array(_)
+            Pattern::ArrayPattern(_) => "array",
+            // Should emit: Pat::Object(_)
+            Pattern::ObjectPattern(_) => "object",
+            // Should emit: Pat::Ident(_)
+            Pattern::Identifier(_) => "ident",
+            _ => "other",
+        }
+    }
+
+    fn test_expr_variants(expr: &Expression) -> bool {
+        match expr {
+            // Should emit: Expr::Call(_)
+            Expression::CallExpression(_) => true,
+            // Should emit: Expr::Member(_)
+            Expression::MemberExpression(_) => true,
+            // Should emit: Expr::Ident(_)
+            Expression::Identifier(_) => false,
+            _ => false,
+        }
+    }
+
+    fn test_stmt_variants(stmt: &Statement) -> bool {
+        match stmt {
+            // Should emit: Stmt::Return(_)
+            Statement::ReturnStatement(_) => true,
+            // Should emit: Stmt::If(_)
+            Statement::IfStatement(_) => true,
+            _ => false,
+        }
+    }
+}

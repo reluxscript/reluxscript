@@ -57,6 +57,8 @@ pub struct BabelGenerator {
     uses_codegen: bool,
     /// Track loop nesting depth (for correct return handling in match expressions)
     loop_depth: usize,
+    /// Whether the __regex_captures helper function is needed
+    needs_regex_captures_helper: bool,
 }
 
 impl BabelGenerator {
@@ -72,6 +74,7 @@ impl BabelGenerator {
             iflet_counter: 0,
             uses_codegen: false,
             loop_depth: 0,
+            needs_regex_captures_helper: false,
         }
     }
 
@@ -433,6 +436,9 @@ impl BabelGenerator {
             }
         }
 
+        // Generate regex helper functions if needed
+        self.gen_regex_helpers();
+
         // Generate pre hook function if present
         for item in &plugin.body {
             if let PluginItem::PreHook(f) = item {
@@ -579,6 +585,9 @@ impl BabelGenerator {
             }
         }
 
+        // Generate regex helper functions if needed
+        self.gen_regex_helpers();
+
         // Generate pre hook if present
         if let Some(pre_fn) = pre_hook {
             self.emit_line("// Pre-hook");
@@ -601,7 +610,7 @@ impl BabelGenerator {
         if let Some(pre_fn) = pre_hook {
             self.emit_line("pre(file) {");
             self.indent += 1;
-            self.emit_line(&format!("{}(file);", pre_fn.name));
+            self.emit_line(&format!("this.state = {}(file);", pre_fn.name));
             self.indent -= 1;
             self.emit_line("},");
             self.emit_line("");
@@ -617,7 +626,7 @@ impl BabelGenerator {
             self.indent += 1;
             self.emit_line("exit(path, state) {");
             self.indent += 1;
-            self.emit_line(&format!("{}(path.node, state, builder);", exit_fn.name));
+            self.emit_line(&format!("return {}.call(this, path.node, state, builder);", exit_fn.name));
             self.indent -= 1;
             self.emit_line("}");
             self.indent -= 1;
@@ -1240,6 +1249,17 @@ impl BabelGenerator {
                         self.emit("/* SWC-only code omitted */\n");
                     }
                 }
+            }
+
+            Stmt::CustomPropAssignment(assign) => {
+                // Emit as direct property assignment: node.__propName = value;
+                self.emit_indent();
+                self.gen_expr(&assign.node);
+                self.emit(".");
+                self.emit(&assign.property);
+                self.emit(" = ");
+                self.gen_expr(&assign.value);
+                self.emit(";\n");
             }
         }
     }
@@ -2694,6 +2714,17 @@ impl BabelGenerator {
             Expr::Continue => {
                 self.emit("continue");
             }
+
+            Expr::RegexCall(regex_call) => {
+                self.gen_regex_call(regex_call);
+            }
+
+            Expr::CustomPropAccess(access) => {
+                // Emit as direct property access: node.__propName
+                self.gen_expr(&access.node);
+                self.emit(".");
+                self.emit(&access.property);
+            }
         }
     }
 
@@ -3329,6 +3360,96 @@ impl BabelGenerator {
         }
 
         self.emit(")");
+    }
+
+    fn gen_regex_call(&mut self, regex_call: &crate::parser::RegexCall) {
+        use crate::parser::RegexMethod;
+
+        match regex_call.method {
+            RegexMethod::Matches => {
+                // Regex::matches(text, pattern) -> /pattern/.test(text)
+                self.emit("/");
+                self.emit(&regex_call.pattern_arg);
+                self.emit("/.test(");
+                self.gen_expr(&regex_call.text_arg);
+                self.emit(")");
+            }
+
+            RegexMethod::Find => {
+                // Regex::find(text, pattern) -> (/pattern/.exec(text)?.[0] ?? null)
+                self.emit("(/");
+                self.emit(&regex_call.pattern_arg);
+                self.emit("/.exec(");
+                self.gen_expr(&regex_call.text_arg);
+                self.emit(")?.[0] ?? null");
+            }
+
+            RegexMethod::FindAll => {
+                // Regex::find_all(text, pattern) -> needs helper or inline implementation
+                // We'll use Array.from with matchAll for modern JavaScript
+                self.emit("Array.from(");
+                self.gen_expr(&regex_call.text_arg);
+                self.emit(".matchAll(/");
+                self.emit(&regex_call.pattern_arg);
+                self.emit("/g), m => m[0])");
+            }
+
+            RegexMethod::Captures => {
+                // Regex::captures(text, pattern) -> helper function
+                // We'll emit a helper call that returns an object with .get() method
+                self.needs_regex_captures_helper = true;
+                self.emit("__regex_captures(");
+                self.gen_expr(&regex_call.text_arg);
+                self.emit(", /");
+                self.emit(&regex_call.pattern_arg);
+                self.emit("/)");
+            }
+
+            RegexMethod::Replace => {
+                // Regex::replace(text, pattern, replacement) -> text.replace(/pattern/, replacement)
+                self.gen_expr(&regex_call.text_arg);
+                self.emit(".replace(/");
+                self.emit(&regex_call.pattern_arg);
+                self.emit("/, ");
+                if let Some(ref replacement) = regex_call.replacement_arg {
+                    self.gen_expr(replacement);
+                }
+                self.emit(")");
+            }
+
+            RegexMethod::ReplaceAll => {
+                // Regex::replace_all(text, pattern, replacement) -> text.replaceAll(/pattern/g, replacement)
+                self.gen_expr(&regex_call.text_arg);
+                self.emit(".replaceAll(/");
+                self.emit(&regex_call.pattern_arg);
+                self.emit("/g, ");
+                if let Some(ref replacement) = regex_call.replacement_arg {
+                    self.gen_expr(replacement);
+                }
+                self.emit(")");
+            }
+        }
+    }
+
+    fn gen_regex_helpers(&mut self) {
+        if !self.needs_regex_captures_helper {
+            return;
+        }
+
+        self.emit_line("");
+        self.emit_line("// Regex helper functions");
+        self.emit_line("function __regex_captures(text, pattern) {");
+        self.indent += 1;
+        self.emit_line("const match = pattern.exec(text);");
+        self.emit_line("if (match === null) return null;");
+        self.emit_line("return {");
+        self.indent += 1;
+        self.emit_line("get: (index) => match[index] ?? null");
+        self.indent -= 1;
+        self.emit_line("};");
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("");
     }
 }
 

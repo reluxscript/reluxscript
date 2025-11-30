@@ -1,0 +1,35 @@
+/// Comprehensive test for custom AST properties (read & write)
+plugin CustomPropsComprehensive {
+    struct State {
+        processed_count: i32,
+    }
+
+    fn visit_jsx_element(node: &mut JSXElement, ctx: &Context) {
+        // Test 1: Write string property
+        node.__componentName = "Button";
+
+        // Test 2: Write boolean flag
+        node.__isProcessed = true;
+
+        // Test 3: Write integer counter
+        node.__visitCount = 1;
+
+        // Test 4: Read back and use in if-let
+        if let Some(name) = node.__componentName {
+            // If we can read the name, increment counter
+            self.state.processed_count = self.state.processed_count + 1;
+        }
+
+        // Test 5: Read boolean and use in condition
+        if let Some(is_proc) = node.__isProcessed {
+            if is_proc {
+                node.__visitCount = 2;
+            }
+        }
+
+        // Test 6: Read and increment integer
+        if let Some(count) = node.__visitCount {
+            node.__visitCount = count + 1;
+        }
+    }
+}

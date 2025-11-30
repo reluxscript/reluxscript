@@ -1,0 +1,22 @@
+// Test: Reproduces E0277 - map closure with if-else should preserve the body
+writer MapClosureIfElseTest {
+
+struct Item {
+    name: Str,
+    value: i32,
+}
+
+fn update_items(items: &Vec<Item>) -> Vec<Item> {
+    items.iter().map(|item| {
+        if item.value > 0 {
+            Item {
+                name: item.name.clone(),
+                value: item.value * 2,
+            }
+        } else {
+            item.clone()
+        }
+    }).collect()
+}
+
+}

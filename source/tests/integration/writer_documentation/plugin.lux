@@ -1,0 +1,81 @@
+/// Writer Use Case 3: Build documentation from JSDoc comments
+/// Extracts JSDoc comments and generates structured API documentation
+
+writer DocumentationGenerator {
+    struct DocEntry {
+        name: Str,
+        kind: Str,
+        description: Str,
+        params: Vec<Str>,
+        returns: Str,
+    }
+
+    fn pre() {
+        self.state.docs = vec![];
+    }
+
+    fn visit_function_declaration(node: &FunctionDeclaration, ctx: &Context) {
+        // In a real implementation, we'd extract leading comments
+        // For this test, we'll use the function structure
+        if let Some(id) = &node.id {
+            let name = id.name.clone();
+
+            // Extract parameter names
+            let mut params = vec![];
+            for param in &node.params {
+                let param_name = match param {
+                    Pattern::Ident(n) => n.clone(),
+                    _ => "unknown".to_string(),
+                };
+                params.push(param_name);
+            }
+
+            let entry = DocEntry {
+                name: name.clone(),
+                kind: "function".to_string(),
+                description: format!("Function: {}", name),
+                params,
+                returns: "void".to_string(),
+            };
+
+            self.state.docs.push(entry);
+        }
+    }
+
+    fn visit_class_declaration(node: &ClassDeclaration, ctx: &Context) {
+        if let Some(id) = &node.id {
+            let entry = DocEntry {
+                name: id.name.clone(),
+                kind: "class".to_string(),
+                description: format!("Class: {}", id.name),
+                params: vec![],
+                returns: "".to_string(),
+            };
+
+            self.state.docs.push(entry);
+        }
+    }
+
+    fn exit() {
+        // Generate markdown documentation
+        self.builder.write_line("# API Documentation\n");
+
+        for doc in &self.state.docs {
+            self.builder.write_line(&format!("## {}\n", doc.name));
+            self.builder.write_line(&format!("**Type:** {}\n", doc.kind));
+            self.builder.write_line(&format!("{}\n", doc.description));
+
+            if !doc.params.is_empty() {
+                self.builder.write_line("**Parameters:**");
+                for param in &doc.params {
+                    self.builder.write_line(&format!("- `{}`", param));
+                }
+                self.builder.write_line("");
+            }
+
+            if !doc.returns.is_empty() && doc.returns != "" {
+                self.builder.write_line(&format!("**Returns:** {}\n", doc.returns));
+            }
+        }
+    }
+}

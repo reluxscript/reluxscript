@@ -1,0 +1,18 @@
+/// Plugin that renames identifiers (minification/refactoring use case)
+/// Tests: Identifier mutation, name comparison, assignment
+plugin RenameIdentifiers {
+    fn visit_identifier(node: &mut Identifier, ctx: &Context) {
+        // Rename specific identifiers
+        if node.name == "oldName" {
+            *node = Identifier {
+                name: "newName",
+            };
+        }
+
+        if node.name == "foo" {
+            *node = Identifier {
+                name: "bar",
+            };
+        }
+    }
+}

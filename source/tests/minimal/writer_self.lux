@@ -1,0 +1,8 @@
+// Test: Writer methods with &mut self parameter (should cause duplicate self error)
+writer WriterSelfTest {
+
+fn helper(&mut self) {
+    // Should handle &mut self parameter correctly in writers
+}
+
+}

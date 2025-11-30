@@ -1,0 +1,57 @@
+/// Writer Use Case 1: Extract component metadata
+/// Finds React components and extracts their props, hooks, and metadata
+use json;
+
+writer ComponentMetadataExtractor {
+    struct ComponentInfo {
+        name: Str,
+        props: Vec<Str>,
+        hooks: Vec<Str>,
+        has_state: bool,
+    }
+
+    fn pre() {
+        self.state.components = vec![];
+    }
+
+    fn visit_function_declaration(node: &FunctionDeclaration, ctx: &Context) {
+        // Check if this is a React component (starts with uppercase)
+        if let Some(id) = &node.id {
+            let name = id.name.clone();
+            if name.chars().next().unwrap().is_uppercase() {
+                let info = ComponentInfo {
+                    name: name.clone(),
+                    props: vec![],
+                    hooks: vec![],
+                    has_state: false,
+                };
+                self.state.components.push(info);
+            }
+        }
+    }
+
+    fn visit_call_expression(node: &CallExpression, ctx: &Context) {
+        // Detect hook calls (useState, useEffect, etc.)
+        if let Callee::MemberExpression(ref member) = node.callee {
+            if let Expression::Identifier(ref obj) = *member.object {
+                if let Expression::Identifier(ref prop) = *member.property {
+                    if obj.name == "React" && prop.name.starts_with("use") {
+                        // Found a hook call
+                        if let Some(component) = self.state.components.last_mut() {
+                            component.hooks.push(prop.name.clone());
+                            if prop.name == "useState" {
+                                component.has_state = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn exit() {
+        // Output collected metadata as JSON
+        let json_output = json::stringify(&self.state.components);
+        self.builder.write_line(&json_output);
+    }
+}

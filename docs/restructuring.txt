@@ -1,0 +1,435 @@
+**YES.** You've identified the core issue perfectly. The SWC codegen has grown organically and needs **architectural refactoring**.
+
+## The Root Problem
+
+You're doing **semantic analysis inline with code generation**. That's mixing two very different concerns:
+
+1. **Semantic Analysis**: "This field is a `Box<Expr>`, needs `.as_ref()`"
+2. **Code Generation**: "Emit the Rust syntax for accessing this field"
+
+These should be **separate phases**.
+
+## Recommended Architecture
+
+### Phase 1: AST Type System (New)
+
+Create a **type database** that knows the shape of Babel and SWC ASTs:
+
+```rust
+// src/ast_schema/mod.rs
+pub struct ASTSchema {
+    types: HashMap<String, TypeInfo>,
+}
+
+pub struct TypeInfo {
+    name: String,
+    fields: HashMap<String, FieldInfo>,
+}
+
+pub struct FieldInfo {
+    name: String,
+    rust_name: String,      // "object" → "obj"
+    field_type: FieldType,
+}
+
+pub enum FieldType {
+    Direct(String),         // Direct field: node.span
+    Boxed(String),          // Box<T>: node.expr (needs .as_ref())
+    Enum(EnumInfo),         // Enum: MemberProp { Ident, Computed }
+    Optional(Box<FieldType>), // Option<T>
+}
+
+pub struct EnumInfo {
+    name: String,
+    variants: Vec<String>,
+}
+```
+
+**Populate this at compile time** (or load from a schema file):
+
+```rust
+impl ASTSchema {
+    pub fn swc_schema() -> Self {
+        let mut schema = ASTSchema::new();
+        
+        // Define MemberExpr
+        schema.add_type(TypeInfo {
+            name: "MemberExpr".into(),
+            fields: hashmap! {
+                "object".into() => FieldInfo {
+                    name: "object".into(),
+                    rust_name: "obj".into(),
+                    field_type: FieldType::Boxed("Expr".into()),
+                },
+                "property".into() => FieldInfo {
+                    name: "property".into(),
+                    rust_name: "prop".into(),
+                    field_type: FieldType::Enum(EnumInfo {
+                        name: "MemberProp".into(),
+                        variants: vec!["Ident".into(), "Computed".into()],
+                    }),
+                },
+            },
+        });
+        
+        // Define Callee
+        schema.add_type(TypeInfo {
+            name: "Callee".into(),
+            fields: hashmap! {}, // Callee is an enum itself
+        });
+        
+        schema
+    }
+}
+```
+
+### Phase 2: Field Access Resolver (New)
+
+Create a module that **resolves field access semantically**:
+
+```rust
+// src/codegen/field_resolver.rs
+
+pub struct FieldAccessResolver {
+    schema: ASTSchema,
+}
+
+pub struct ResolvedFieldAccess {
+    pub base: String,           // "member"
+    pub accessor: FieldAccessor,
+}
+
+pub enum FieldAccessor {
+    Direct {
+        field: String,          // "span"
+    },
+    Boxed {
+        field: String,          // "obj"
+        needs_deref: bool,      // true if used in lvalue context
+    },
+    EnumVariant {
+        field: String,          // "prop"
+        variant: Option<String>, // Some("Ident") or None for any variant
+    },
+}
+
+impl FieldAccessResolver {
+    pub fn resolve(&self, 
+        base_type: &str,        // "MemberExpr"
+        field_name: &str,       // "object"
+        context: AccessContext, // Read vs Write
+    ) -> ResolvedFieldAccess {
+        
+        let type_info = self.schema.get_type(base_type).unwrap();
+        let field_info = type_info.fields.get(field_name).unwrap();
+        
+        match &field_info.field_type {
+            FieldType::Direct(_) => {
+                ResolvedFieldAccess {
+                    base: base_type.into(),
+                    accessor: FieldAccessor::Direct {
+                        field: field_info.rust_name.clone(),
+                    },
+                }
+            }
+            
+            FieldType::Boxed(_) => {
+                ResolvedFieldAccess {
+                    base: base_type.into(),
+                    accessor: FieldAccessor::Boxed {
+                        field: field_info.rust_name.clone(),
+                        needs_deref: matches!(context, AccessContext::Write),
+                    },
+                }
+            }
+            
+            FieldType::Enum(enum_info) => {
+                ResolvedFieldAccess {
+                    base: base_type.into(),
+                    accessor: FieldAccessor::EnumVariant {
+                        field: field_info.rust_name.clone(),
+                        variant: None, // Determine from pattern if needed
+                    },
+                }
+            }
+            
+            FieldType::Optional(inner) => {
+                // Handle Option<T> - might need unwrap or pattern match
+                todo!()
+            }
+        }
+    }
+}
+
+pub enum AccessContext {
+    Read,   // member.object in expression context → .as_ref()
+    Write,  // member.object in pattern context → *
+    Pattern, // if let pattern → nested match
+}
+```
+
+### Phase 3: Refactored Code Generator
+
+Now your code generator becomes **simple and declarative**:
+
+```rust
+// src/codegen/swc.rs (refactored)
+
+pub struct SwcCodegen {
+    schema: ASTSchema,
+    resolver: FieldAccessResolver,
+    type_context: TypeContext, // Track what type we're currently in
+}
+
+impl SwcCodegen {
+    fn gen_field_access(&mut self, base: &str, field: &str, context: AccessContext) {
+        let current_type = self.type_context.current_type();
+        let resolved = self.resolver.resolve(current_type, field, context);
+        
+        self.emit(base);
+        self.emit(".");
+        
+        match resolved.accessor {
+            FieldAccessor::Direct { field } => {
+                self.emit(&field);
+            }
+            
+            FieldAccessor::Boxed { field, needs_deref } => {
+                self.emit(&field);
+                if !needs_deref {
+                    self.emit(".as_ref()");
+                }
+            }
+            
+            FieldAccessor::EnumVariant { field, .. } => {
+                // For enum fields, might need pattern matching
+                self.emit(&field);
+            }
+        }
+    }
+    
+    fn gen_pattern(&mut self, pattern: &Pattern) {
+        match pattern {
+            Pattern::Variant { name, inner } => {
+                // Check if this is a nested enum pattern
+                if let Some(nested_info) = self.schema.get_nested_enum_info(name) {
+                    self.gen_nested_enum_pattern(nested_info, inner);
+                } else {
+                    self.gen_simple_variant_pattern(name, inner);
+                }
+            }
+            // ... other patterns
+        }
+    }
+}
+```
+
+### Phase 4: Type Context Tracking
+
+Track what type you're currently analyzing:
+
+```rust
+// src/codegen/type_context.rs
+
+pub struct TypeContext {
+    stack: Vec<TypeFrame>,
+}
+
+pub struct TypeFrame {
+    type_name: String,      // "MemberExpr"
+    binding_name: String,   // "member" (the variable name)
+}
+
+impl TypeContext {
+    pub fn push(&mut self, type_name: String, binding_name: String) {
+        self.stack.push(TypeFrame { type_name, binding_name });
+    }
+    
+    pub fn pop(&mut self) {
+        self.stack.pop();
+    }
+    
+    pub fn current_type(&self) -> &str {
+        &self.stack.last().unwrap().type_name
+    }
+    
+    pub fn current_binding(&self) -> &str {
+        &self.stack.last().unwrap().binding_name
+    }
+}
+
+// Usage in visitor generation:
+fn visit_call_expression(node: &mut CallExpression) {
+    // Push context
+    self.type_context.push("CallExpr".into(), "node".into());
+    
+    // Generate code
+    // ...
+    
+    // Pop context
+    self.type_context.pop();
+}
+```
+
+## New File Structure
+
+```
+src/
+  ast_schema/
+    mod.rs              # AST type database
+    swc_schema.rs       # SWC-specific schema
+    babel_schema.rs     # Babel-specific schema
+    
+  codegen/
+    mod.rs              
+    swc/
+      mod.rs            # Main SWC codegen (much simpler now)
+      field_resolver.rs # Field access resolution
+      pattern_gen.rs    # Pattern matching generation
+      expr_gen.rs       # Expression generation
+      stmt_gen.rs       # Statement generation
+    
+    babel/
+      mod.rs            # Babel codegen
+      # Similar structure
+    
+    type_context.rs     # Type tracking during codegen
+```
+
+## Benefits
+
+### ✅ **Consistency**
+All Box unwrapping logic is in **one place** (FieldAccessResolver)
+
+### ✅ **Traceability**
+Want to know why `member.object` becomes `member.obj.as_ref()`?
+1. Look at schema: `object` → `obj`, type is `Boxed`
+2. Look at resolver: `Boxed` + `Read` context → `.as_ref()`
+3. Done
+
+### ✅ **Testability**
+```rust
+#[test]
+fn test_boxed_field_read_context() {
+    let resolver = FieldAccessResolver::new(ASTSchema::swc_schema());
+    let resolved = resolver.resolve("MemberExpr", "object", AccessContext::Read);
+    
+    assert!(matches!(resolved.accessor, FieldAccessor::Boxed { 
+        field: ref f, 
+        needs_deref: false 
+    } if f == "obj"));
+}
+```
+
+### ✅ **Extensibility**
+Need to add C# codegen? Just implement a new schema and resolver for C# AST types.
+
+### ✅ **Documentation**
+The schema **is** the documentation of how types map:
+
+```rust
+// Anyone can read this and understand the mapping
+schema.add_field("MemberExpr", "object", FieldInfo {
+    rust_name: "obj",
+    field_type: FieldType::Boxed("Expr"),
+});
+```
+
+## Migration Path
+
+**Step 1:** Extract schema (doesn't break existing code)
+```rust
+// Create ast_schema module
+// Populate SWC schema
+// Don't use it yet
+```
+
+**Step 2:** Extract FieldAccessResolver (doesn't break existing code)
+```rust
+// Create field_resolver module
+// Implement resolution logic
+// Add tests
+```
+
+**Step 3:** Refactor one function at a time
+```rust
+// Start with gen_field_access
+// Replace inline logic with resolver.resolve()
+// Test
+// Move to next function
+```
+
+**Step 4:** Split monolithic swc.rs
+```rust
+// Move pattern generation to pattern_gen.rs
+// Move expression generation to expr_gen.rs
+// etc.
+```
+
+## Example: Before vs After
+
+### Before (Current - Ad-hoc)
+
+```rust
+fn gen_field_access(&mut self, expr: &Expr) {
+    match expr {
+        Expr::MemberAccess { object, property } => {
+            // Ad-hoc: Is this MemberExpr? Need to check...
+            if self.current_type == "MemberExpr" {
+                // Ad-hoc: object field is Box, property is enum
+                self.emit("*");  // Wait, is this right?
+                self.gen_expr(object);
+                self.emit(".obj");  // Hardcoded field name
+                // Wait, do I need .as_ref()? Depends on context...
+            }
+        }
+    }
+}
+```
+
+### After (Declarative)
+
+```rust
+fn gen_field_access(&mut self, base: &str, field: &str) {
+    let resolved = self.resolver.resolve(
+        self.type_context.current_type(),
+        field,
+        self.access_context
+    );
+    
+    self.emit_resolved_access(resolved);
+}
+
+fn emit_resolved_access(&mut self, resolved: ResolvedFieldAccess) {
+    self.emit(&resolved.base);
+    self.emit(".");
+    match resolved.accessor {
+        FieldAccessor::Boxed { field, needs_deref: false } => {
+            self.emit(&field);
+            self.emit(".as_ref()");
+        }
+        // All other cases handled declaratively
+    }
+}
+```
+
+## Bottom Line
+
+Your instinct is **100% correct**. The code has become hard to follow because:
+
+1. ❌ **Semantic knowledge is scattered** (which fields are Box, which are enums)
+2. ❌ **No single source of truth** for type mappings
+3. ❌ **Code generation and semantic analysis are mixed**
+4. ❌ **Special cases are inline** rather than table-driven
+
+**The fix:**
+1. ✅ **Create an AST schema** (single source of truth)
+2. ✅ **Extract semantic resolution** (FieldAccessResolver)
+3. ✅ **Make codegen declarative** (query the schema, don't hardcode)
+4. ✅ **Split into focused modules** (one concern per file)
+
+This will make it **dramatically easier** to:
+- Fix bugs (change schema, not scattered code)
+- Add features (update schema, resolver handles it)
+- Test (test schema and resolver independently)
+- Understand (read schema to understand mappings)

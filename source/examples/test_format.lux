@@ -1,0 +1,5 @@
+writer TestFormat {
+    fn test() {
+        let x = format!("Hello {} world", 42);
+    }
+}

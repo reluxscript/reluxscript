@@ -1,0 +1,36 @@
+// Test file to demonstrate emitter issues
+use codegen;
+
+plugin EmitterIssuesTest {
+
+    // Issue #3: Path expressions (codegen::generate should use ::)
+    fn test_path_expression(expr: &Expression) -> Str {
+        let code = codegen::generate(expr);
+        code
+    }
+
+    // Issue #4: Macro calls (format! should keep the !)
+    fn test_macro_call(name: &Str) -> Str {
+        format!("Hello, {}!", name)
+    }
+
+    // Issue #1: Pattern variant qualification
+    fn test_pattern_matching(pattern: &Pattern) -> bool {
+        match pattern {
+            Pattern::ArrayPattern(arr) => true,
+            Pattern::ObjectPattern(obj) => true,
+            Pattern::Identifier(id) => false,
+            _ => false,
+        }
+    }
+
+    // Combined test
+    fn test_combined(pattern: &Pattern) -> Str {
+        let result = match pattern {
+            Pattern::ArrayPattern(_) => "array",
+            Pattern::ObjectPattern(_) => "object",
+            _ => "other",
+        };
+        format!("Pattern type: {}", result)
+    }
+}

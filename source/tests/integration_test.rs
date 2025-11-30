@@ -74,7 +74,7 @@ impl IntegrationTest {
 
         // Run relux compiler to generate Babel plugin
         let output = Command::new("cargo")
-            .args(&["run", "--", "build", "--target", "babel"])
+            .args(&["run", "--bin", "relux", "--", "build", "--target", "babel"])
             .arg(&plugin_path)
             .arg("-o")
             .arg(&output_dir)
@@ -98,7 +98,7 @@ impl IntegrationTest {
 
         // Run relux compiler to generate SWC plugin
         let output = Command::new("cargo")
-            .args(&["run", "--", "build", "--target", "swc"])
+            .args(&["run", "--bin", "relux", "--", "build", "--target", "swc"])
             .arg(&plugin_path)
             .arg("-o")
             .arg(&output_dir)

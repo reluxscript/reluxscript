@@ -1,0 +1,6 @@
+// Simple plugin that logs function names
+plugin FunctionLogger {
+    fn visit_function_declaration(node: &FunctionDeclaration) {
+        println!("Found function: {}", node.id.name);
+    }
+}

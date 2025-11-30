@@ -1,0 +1,30 @@
+/// Test plugin for custom AST properties
+plugin CustomPropsTest {
+    struct State {
+        counter: i32,
+    }
+
+    fn init() -> State {
+        State { counter: 0 }
+    }
+
+    fn visit_jsx_element(node: &mut JSXElement, ctx: &Context) {
+        // Test basic assignment
+        node.__hexPath = "0x1234";
+
+        // Test counter-based assignment
+        self.state.counter = self.state.counter + 1;
+        node.__id = self.state.counter;
+
+        // Test boolean flag
+        node.__processed = true;
+    }
+
+    fn visit_identifier(node: &mut Identifier, ctx: &Context) {
+        // Test reading custom property
+        if let Some(hex) = node.__hexPath {
+            // Use the hex path
+            println("Found hex: {}", hex);
+        }
+    }
+}

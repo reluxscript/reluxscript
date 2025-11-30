@@ -1,0 +1,25 @@
+// Plugin that tracks and renames variables
+plugin VariableRenamer {
+    struct RenameMap {
+        old_name: String,
+        new_name: String,
+    }
+
+    fn visit_identifier(node: &mut Identifier) {
+        if node.name == "oldVar" {
+            *node = Identifier {
+                name: "newVar".to_string(),
+            };
+        }
+    }
+
+    fn visit_variable_declarator(node: &mut VariableDeclarator) {
+        if let Pattern::Identifier(id) = &mut node.id {
+            if id.name == "temp" {
+                *id = Identifier {
+                    name: "renamed".to_string(),
+                };
+            }
+        }
+    }
+}

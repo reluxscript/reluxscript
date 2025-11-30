@@ -48,8 +48,8 @@ impl TypeContext {
     /// Create an unknown type context
     pub fn unknown() -> Self {
         Self {
-            reluxscript_type: "Unknown".into(),
-            swc_type: "Unknown".into(),
+            reluxscript_type: "UserDefined".into(),
+            swc_type: "UserDefined".into(),
             kind: SwcTypeKind::Unknown,
             known_variant: None,
             needs_deref: false,
@@ -559,7 +559,7 @@ pub fn get_swc_variant_in_context(rs_type: &str, context: &str) -> (String, Stri
         "VariableDeclaration" => ("Decl".into(), "Var".into(), "VarDecl".into()),
         "ClassDeclaration" => ("Decl".into(), "Class".into(), "ClassDecl".into()),
 
-        _ => ("Unknown".into(), rs_type.to_string(), rs_type.to_string()),
+        _ => ("UserDefined".into(), rs_type.to_string(), rs_type.to_string()),
     }
 }
 
@@ -605,7 +605,7 @@ pub fn get_typed_field_mapping(parent_swc_type: &str, field: &str) -> Option<Typ
             needs_deref: false,
             result_type_rs: "Callee",
             result_type_swc: "Callee",
-            read_conversion: "",
+            read_conversion: ".as_expr().unwrap()",  // Callee::Expr(...) -> &Expr
             write_conversion: "",
         }),
         ("CallExpr", "arguments") => Some(TypedFieldMapping {
@@ -614,6 +614,17 @@ pub fn get_typed_field_mapping(parent_swc_type: &str, field: &str) -> Option<Typ
             needs_deref: false,
             result_type_rs: "Vec<ExprOrSpread>",
             result_type_swc: "Vec<ExprOrSpread>",
+            read_conversion: "",
+            write_conversion: "",
+        }),
+
+        // Param fields
+        ("Param", "pattern") => Some(TypedFieldMapping {
+            reluxscript_field: "pattern",
+            swc_field: "pat",
+            needs_deref: false,
+            result_type_rs: "Pat",
+            result_type_swc: "Pat",
             read_conversion: "",
             write_conversion: "",
         }),

@@ -1,0 +1,15 @@
+// Test: String literals should get .into() when assigned to String
+
+plugin TestStringLiteralInto {
+    fn get_label() -> Str {
+        return "hello";
+    }
+
+    fn get_conditional(flag: bool) -> Str {
+        if flag {
+            "yes"
+        } else {
+            "no"
+        }
+    }
+}

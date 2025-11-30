@@ -251,6 +251,12 @@ impl<'a> Lexer<'a> {
                 // Numbers
                 c if c.is_ascii_digit() => self.read_number(c),
 
+                // Raw string literals: r"..."
+                'r' if self.peek_char() == Some('"') => {
+                    self.advance(); // consume the "
+                    self.read_raw_string()
+                }
+
                 // Identifiers and keywords
                 c if c.is_alphabetic() || c == '_' => self.read_identifier(c),
 
@@ -344,6 +350,19 @@ impl<'a> Lexer<'a> {
                         None => return TokenKind::Error("Unterminated escape sequence".to_string()),
                     }
                 }
+                Some((_, c)) => string.push(c),
+            }
+        }
+        TokenKind::StringLit(string)
+    }
+
+    fn read_raw_string(&mut self) -> TokenKind {
+        // Raw strings don't process escape sequences
+        let mut string = String::new();
+        loop {
+            match self.advance() {
+                None => return TokenKind::Error("Unterminated raw string".to_string()),
+                Some((_, '"')) => break,
                 Some((_, c)) => string.push(c),
             }
         }

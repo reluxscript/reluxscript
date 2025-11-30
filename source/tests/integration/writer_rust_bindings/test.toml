@@ -1,0 +1,12 @@
+[test]
+name = "writer-rust-bindings"
+description = "Writer: Generate Rust FFI bindings from JavaScript functions (wasm-bindgen style)"
+
+[plugin]
+source = "plugin.lux"
+
+[input]
+source = "input.js"
+
+[expected]
+source = "expected.js"

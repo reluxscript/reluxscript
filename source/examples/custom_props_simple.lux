@@ -1,0 +1,17 @@
+/// Simple test for custom AST properties
+plugin CustomPropsTest {
+    struct State {
+        counter: i32,
+    }
+
+    fn visit_jsx_element(node: &mut JSXElement, ctx: &Context) {
+        // Test string assignment
+        node.__hexPath = "0x1234";
+
+        // Test boolean flag
+        node.__processed = true;
+
+        // Test integer assignment
+        node.__count = 42;
+    }
+}

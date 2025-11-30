@@ -1,0 +1,8 @@
+// Test: Reproduces E0277 - Writers should not implement VisitMut trait
+writer WriterNoVisitMutTest {
+
+pub fn generate_code(node: &Expr) -> String {
+    "test".to_string()
+}
+
+}

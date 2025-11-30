@@ -1,0 +1,12 @@
+[test]
+name = "rename-identifiers"
+description = "Rename identifiers (minification/refactoring use case)"
+
+[plugin]
+source = "plugin.lux"
+
+[input]
+source = "input.js"
+
+[expected]
+source = "expected.js"

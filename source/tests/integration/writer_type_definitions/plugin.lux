@@ -1,0 +1,95 @@
+/// Writer Use Case 2: Generate TypeScript type definitions
+/// Analyzes JavaScript code and generates .d.ts type definitions
+/// Extracts function signatures, component props, and interfaces
+
+writer TypeDefinitionGenerator {
+    fn pre() {
+        self.state.declarations = vec![];
+    }
+
+    fn visit_function_declaration(node: &FunctionDeclaration, ctx: &Context) {
+        if let Some(id) = &node.id {
+            let name = id.name.clone();
+
+            // Build parameter list
+            let mut param_list = String::from("");
+            for (i, param) in node.params.iter().enumerate() {
+                if i > 0 {
+                    param_list.push_str(", ");
+                }
+
+                // Extract parameter name from pattern
+                let param_name = match param {
+                    Pattern::Ident(name) => name.clone(),
+                    _ => format!("arg{}", i),
+                };
+
+                param_list.push_str(&param_name);
+                param_list.push_str(": any");
+            }
+
+            // Generate function declaration
+            let decl = format!("export function {}({}): any;", name, param_list);
+            self.state.declarations.push(decl);
+        }
+    }
+
+    fn visit_variable_declarator(node: &VariableDeclarator, ctx: &Context) {
+        // Check if this is a function expression (const foo = function() {})
+        if let Some(init) = &node.init {
+            if let Expression::FunctionExpression(func) = init {
+                let name = match &node.id {
+                    Pattern::Ident(n) => n.clone(),
+                    _ => return,
+                };
+
+                // Build parameter list
+                let mut param_list = String::from("");
+                for (i, param) in func.params.iter().enumerate() {
+                    if i > 0 {
+                        param_list.push_str(", ");
+                    }
+                    let param_name = match param {
+                        Pattern::Ident(name) => name.clone(),
+                        _ => format!("arg{}", i),
+                    };
+                    param_list.push_str(&param_name);
+                    param_list.push_str(": any");
+                }
+
+                let decl = format!("export const {}: ({}) => any;", name, param_list);
+                self.state.declarations.push(decl);
+            }
+            // Arrow function: const foo = () => {}
+            else if let Expression::ArrowFunction(arrow) = init {
+                let name = match &node.id {
+                    Pattern::Ident(n) => n.clone(),
+                    _ => return,
+                };
+
+                let mut param_list = String::from("");
+                for (i, param) in arrow.params.iter().enumerate() {
+                    if i > 0 {
+                        param_list.push_str(", ");
+                    }
+                    let param_name = match param {
+                        Pattern::Ident(name) => name.clone(),
+                        _ => format!("arg{}", i),
+                    };
+                    param_list.push_str(&param_name);
+                    param_list.push_str(": any");
+                }
+
+                let decl = format!("export const {}: ({}) => any;", name, param_list);
+                self.state.declarations.push(decl);
+            }
+        }
+    }
+
+    fn exit() {
+        // Output all type declarations
+        for decl in &self.state.declarations {
+            self.builder.write_line(decl);
+        }
+    }
+}

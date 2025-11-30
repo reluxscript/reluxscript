@@ -662,6 +662,13 @@ impl Resolver {
                 // Verbatim blocks are opaque to semantic analysis
                 // No type checking or variable tracking
             }
+
+            Stmt::CustomPropAssignment(assign) => {
+                // Resolve the node expression and value
+                self.resolve_expr(&assign.node);
+                self.resolve_expr(&assign.value);
+                // TODO: Validate that node is an AST type and property starts with __
+            }
         }
     }
 
@@ -820,7 +827,7 @@ impl Resolver {
                 if let Expr::Ident(ident) = &*call.callee {
                     if self.env.lookup(&ident.name).is_none() {
                         let is_special = matches!(ident.name.as_str(),
-                            "self" | "Self" | "matches!" | "format!" | "format" | "vec!" | "Some" | "None" | "Ok" | "Err" | "String" | "HashMap" | "HashSet" | "Vec" | "Option" | "Result" | "Box" | "CodeBuilder" | "_"
+                            "self" | "Self" | "matches!" | "format!" | "format" | "vec!" | "println" | "panic" | "print" | "eprintln" | "eprint" | "dbg" | "Some" | "None" | "Ok" | "Err" | "String" | "HashMap" | "HashSet" | "Vec" | "Option" | "Result" | "Box" | "CodeBuilder" | "_"
                         );
                         let is_ast_type = get_node_mapping(&ident.name).is_some();
                         if !is_special && !is_ast_type {
@@ -971,6 +978,21 @@ impl Resolver {
 
             Expr::Break => {}
             Expr::Continue => {}
+
+            Expr::RegexCall(regex_call) => {
+                // Resolve text argument
+                self.resolve_expr(&regex_call.text_arg);
+                // Resolve replacement argument if present
+                if let Some(ref repl) = regex_call.replacement_arg {
+                    self.resolve_expr(repl);
+                }
+            }
+
+            Expr::CustomPropAccess(access) => {
+                // Resolve the node expression
+                self.resolve_expr(&access.node);
+                // TODO: Validate that property starts with __
+            }
 
             Expr::Literal(_) => {}
         }

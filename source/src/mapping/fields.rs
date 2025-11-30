@@ -110,7 +110,7 @@ pub static FIELD_MAPPINGS: Lazy<Vec<FieldMapping>> = Lazy::new(|| vec![
         swc_type: "Callee",
         needs_box_unwrap: false,
         optional: false,
-        read_conversion: None,
+        read_conversion: Some(".as_expr().unwrap()"),  // Callee::Expr(...) -> &Expr
         write_conversion: None,
     },
     FieldMapping {

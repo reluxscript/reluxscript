@@ -1,0 +1,124 @@
+/// Writer Use Case 5: Static analysis - find unused exports and code complexity
+/// Tracks all exports and their usage, calculates cyclomatic complexity
+
+use json;
+
+writer StaticAnalyzer {
+    struct ExportInfo {
+        name: Str,
+        kind: Str,
+        used: bool,
+    }
+
+    struct FunctionMetrics {
+        name: Str,
+        lines: Number,
+        branches: Number,
+        complexity: Number,
+    }
+
+    fn pre() {
+        self.state.exports = vec![];
+        self.state.identifiers_used = vec![];
+        self.state.metrics = vec![];
+    }
+
+    fn visit_export_named_declaration(node: &ExportNamedDeclaration, ctx: &Context) {
+        // Track named exports
+        if let Some(decl) = &node.declaration {
+            match decl {
+                Declaration::FunctionDeclaration(func) => {
+                    if let Some(id) = &func.id {
+                        let export = ExportInfo {
+                            name: id.name.clone(),
+                            kind: "function".to_string(),
+                            used: false,
+                        };
+                        self.state.exports.push(export);
+                    }
+                }
+                Declaration::VariableDeclaration(var) => {
+                    for declarator in &var.declarations {
+                        if let Pattern::Ident(name) = &declarator.id {
+                            let export = ExportInfo {
+                                name: name.clone(),
+                                kind: "variable".to_string(),
+                                used: false,
+                            };
+                            self.state.exports.push(export);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn visit_identifier(node: &Identifier, ctx: &Context) {
+        // Track all identifier usage
+        self.state.identifiers_used.push(node.name.clone());
+    }
+
+    fn visit_function_declaration(node: &FunctionDeclaration, ctx: &Context) {
+        if let Some(id) = &node.id {
+            // Calculate basic complexity metrics
+            let mut branches = 0;
+
+            // Count if statements in body
+            if let Some(body) = &node.body {
+                for stmt in &body.stmts {
+                    if let Statement::If(_) = stmt {
+                        branches += 1;
+                    }
+                }
+            }
+
+            let metrics = FunctionMetrics {
+                name: id.name.clone(),
+                lines: 10,  // Simplified - would need actual line counting
+                branches,
+                complexity: branches + 1,  // Cyclomatic complexity = branches + 1
+            };
+
+            self.state.metrics.push(metrics);
+        }
+    }
+
+    fn exit() {
+        // Mark exports as used if they appear in identifiers_used
+        for export in &mut self.state.exports {
+            if self.state.identifiers_used.contains(&export.name) {
+                export.used = true;
+            }
+        }
+
+        // Find unused exports
+        let mut unused = vec![];
+        for export in &self.state.exports {
+            if !export.used {
+                unused.push(export.name.clone());
+            }
+        }
+
+        // Output analysis report
+        self.builder.write_line("# Static Analysis Report\n");
+
+        if !unused.is_empty() {
+            self.builder.write_line("## Unused Exports");
+            for name in &unused {
+                self.builder.write_line(&format!("- {}", name));
+            }
+            self.builder.write_line("");
+        }
+
+        self.builder.write_line("## Function Complexity");
+        for metric in &self.state.metrics {
+            self.builder.write_line(&format!(
+                "- {}: complexity={}, branches={}",
+                metric.name,
+                metric.complexity,
+                metric.branches
+            ));
+        }
+    }
+}

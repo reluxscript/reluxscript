@@ -1,0 +1,7 @@
+// Test: Identifier.name should map to .sym in SWC
+
+plugin TestIdentSym {
+    fn visit_identifier(node: &mut Identifier, ctx: &Context) {
+        let name = node.name.clone();
+    }
+}

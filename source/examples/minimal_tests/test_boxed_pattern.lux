@@ -1,0 +1,9 @@
+// Test: Pattern matching on Box<Expr> fields
+
+plugin TestBoxedPattern {
+    fn visit_member_expression(node: &mut MemberExpression, ctx: &Context) {
+        if let Expression::Identifier(obj) = &node.object {
+            // node.object is Box<Expr>, needs proper handling
+        }
+    }
+}

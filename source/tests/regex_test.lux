@@ -1,0 +1,21 @@
+plugin RegexTest {
+    fn test_matches(name: &Str) -> bool {
+        Regex::matches(name, r"^use[A-Z]")
+    }
+
+    fn test_find(text: &Str) -> Option<Str> {
+        Regex::find(text, r"\d+")
+    }
+
+    fn test_replace(text: &Str) -> Str {
+        Regex::replace(text, r"\d+", "NUM")
+    }
+
+    fn test_captures(version: &Str) -> Option<Str> {
+        if let Some(caps) = Regex::captures(version, r"^(\d+)\.(\d+)\.(\d+)$") {
+            caps.get(1)
+        } else {
+            None
+        }
+    }
+}

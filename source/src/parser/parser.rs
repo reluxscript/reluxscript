@@ -208,22 +208,22 @@ impl Parser {
                 } else if self.check(TokenKind::Enum) {
                     PluginItem::Enum(self.parse_enum()?)
                 } else if self.check(TokenKind::Fn) {
-                    // Check if this is a special hook (pre or exit)
+                    // Check if this is a special hook (pre, exit, or finish)
                     let func = self.parse_function()?;
                     match func.name.as_str() {
                         "pre" => PluginItem::PreHook(func),
-                        "exit" => PluginItem::ExitHook(func),
+                        "exit" | "finish" => PluginItem::ExitHook(func),
                         _ => PluginItem::Function(func),
                     }
                 } else {
                     return Err(self.error("Expected struct, enum, or fn after 'pub'"));
                 }
             } else if self.check(TokenKind::Fn) {
-                // Check if this is a special hook (pre or exit)
+                // Check if this is a special hook (pre, exit, or finish)
                 let func = self.parse_function()?;
                 match func.name.as_str() {
                     "pre" => PluginItem::PreHook(func),
-                    "exit" => PluginItem::ExitHook(func),
+                    "exit" | "finish" => PluginItem::ExitHook(func),
                     _ => PluginItem::Function(func),
                 }
             } else if self.check(TokenKind::Impl) {
@@ -278,6 +278,7 @@ impl Parser {
         Ok(StructDecl {
             name,
             fields,
+            derives: Vec::new(),  // Will be populated by semantic analysis
             span: start_span,
         })
     }
@@ -1320,14 +1321,24 @@ impl Parser {
                 if self.match_token(TokenKind::Dot) {
                     let property = self.expect_ident()?;
                     let span = self.current_span();
-                    expr = Expr::Member(MemberExpr {
-                        object: Box::new(expr),
-                        property,
-                        optional: false,
-                        computed: false,
-                        is_path: false,
-                        span,
-                    });
+
+                    // Check if this is a custom property access (starts with __)
+                    if property.starts_with("__") {
+                        expr = Expr::CustomPropAccess(CustomPropAccess {
+                            node: Box::new(expr),
+                            property,
+                            span,
+                        });
+                    } else {
+                        expr = Expr::Member(MemberExpr {
+                            object: Box::new(expr),
+                            property,
+                            optional: false,
+                            computed: false,
+                            is_path: false,
+                            span,
+                        });
+                    }
                 } else {
                     break;
                 }
@@ -1346,15 +1357,28 @@ impl Parser {
                 if self.match_token(TokenKind::Dot) {
                     let property = self.expect_ident()?;
                     let span = self.current_span();
-                    expr = Expr::Member(MemberExpr {
-                        object: Box::new(expr),
-                        property,
-                        optional: false,
-                        computed: false,
-                        is_path: false,
-                        span,
-                    });
-                } else if self.match_token(TokenKind::LParen) {
+
+                    // Check if this is a custom property access (starts with __)
+                    if property.starts_with("__") {
+                        expr = Expr::CustomPropAccess(CustomPropAccess {
+                            node: Box::new(expr),
+                            property,
+                            span,
+                        });
+                    } else {
+                        expr = Expr::Member(MemberExpr {
+                            object: Box::new(expr),
+                            property,
+                            optional: false,
+                            computed: false,
+                            is_path: false,
+                            span,
+                        });
+                    }
+                } else if self.check(TokenKind::Not) && self.peek_ahead(1).map_or(false, |t| t.kind == TokenKind::LParen) {
+                    // Macro call: format!(...), println!(...), vec![...]
+                    self.advance(); // consume !
+                    self.advance(); // consume (
                     let args = self.parse_args()?;
                     self.expect(TokenKind::RParen)?;
                     let span = self.current_span();
@@ -1363,6 +1387,20 @@ impl Parser {
                         args,
                         type_args: Vec::new(),
                         optional: false,
+                        is_macro: true,
+                        span,
+                    });
+                } else if self.match_token(TokenKind::LParen) {
+                    // Regular function call
+                    let args = self.parse_args()?;
+                    self.expect(TokenKind::RParen)?;
+                    let span = self.current_span();
+                    expr = Expr::Call(CallExpr {
+                        callee: Box::new(expr),
+                        args,
+                        type_args: Vec::new(),
+                        optional: false,
+                        is_macro: false,
                         span,
                     });
                 } else if self.match_token(TokenKind::LBracket) {
@@ -1681,6 +1719,27 @@ impl Parser {
         let start_span = self.current_span();
         let expr = self.parse_expr()?;
 
+        // Check if this is a custom property assignment
+        if let Expr::Assign(ref assign) = expr {
+            if let Expr::CustomPropAccess(ref access) = *assign.target {
+                // Convert to CustomPropAssignment statement
+                self.skip_newlines();
+                if !self.check(TokenKind::RBrace) {
+                    self.expect(TokenKind::Semicolon)?;
+                } else {
+                    self.match_token(TokenKind::Semicolon);
+                }
+
+                return Ok(Stmt::CustomPropAssignment(CustomPropAssignment {
+                    node: access.node.clone(),
+                    property: access.property.clone(),
+                    value: assign.value.clone(),
+                    ty: None,  // Type annotation not supported yet
+                    span: start_span,
+                }));
+            }
+        }
+
         // Semicolon is optional if this is the last expression in a block (before RBrace)
         // This allows the expression to serve as the block's return value
         self.skip_newlines();
@@ -1709,6 +1768,19 @@ impl Parser {
         if self.match_token(TokenKind::Eq) {
             let value = self.parse_assignment()?;
             let span = self.current_span();
+
+            // Check if this is a custom property assignment
+            if let Expr::CustomPropAccess(access) = expr {
+                // This is a custom property assignment, not a regular assignment
+                // We keep it as an Assign expression but the semantic analyzer
+                // will detect it via the CustomPropAccess target
+                return Ok(Expr::Assign(AssignExpr {
+                    target: Box::new(Expr::CustomPropAccess(access)),
+                    value: Box::new(value),
+                    span,
+                }));
+            }
+
             return Ok(Expr::Assign(AssignExpr {
                 target: Box::new(expr),
                 value: Box::new(value),
@@ -1942,6 +2014,20 @@ impl Parser {
 
             if self.match_token(TokenKind::LParen) {
                 // Function call
+
+                // Check if this is a Regex:: namespace call
+                if let Expr::Member(ref member) = expr {
+                    if member.is_path {
+                        if let Expr::Ident(ref ident) = *member.object {
+                            if ident.name == "Regex" {
+                                // Parse Regex::method(...) call
+                                expr = self.parse_regex_call(&member.property)?;
+                                continue;
+                            }
+                        }
+                    }
+                }
+
                 let args = self.parse_args()?;
                 self.expect(TokenKind::RParen)?;
                 let span = self.current_span();
@@ -1950,20 +2036,31 @@ impl Parser {
                     args,
                     type_args: Vec::new(),
                     optional: false,
+                    is_macro: false,
                     span,
                 });
             } else if self.match_token(TokenKind::Dot) {
                 // Member access
                 let property = self.expect_ident()?;
                 let span = self.current_span();
-                expr = Expr::Member(MemberExpr {
-                    object: Box::new(expr),
-                    property,
-                    optional: false,
-                    computed: false,
-                    is_path: false,
-                    span,
-                });
+
+                // Check if this is a custom property access (starts with __)
+                if property.starts_with("__") {
+                    expr = Expr::CustomPropAccess(CustomPropAccess {
+                        node: Box::new(expr),
+                        property,
+                        span,
+                    });
+                } else {
+                    expr = Expr::Member(MemberExpr {
+                        object: Box::new(expr),
+                        property,
+                        optional: false,
+                        computed: false,
+                        is_path: false,
+                        span,
+                    });
+                }
             } else if self.match_token(TokenKind::QuestionDot) {
                 // Optional member access ?.
                 let property = self.expect_ident()?;
@@ -2111,6 +2208,77 @@ impl Parser {
         Ok(args)
     }
 
+    /// Parse Regex::method(...) call
+    fn parse_regex_call(&mut self, method_name: &str) -> ParseResult<Expr> {
+        use crate::parser::ast::{RegexCall, RegexMethod};
+
+        let start_span = self.current_span();
+
+        // Determine which regex method this is
+        let method = match method_name {
+            "matches" => RegexMethod::Matches,
+            "find" => RegexMethod::Find,
+            "find_all" => RegexMethod::FindAll,
+            "captures" => RegexMethod::Captures,
+            "replace" => RegexMethod::Replace,
+            "replace_all" => RegexMethod::ReplaceAll,
+            _ => {
+                return Err(self.error(&format!(
+                    "Unknown Regex method: '{}'. Available methods: matches, find, find_all, captures, replace, replace_all",
+                    method_name
+                )));
+            }
+        };
+
+        // Parse arguments
+        self.skip_newlines();
+
+        // First argument: text to search
+        let text_arg = Box::new(self.parse_expr()?);
+        self.skip_newlines();
+        self.expect(TokenKind::Comma)?;
+        self.skip_newlines();
+
+        // Second argument: pattern (must be string literal)
+        let pattern_expr = self.parse_expr()?;
+        let pattern_arg = match pattern_expr {
+            Expr::Literal(Literal::String(s)) => s,
+            _ => {
+                return Err(self.error(
+                    "Regex pattern must be a string literal. Example: Regex::matches(text, r\"^pattern$\")"
+                ));
+            }
+        };
+
+        // Third argument (optional): replacement string for replace/replace_all
+        let replacement_arg = if matches!(method, RegexMethod::Replace | RegexMethod::ReplaceAll) {
+            self.skip_newlines();
+            self.expect(TokenKind::Comma)?;
+            self.skip_newlines();
+            Some(Box::new(self.parse_expr()?))
+        } else {
+            None
+        };
+
+        self.skip_newlines();
+        self.expect(TokenKind::RParen)?;
+
+        let span = Span::new(
+            start_span.start,
+            self.current_span().end,
+            start_span.line,
+            start_span.column,
+        );
+
+        Ok(Expr::RegexCall(RegexCall {
+            method,
+            text_arg,
+            pattern_arg,
+            replacement_arg,
+            span,
+        }))
+    }
+
     /// Parse primary expression
     fn parse_primary(&mut self) -> ParseResult<Expr> {
         let span = self.current_span();
@@ -2249,6 +2417,7 @@ impl Parser {
                     args,
                     type_args: Vec::new(),
                     optional: false,
+                    is_macro: true,
                     span,
                 }));
             } else {
@@ -2297,6 +2466,21 @@ impl Parser {
 
         // Identifier or struct init
         if let Some(name) = self.try_expect_ident() {
+            // Check for macro call: identifier!()
+            if self.check(TokenKind::Not) && self.peek_ahead(1).map_or(false, |t| t.kind == TokenKind::LParen) {
+                self.advance(); // consume !
+                self.advance(); // consume (
+                let args = self.parse_args()?;
+                self.expect(TokenKind::RParen)?;
+                return Ok(Expr::Call(CallExpr {
+                    callee: Box::new(Expr::Ident(IdentExpr { name, span })),
+                    args,
+                    type_args: Vec::new(),
+                    optional: false,
+                    is_macro: true,
+                    span: self.current_span(),
+                }));
+            }
             // Check for struct initialization or wildcard pattern TypeName(_)
             if self.check(TokenKind::LBrace) {
                 return self.parse_struct_init(name, span);
@@ -2329,6 +2513,7 @@ impl Parser {
                     args,
                     type_args: Vec::new(),
                     optional: false,
+                    is_macro: false,
                     span,
                 }));
             }
@@ -2674,6 +2859,10 @@ impl Parser {
 
     fn peek(&self) -> Option<&Token> {
         self.tokens.get(self.pos)
+    }
+
+    fn peek_ahead(&self, n: usize) -> Option<&Token> {
+        self.tokens.get(self.pos + n)
     }
 
     fn advance(&mut self) -> Option<&Token> {

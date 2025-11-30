@@ -1,0 +1,24 @@
+/// Plugin that instruments code for coverage tracking
+/// Tests: Statement wrapping, function call injection
+plugin InstrumentCoverage {
+    struct State {
+        statement_count: Number,
+    }
+
+    fn visit_statement(node: &mut Statement, ctx: &Context) {
+        // Track statement execution
+        let line = node.span.line;
+
+        // In real implementation, would wrap statement with coverage call:
+        // __coverage__.s[self.state.statement_count]++;
+        // original_statement;
+
+        self.state.statement_count += 1;
+    }
+
+    fn visit_function_declaration(node: &mut FunctionDeclaration, ctx: &Context) {
+        // Track function entry
+        // In real implementation, would prepend to body:
+        // __coverage__.f[function_id]++;
+    }
+}

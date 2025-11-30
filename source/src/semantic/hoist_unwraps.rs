@@ -523,6 +523,7 @@ impl UnwrapHoister {
                 ],
                 type_args: Vec::new(),
                 optional: false,
+                is_macro: true,
                 span,
             });
 
@@ -567,6 +568,7 @@ impl UnwrapHoister {
                 args: vec![],
                 type_args: Vec::new(),
                 optional: false,
+                is_macro: false,
                 span,
             });
 
@@ -609,6 +611,7 @@ impl UnwrapHoister {
                                 ],
                                 type_args: Vec::new(),
                                 optional: false,
+                                is_macro: true,
                                 span,
                             }),
                             span,

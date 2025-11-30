@@ -1,0 +1,12 @@
+[test]
+name = "writer-static-analysis"
+description = "Writer: Find unused exports and calculate code complexity metrics"
+
+[plugin]
+source = "plugin.lux"
+
+[input]
+source = "input.js"
+
+[expected]
+source = "expected.js"

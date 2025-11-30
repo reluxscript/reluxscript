@@ -1,0 +1,12 @@
+[test]
+name = "constant-folding"
+description = "Optimize code with constant folding"
+
+[plugin]
+source = "plugin.lux"
+
+[input]
+source = "input.js"
+
+[expected]
+source = "expected.js"

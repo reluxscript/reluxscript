@@ -416,6 +416,14 @@ impl TypeChecker {
                 // Verbatim blocks are opaque to type checking
                 // No analysis performed on raw code
             }
+
+            Stmt::CustomPropAssignment(assign) => {
+                // Check the node and value expressions
+                let _node_type = self.infer_expr(&assign.node);
+                let _value_type = self.infer_expr(&assign.value);
+                // TODO: Implement custom property type tracking
+                // For now, we just validate the expressions compile
+            }
         }
     }
 
@@ -802,6 +810,36 @@ impl TypeChecker {
 
             Expr::Break => TypeInfo::Unit,  // Diverges
             Expr::Continue => TypeInfo::Unit,  // Diverges
+
+            Expr::RegexCall(regex_call) => {
+                use crate::parser::RegexMethod;
+                // Return type depends on method
+                match regex_call.method {
+                    RegexMethod::Matches => TypeInfo::Bool,
+                    RegexMethod::Find => TypeInfo::Option(Box::new(TypeInfo::Str)),
+                    RegexMethod::FindAll => TypeInfo::Vec(Box::new(TypeInfo::Str)),
+                    RegexMethod::Captures => {
+                        // Return Option<Captures> where Captures has a get(i32) -> Str method
+                        let mut fields = std::collections::HashMap::new();
+                        fields.insert("get".to_string(), TypeInfo::Function {
+                            params: vec![TypeInfo::I32],
+                            ret: Box::new(TypeInfo::Str),
+                        });
+                        TypeInfo::Option(Box::new(TypeInfo::Struct {
+                            name: "Captures".to_string(),
+                            fields,
+                        }))
+                    }
+                    RegexMethod::Replace | RegexMethod::ReplaceAll => TypeInfo::Str,
+                }
+            }
+
+            Expr::CustomPropAccess(_access) => {
+                // Custom properties always return Option<T>
+                // TODO: Track property types and return Option<ActualType>
+                // For now, return Option<Unknown>
+                TypeInfo::Option(Box::new(TypeInfo::Unknown))
+            }
         }
     }
 

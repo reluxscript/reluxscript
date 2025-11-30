@@ -1,0 +1,70 @@
+{
+  "name": "reluxscript",
+  "displayName": "ReluxScript",
+  "description": "Language support for ReluxScript - Write AST transformations once, compile to Babel and SWC",
+  "version": "0.1.0",
+  "publisher": "reluxscript",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:reluxscript"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "reluxscript",
+        "aliases": [
+          "ReluxScript",
+          "reluxscript"
+        ],
+        "extensions": [
+          ".lux"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "reluxscript",
+        "scopeName": "source.reluxscript",
+        "path": "./syntaxes/reluxscript.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "reluxscript.compile.babel",
+        "title": "ReluxScript: Compile to Babel"
+      },
+      {
+        "command": "reluxscript.compile.swc",
+        "title": "ReluxScript: Compile to SWC"
+      },
+      {
+        "command": "reluxscript.compile.both",
+        "title": "ReluxScript: Compile to Both (Babel & SWC)"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.80.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.0"
+  }
+}

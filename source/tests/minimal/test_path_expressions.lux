@@ -1,0 +1,15 @@
+// Minimal test for path expressions (::)
+use codegen;
+use fs;
+
+plugin PathExpressionTest {
+    fn test_codegen_generate(expr: &Expr) -> Str {
+        // Should emit: codegen::generate(expr)
+        codegen::generate(expr)
+    }
+
+    fn test_fs_read(path: &Str) -> Str {
+        // Should emit: fs::read_to_string(path)
+        fs::read_to_string(path)
+    }
+}

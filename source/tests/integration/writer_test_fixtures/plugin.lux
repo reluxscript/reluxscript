@@ -1,0 +1,66 @@
+/// Writer Use Case 7: Generate test fixtures from type definitions
+/// Creates mock/stub data based on inferred types for testing purposes
+
+use json;
+
+writer TestFixtureGenerator {
+    struct Fixture {
+        name: Str,
+        mock_data: Str,
+    }
+
+    fn pre() {
+        self.state.fixtures = vec![];
+    }
+
+    fn visit_variable_declarator(node: &VariableDeclarator, ctx: &Context) {
+        // Find object literals that look like type definitions
+        if let Some(init) = &node.init {
+            if let Expression::ObjectExpression(obj) = init {
+                let name = match &node.id {
+                    Pattern::Ident(n) => n.clone(),
+                    _ => return,
+                };
+
+                // Generate mock data based on the shape
+                let mut mock_props = vec![];
+                for prop in &obj.properties {
+                    let key = prop.key.clone();
+
+                    // Generate appropriate mock value based on type
+                    let mock_value = match &prop.value {
+                        Expression::Literal(lit) => match lit {
+                            Literal::String(_) => "\"test-string\"",
+                            Literal::Number(_) => "42",
+                            Literal::Boolean(_) => "true",
+                            Literal::Null => "null",
+                            _ => "\"unknown\"",
+                        },
+                        Expression::ArrayExpression(_) => "[]",
+                        Expression::ObjectExpression(_) => "{}",
+                        _ => "null",
+                    };
+
+                    mock_props.push(format!("  \"{}\": {}", key, mock_value));
+                }
+
+                let mock_data = format!("{{\n{}\n}}", mock_props.join(",\n"));
+
+                self.state.fixtures.push(Fixture {
+                    name: format!("mock{}", name),
+                    mock_data,
+                });
+            }
+        }
+    }
+
+    fn exit() {
+        // Generate test fixture file
+        self.builder.write_line("// Generated test fixtures\n");
+
+        for fixture in &self.state.fixtures {
+            self.builder.write_line(&format!("export const {} = {};", fixture.name, fixture.mock_data));
+            self.builder.write_line("");
+        }
+    }
+}

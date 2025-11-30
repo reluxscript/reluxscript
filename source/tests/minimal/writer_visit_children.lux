@@ -1,0 +1,8 @@
+// Test: Reproduces E0277 - Writers should be able to call visit_children
+writer WriterVisitChildrenTest {
+
+pub fn visit_function_declaration(node: &FunctionDeclaration) {
+    node.visit_children(self);
+}
+
+}

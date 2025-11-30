@@ -1,0 +1,654 @@
+**BRILLIANT!** A hybrid LSP is the perfect architecture for ReluxScript. Let me show you how to build this:
+
+## 🎯 Why Hybrid LSP?
+
+### The Problem
+- ✅ **TypeScript** - Great for VS Code integration, JSON-RPC, UI
+- ✅ **Rust** - Fast parsing, type checking, compilation
+- ❌ **Choose one** - Why not both?
+
+### The Solution
+```
+VS Code Extension (TypeScript)
+    ↓ JSON-RPC
+Rust Language Server (Backend)
+    ↓
+ReluxScript Compiler
+```
+
+## 🏗️ Architecture
+
+### High-Level Design
+
+```
+┌─────────────────────────────────────┐
+│     VS Code Extension (TS)          │
+│  - Syntax highlighting              │
+│  - Commands (compile, format)       │
+│  - Diagnostics display              │
+│  - Hover/completion UI              │
+└──────────────┬──────────────────────┘
+               │ stdio/TCP
+               │ JSON-RPC 2.0
+               ▼
+┌─────────────────────────────────────┐
+│   Language Server (Rust)            │
+│  - tower-lsp framework              │
+│  - JSON-RPC handling                │
+│  - Document management              │
+└──────────────┬──────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────┐
+│   ReluxScript Compiler (Rust)       │
+│  - Parser                           │
+│  - Semantic analyzer                │
+│  - Type checker                     │
+│  - Decorator/Rewriter               │
+└─────────────────────────────────────┘
+```
+
+## 📦 Project Structure
+
+```
+reluxscript/
+├── source/                    # Existing compiler
+│   ├── src/
+│   │   ├── parser/
+│   │   ├── semantic/
+│   │   ├── codegen/
+│   │   └── lsp/              # NEW - LSP backend
+│   │       ├── mod.rs
+│   │       ├── server.rs     # tower-lsp server
+│   │       ├── handlers.rs   # LSP request handlers
+│   │       └── diagnostics.rs
+│   └── Cargo.toml
+│
+├── vscode-extension/          # NEW - TypeScript extension
+│   ├── src/
+│   │   ├── extension.ts      # Main extension entry
+│   │   ├── client.ts         # Language client
+│   │   └── commands.ts       # VS Code commands
+│   ├── syntaxes/
+│   │   └── reluxscript.tmLanguage.json
+│   ├── package.json
+│   └── tsconfig.json
+│
+└── docs/
+    └── LSP_IMPLEMENTATION.md
+```
+
+## 🔧 Implementation
+
+### Part 1: Rust Language Server
+
+**`source/src/lsp/mod.rs`:**
+```rust
+//! Language Server Protocol implementation for ReluxScript
+
+mod server;
+mod handlers;
+mod diagnostics;
+
+pub use server::ReluxScriptLanguageServer;
+
+use tower_lsp::LspService;
+use tower_lsp::Server;
+
+pub async fn start_server() {
+    let stdin = tokio::io::stdin();
+    let stdout = tokio::io::stdout();
+
+    let (service, socket) = LspService::new(|client| {
+        ReluxScriptLanguageServer::new(client)
+    });
+
+    Server::new(stdin, stdout, socket).serve(service).await;
+}
+```
+
+**`source/src/lsp/server.rs`:**
+```rust
+use tower_lsp::jsonrpc::Result;
+use tower_lsp::lsp_types::*;
+use tower_lsp::{Client, LanguageServer};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
+use crate::parser::Parser;
+use crate::semantic::SemanticAnalyzer;
+
+pub struct ReluxScriptLanguageServer {
+    client: Client,
+    documents: Arc<Mutex<HashMap<Url, DocumentState>>>,
+}
+
+struct DocumentState {
+    content: String,
+    version: i32,
+    ast: Option<crate::parser::Program>,
+    diagnostics: Vec<Diagnostic>,
+}
+
+impl ReluxScriptLanguageServer {
+    pub fn new(client: Client) -> Self {
+        Self {
+            client,
+            documents: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    async fn analyze_document(&self, uri: &Url, content: &str) -> Vec<Diagnostic> {
+        let mut diagnostics = Vec::new();
+
+        // Parse
+        match Parser::parse(content) {
+            Ok(ast) => {
+                // Semantic analysis
+                match SemanticAnalyzer::analyze(&ast) {
+                    Ok(_) => {
+                        // Success - no diagnostics
+                    }
+                    Err(errors) => {
+                        // Convert semantic errors to diagnostics
+                        for error in errors {
+                            diagnostics.push(self.error_to_diagnostic(error));
+                        }
+                    }
+                }
+            }
+            Err(parse_error) => {
+                // Convert parse error to diagnostic
+                diagnostics.push(self.parse_error_to_diagnostic(parse_error));
+            }
+        }
+
+        diagnostics
+    }
+
+    fn error_to_diagnostic(&self, error: crate::semantic::SemanticError) -> Diagnostic {
+        Diagnostic {
+            range: Range {
+                start: Position {
+                    line: error.span.start.line as u32,
+                    character: error.span.start.column as u32,
+                },
+                end: Position {
+                    line: error.span.end.line as u32,
+                    character: error.span.end.column as u32,
+                },
+            },
+            severity: Some(DiagnosticSeverity::ERROR),
+            message: error.message,
+            source: Some("reluxscript".to_string()),
+            ..Default::default()
+        }
+    }
+
+    fn parse_error_to_diagnostic(&self, error: crate::parser::ParseError) -> Diagnostic {
+        Diagnostic {
+            range: Range {
+                start: Position {
+                    line: error.span.start.line as u32,
+                    character: error.span.start.column as u32,
+                },
+                end: Position {
+                    line: error.span.end.line as u32,
+                    character: error.span.end.column as u32,
+                },
+            },
+            severity: Some(DiagnosticSeverity::ERROR),
+            message: error.message,
+            source: Some("reluxscript".to_string()),
+            ..Default::default()
+        }
+    }
+}
+
+#[tower_lsp::async_trait]
+impl LanguageServer for ReluxScriptLanguageServer {
+    async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
+        Ok(InitializeResult {
+            capabilities: ServerCapabilities {
+                text_document_sync: Some(TextDocumentSyncCapability::Kind(
+                    TextDocumentSyncKind::FULL,
+                )),
+                hover_provider: Some(HoverProviderCapability::Simple(true)),
+                completion_provider: Some(CompletionOptions {
+                    trigger_characters: Some(vec![".".to_string(), ":".to_string()]),
+                    ..Default::default()
+                }),
+                definition_provider: Some(OneOf::Left(true)),
+                document_formatting_provider: Some(OneOf::Left(true)),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+    }
+
+    async fn initialized(&self, _: InitializedParams) {
+        self.client
+            .log_message(MessageType::INFO, "ReluxScript language server initialized")
+            .await;
+    }
+
+    async fn shutdown(&self) -> Result<()> {
+        Ok(())
+    }
+
+    async fn did_open(&self, params: DidOpenTextDocumentParams) {
+        let uri = params.text_document.uri;
+        let content = params.text_document.text;
+        let version = params.text_document.version;
+
+        // Analyze document
+        let diagnostics = self.analyze_document(&uri, &content).await;
+
+        // Store document state
+        let mut documents = self.documents.lock().await;
+        documents.insert(
+            uri.clone(),
+            DocumentState {
+                content: content.clone(),
+                version,
+                ast: None,
+                diagnostics: diagnostics.clone(),
+            },
+        );
+
+        // Publish diagnostics
+        self.client
+            .publish_diagnostics(uri, diagnostics, Some(version))
+            .await;
+    }
+
+    async fn did_change(&self, params: DidChangeTextDocumentParams) {
+        let uri = params.text_document.uri;
+        let version = params.text_document.version;
+
+        if let Some(change) = params.content_changes.into_iter().next() {
+            let content = change.text;
+
+            // Analyze document
+            let diagnostics = self.analyze_document(&uri, &content).await;
+
+            // Update document state
+            let mut documents = self.documents.lock().await;
+            if let Some(doc) = documents.get_mut(&uri) {
+                doc.content = content;
+                doc.version = version;
+                doc.diagnostics = diagnostics.clone();
+            }
+
+            // Publish diagnostics
+            self.client
+                .publish_diagnostics(uri, diagnostics, Some(version))
+                .await;
+        }
+    }
+
+    async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
+        let uri = &params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+
+        let documents = self.documents.lock().await;
+        if let Some(doc) = documents.get(uri) {
+            // TODO: Get hover info from AST at position
+            // For now, return placeholder
+            return Ok(Some(Hover {
+                contents: HoverContents::Scalar(MarkedString::String(
+                    "ReluxScript hover info".to_string(),
+                )),
+                range: None,
+            }));
+        }
+
+        Ok(None)
+    }
+
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        // TODO: Implement completions based on context
+        // - AST node types (Expression::Identifier, etc.)
+        // - Field names (node.callee, member.object, etc.)
+        // - Keywords (plugin, fn, if, let, etc.)
+
+        Ok(Some(CompletionResponse::Array(vec![
+            CompletionItem {
+                label: "plugin".to_string(),
+                kind: Some(CompletionItemKind::KEYWORD),
+                ..Default::default()
+            },
+            CompletionItem {
+                label: "fn".to_string(),
+                kind: Some(CompletionItemKind::KEYWORD),
+                ..Default::default()
+            },
+        ])))
+    }
+
+    async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
+        let uri = &params.text_document.uri;
+
+        let documents = self.documents.lock().await;
+        if let Some(doc) = documents.get(uri) {
+            // TODO: Implement formatting
+            // For now, return no changes
+            return Ok(None);
+        }
+
+        Ok(None)
+    }
+}
+```
+
+**`source/Cargo.toml` additions:**
+```toml
+[dependencies]
+tower-lsp = "0.20"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+```
+
+**`source/src/bin/reluxscript-lsp.rs`:**
+```rust
+//! ReluxScript Language Server binary
+
+use reluxscript::lsp;
+
+#[tokio::main]
+async fn main() {
+    lsp::start_server().await;
+}
+```
+
+### Part 2: VS Code Extension (TypeScript)
+
+**`vscode-extension/package.json`:**
+```json
+{
+  "name": "reluxscript",
+  "displayName": "ReluxScript",
+  "description": "Language support for ReluxScript",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": ["Programming Languages"],
+  "activationEvents": ["onLanguage:reluxscript"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [{
+      "id": "reluxscript",
+      "aliases": ["ReluxScript", "reluxscript"],
+      "extensions": [".lux"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "reluxscript",
+      "scopeName": "source.reluxscript",
+      "path": "./syntaxes/reluxscript.tmLanguage.json"
+    }],
+    "commands": [
+      {
+        "command": "reluxscript.compile.babel",
+        "title": "ReluxScript: Compile to Babel"
+      },
+      {
+        "command": "reluxscript.compile.swc",
+        "title": "ReluxScript: Compile to SWC"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.80.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.0"
+  }
+}
+```
+
+**`vscode-extension/src/extension.ts`:**
+```typescript
+import * as path from 'path';
+import * as vscode from 'vscode';
+import {
+    LanguageClient,
+    LanguageClientOptions,
+    ServerOptions,
+    Executable
+} from 'vscode-languageclient/node';
+
+let client: LanguageClient;
+
+export function activate(context: vscode.ExtensionContext) {
+    console.log('ReluxScript extension activating...');
+
+    // Register commands
+    context.subscriptions.push(
+        vscode.commands.registerCommand('reluxscript.compile.babel', compileToBabel)
+    );
+    context.subscriptions.push(
+        vscode.commands.registerCommand('reluxscript.compile.swc', compileToSwc)
+    );
+
+    // Start language server
+    startLanguageServer(context);
+
+    console.log('ReluxScript extension activated');
+}
+
+function startLanguageServer(context: vscode.ExtensionContext) {
+    // Find the language server executable
+    const serverPath = findLanguageServer();
+    
+    if (!serverPath) {
+        vscode.window.showErrorMessage(
+            'ReluxScript language server not found. Please install ReluxScript.'
+        );
+        return;
+    }
+
+    // Define how to start the server
+    const run: Executable = {
+        command: serverPath,
+        options: {
+            env: process.env
+        }
+    };
+
+    const serverOptions: ServerOptions = {
+        run,
+        debug: run
+    };
+
+    // Options for the language client
+    const clientOptions: LanguageClientOptions = {
+        documentSelector: [{ scheme: 'file', language: 'reluxscript' }],
+        synchronize: {
+            fileEvents: vscode.workspace.createFileSystemWatcher('**/*.lux')
+        }
+    };
+
+    // Create and start the client
+    client = new LanguageClient(
+        'reluxscriptLanguageServer',
+        'ReluxScript Language Server',
+        serverOptions,
+        clientOptions
+    );
+
+    client.start();
+}
+
+function findLanguageServer(): string | null {
+    // Look for reluxscript-lsp in PATH
+    // Or use bundled binary
+    
+    // For development:
+    const devPath = path.join(__dirname, '../../source/target/debug/reluxscript-lsp');
+    if (require('fs').existsSync(devPath)) {
+        return devPath;
+    }
+
+    // For production:
+    const prodPath = path.join(__dirname, '../bin/reluxscript-lsp');
+    if (require('fs').existsSync(prodPath)) {
+        return prodPath;
+    }
+
+    return null;
+}
+
+async function compileToBabel() {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || editor.document.languageId !== 'reluxscript') {
+        return;
+    }
+
+    const document = editor.document;
+    const content = document.getText();
+
+    // TODO: Call compiler via language server custom command
+    vscode.window.showInformationMessage('Compiling to Babel...');
+}
+
+async function compileToSwc() {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || editor.document.languageId !== 'reluxscript') {
+        return;
+    }
+
+    const document = editor.document;
+    const content = document.getText();
+
+    // TODO: Call compiler via language server custom command
+    vscode.window.showInformationMessage('Compiling to SWC...');
+}
+
+export function deactivate(): Thenable<void> | undefined {
+    if (!client) {
+        return undefined;
+    }
+    return client.stop();
+}
+```
+
+**`vscode-extension/syntaxes/reluxscript.tmLanguage.json`:**
+```json
+{
+  "name": "ReluxScript",
+  "scopeName": "source.reluxscript",
+  "patterns": [
+    { "include": "#keywords" },
+    { "include": "#strings" },
+    { "include": "#comments" },
+    { "include": "#functions" },
+    { "include": "#types" }
+  ],
+  "repository": {
+    "keywords": {
+      "patterns": [{
+        "name": "keyword.control.reluxscript",
+        "match": "\\b(plugin|writer|fn|let|const|if|else|match|return|for|in|while|pub|mut|self|Self|traverse|using)\\b"
+      }]
+    },
+    "strings": {
+      "patterns": [{
+        "name": "string.quoted.double.reluxscript",
+        "begin": "\"",
+        "end": "\"",
+        "patterns": [{
+          "name": "constant.character.escape.reluxscript",
+          "match": "\\\\."
+        }]
+      }]
+    },
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.reluxscript",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.reluxscript",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [{
+        "name": "entity.name.function.reluxscript",
+        "match": "\\b(visit_[a-z_]+|fn\\s+[a-z_]+)\\b"
+      }]
+    },
+    "types": {
+      "patterns": [{
+        "name": "entity.name.type.reluxscript",
+        "match": "\\b(Expression|Identifier|CallExpression|MemberExpression|Pattern|Stmt|Vec|Option|HashMap|Result)\\b"
+      }]
+    }
+  }
+}
+```
+
+## 🚀 Development Workflow
+
+### Build Language Server
+```bash
+cd source
+cargo build --bin reluxscript-lsp
+```
+
+### Build VS Code Extension
+```bash
+cd vscode-extension
+npm install
+npm run compile
+```
+
+### Test Extension
+```bash
+# In vscode-extension directory
+code --extensionDevelopmentPath=$(pwd)
+```
+
+## 🎯 Features to Implement
+
+### Phase 1: Basic LSP (Week 1-2)
+- ✅ Document synchronization
+- ✅ Diagnostics (parse errors, semantic errors)
+- ✅ Syntax highlighting
+
+### Phase 2: Intelligence (Week 3-4)
+- ✅ Hover information
+- ✅ Go to definition
+- ✅ Find references
+- ✅ Completions
+
+### Phase 3: Actions (Week 5-6)
+- ✅ Code actions (quick fixes)
+- ✅ Formatting
+- ✅ Compile commands
+
+## 📚 Resources
+
+- **tower-lsp:** https://github.com/ebkalderon/tower-lsp
+- **LSP Specification:** https://microsoft.github.io/language-server-protocol/
+- **VS Code Extension API:** https://code.visualstudio.com/api
+
+---
+
+**This gives you the best of both worlds:** TypeScript for VS Code integration, Rust for performance! ⚡🔺✨
+
+Want me to create a complete `LSP_IMPLEMENTATION.md` doc with this architecture?

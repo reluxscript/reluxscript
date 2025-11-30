@@ -1,0 +1,12 @@
+// Test: Reproduces E0599 - .name should map to .sym field, not .sym() method
+writer IdentNameFieldTest {
+
+fn get_name(expr: &Expression) -> Option<Str> {
+    if let Expression::Identifier(id) = expr {
+        Some(id.name.clone())
+    } else {
+        None
+    }
+}
+
+}

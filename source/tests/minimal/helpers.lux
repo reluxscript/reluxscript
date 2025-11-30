@@ -1,0 +1,12 @@
+// Helper module for testing named imports
+pub fn escape_string(s: &Str) -> Str {
+    s.replace("\\", "\\\\")
+}
+
+pub fn uppercase(s: &Str) -> Str {
+    s.to_uppercase()
+}
+
+pub struct Helper {
+    pub value: Str,
+}

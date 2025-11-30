@@ -57,9 +57,8 @@ function visit_jsx_element(node, ctx) {
 **SWC output:**
 ```rust
 fn visit_mut_jsx_element(&mut self, node: &mut JSXElement) {
-    let node_id = self.get_node_id(node);
-    self.state.set_custom_prop(node_id, "__hexPath", generateHexCode());
-    self.state.set_custom_prop(node_id, "__processed", true);
+    self.state.set_custom_prop(node, "__hexPath", CustomPropValue::Str(generateHexCode()));
+    self.state.set_custom_prop(node, "__processed", CustomPropValue::Bool(true));
 }
 ```
 
@@ -487,262 +486,337 @@ fn gen_custom_prop_delete(&mut self, assign: &CustomPropAssignment) {
 }
 ```
 
-### 7. Code Generation - SWC
+### 7. Code Generation - SWC (3-Stage Pipeline)
 
-#### 7.1 State Infrastructure
+The SWC code generation follows the Decorator → Rewriter → Emitter architecture, with each stage having specific responsibilities for custom properties.
 
-Auto-inject custom property storage into the State struct:
+#### 7.1 Decorator - Type Inference and Metadata
+
+The decorator identifies custom properties and annotates them with type information:
 
 ```rust
-// codegen/swc.rs
-impl SwcCodegen {
-    fn gen_state_struct(&mut self, state: &StateDecl) {
-        self.emit("#[derive(Default)]\n");
-        self.emit("pub struct State {\n");
-        self.indent();
+// codegen/swc_decorator.rs
+impl SwcDecorator {
+    fn decorate_custom_prop_assignment(&mut self, assign: &CustomPropAssignment) -> DecoratedStmt {
+        // 1. Infer the value type
+        let value_type = self.infer_expr_type(&assign.value);
+
+        // 2. Register the property type
+        self.custom_props.register(
+            &self.current_node_type,
+            &assign.property,
+            value_type.clone()
+        );
+
+        // 3. Determine the CustomPropValue variant
+        let variant = self.type_to_custom_prop_variant(&value_type);
+
+        // 4. Create decorated assignment with metadata
+        DecoratedStmt::CustomPropAssignment(DecoratedCustomPropAssignment {
+            node: self.decorate_expr(assign.node.clone()),
+            property: assign.property.clone(),
+            value: self.decorate_expr(assign.value.clone()),
+            metadata: CustomPropMetadata {
+                value_type,
+                variant,
+                is_deletion: self.is_none_literal(&assign.value),
+            },
+        })
+    }
+
+    fn decorate_custom_prop_access(&mut self, access: &CustomPropAccess) -> DecoratedExpr {
+        // 1. Get the registered type for this property
+        let node_type = self.infer_expr_type(&access.node);
+        let prop_type = self.custom_props.get_type(&node_type.to_string(), &access.property);
+
+        // 2. Create decorated access with unwrapper metadata
+        DecoratedExpr {
+            kind: DecoratedExprKind::CustomPropAccess(DecoratedCustomPropAccess {
+                node: Box::new(self.decorate_expr(*access.node.clone())),
+                property: access.property.clone(),
+                metadata: CustomPropAccessMetadata {
+                    property_type: prop_type.cloned(),
+                    unwrapper_pattern: prop_type.as_ref().map(|t| self.gen_unwrapper_pattern(t)),
+                },
+            }),
+            metadata: ExprMetadata {
+                swc_type: prop_type.map(|t| format!("Option<{}>", t)).unwrap_or("Option<Unknown>".to_string()),
+            },
+        }
+    }
+}
+```
+
+#### 7.2 Rewriter - Structural Transformation
+
+The rewriter transforms custom property operations into state method calls:
+
+```rust
+// codegen/swc_rewriter.rs
+impl SwcRewriter {
+    fn rewrite_custom_prop_assignment(&mut self, assign: DecoratedCustomPropAssignment) -> DecoratedStmt {
+        // Check if this is a deletion (None assignment)
+        if assign.metadata.is_deletion {
+            // Transform: node.__prop = None → self.state.delete_custom_prop(node, "__prop")
+            return self.build_delete_call(assign.node, assign.property);
+        }
+
+        // Transform: node.__prop = value → self.state.set_custom_prop(node, "__prop", CustomPropValue::Variant(value))
+        let wrapped_value = self.wrap_in_custom_prop_value(
+            assign.value,
+            &assign.metadata.variant
+        );
+
+        DecoratedStmt::Expr(DecoratedExpr {
+            kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                callee: self.build_state_method_path("set_custom_prop"),
+                args: vec![
+                    assign.node,
+                    self.string_literal(&assign.property),
+                    wrapped_value,
+                ],
+                is_macro: false,
+                optional: false,
+                type_args: vec![],
+                span: assign.span,
+            })),
+            metadata: ExprMetadata::default(),
+        })
+    }
+
+    fn rewrite_custom_prop_access(&mut self, access: DecoratedCustomPropAccess) -> DecoratedExpr {
+        // Transform: node.__prop → self.state.get_custom_prop(node, "__prop").and_then(|v| unwrapper)
+        let get_call = DecoratedExpr {
+            kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                callee: self.build_state_method_path("get_custom_prop"),
+                args: vec![
+                    *access.node,
+                    self.string_literal(&access.property),
+                ],
+                is_macro: false,
+                optional: false,
+                type_args: vec![],
+                span: Span::default(),
+            })),
+            metadata: ExprMetadata::default(),
+        };
+
+        // Chain with .and_then(unwrapper) if we know the type
+        if let Some(unwrapper) = access.metadata.unwrapper_pattern {
+            self.chain_and_then(get_call, unwrapper)
+        } else {
+            get_call
+        }
+    }
+
+    fn wrap_in_custom_prop_value(&mut self, value: DecoratedExpr, variant: &str) -> DecoratedExpr {
+        // Wrap value in CustomPropValue::Variant(value)
+        DecoratedExpr {
+            kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                callee: self.path_expr(&format!("CustomPropValue::{}", variant)),
+                args: vec![value],
+                is_macro: false,
+                optional: false,
+                type_args: vec![],
+                span: Span::default(),
+            })),
+            metadata: ExprMetadata::default(),
+        }
+    }
+}
+```
+
+#### 7.3 Emitter - Infrastructure Generation
+
+The emitter generates the State infrastructure and emits the transformed code:
+
+```rust
+// codegen/swc_emit.rs
+impl SwcEmitter {
+    fn emit_state_struct(&mut self, state: &StateDecl) {
+        self.emit_line("#[derive(Default)]");
+        self.emit_line("pub struct State {");
+        self.indent += 1;
 
         // User-defined fields
         for field in &state.fields {
-            self.gen_field(field);
+            self.emit_field(field);
         }
 
-        // Auto-injected custom property storage
-        self.emit("// Auto-generated: Custom AST property storage\n");
-        self.emit("__custom_props: std::collections::HashMap<usize, std::collections::HashMap<String, CustomPropValue>>,\n");
+        // Auto-injected custom property storage (if any custom props used)
+        if self.uses_custom_props {
+            self.emit_line("// Auto-generated: Custom AST property storage");
+            self.emit_line("__custom_props: std::collections::HashMap<usize, std::collections::HashMap<String, CustomPropValue>>,");
+        }
 
-        self.dedent();
-        self.emit("}\n\n");
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("");
 
-        // Generate CustomPropValue enum
-        self.gen_custom_prop_value_enum();
-
-        // Generate helper methods
-        self.gen_custom_prop_helpers();
+        // Generate supporting infrastructure
+        if self.uses_custom_props {
+            self.emit_custom_prop_value_enum();
+            self.emit_custom_prop_helpers();
+        }
     }
 }
 ```
 
-#### 7.2 CustomPropValue Enum
+#### 7.4 CustomPropValue Enum (Emitter)
 
-Generate a value enum to hold different types:
+The emitter generates a value enum to hold different types:
 
 ```rust
-fn gen_custom_prop_value_enum(&mut self) {
-    self.emit("#[derive(Clone, Debug)]\n");
-    self.emit("enum CustomPropValue {\n");
-    self.indent();
-    self.emit("Bool(bool),\n");
-    self.emit("I32(i32),\n");
-    self.emit("I64(i64),\n");
-    self.emit("F64(f64),\n");
-    self.emit("Str(String),\n");
-    self.emit("Vec(Vec<CustomPropValue>),\n");
-    self.emit("Map(std::collections::HashMap<String, CustomPropValue>),\n");
+// codegen/swc_emit.rs
+fn emit_custom_prop_value_enum(&mut self) {
+    self.emit_line("#[derive(Clone, Debug)]");
+    self.emit_line("enum CustomPropValue {");
+    self.indent += 1;
+    self.emit_line("Bool(bool),");
+    self.emit_line("I32(i32),");
+    self.emit_line("I64(i64),");
+    self.emit_line("F64(f64),");
+    self.emit_line("Str(String),");
+    self.emit_line("Vec(Vec<CustomPropValue>),");
+    self.emit_line("Map(std::collections::HashMap<String, CustomPropValue>),");
 
     // Add user-defined types as needed
     for custom_type in &self.custom_prop_types {
-        self.emit(&format!("{}({}),\n", custom_type.name, custom_type.name));
+        self.emit_line(&format!("{}({}),", custom_type.name, custom_type.name));
     }
 
-    self.dedent();
-    self.emit("}\n\n");
+    self.indent -= 1;
+    self.emit_line("}");
+    self.emit_line("");
 }
 ```
 
-#### 7.3 Helper Methods
+#### 7.5 Helper Methods (Emitter)
 
-Generate state helper methods:
+The emitter generates state helper methods:
 
 ```rust
-fn gen_custom_prop_helpers(&mut self) {
-    self.emit("impl State {\n");
-    self.indent();
+// codegen/swc_emit.rs
+fn emit_custom_prop_helpers(&mut self) {
+    self.emit_line("impl State {");
+    self.indent += 1;
 
     // get_node_id: Generate unique ID for AST nodes
-    self.emit("fn get_node_id<T>(&self, node: &T) -> usize {\n");
-    self.indent();
-    self.emit("// Use node memory address as ID\n");
-    self.emit("node as *const T as usize\n");
-    self.dedent();
-    self.emit("}\n\n");
+    self.emit_line("fn get_node_id<T>(&self, node: &T) -> usize {");
+    self.indent += 1;
+    self.emit_line("// Use node memory address as ID");
+    self.emit_line("node as *const T as usize");
+    self.indent -= 1;
+    self.emit_line("}");
+    self.emit_line("");
 
     // set_custom_prop: Set a custom property
-    self.emit("fn set_custom_prop<T>(&mut self, node: &T, prop: &str, value: CustomPropValue) {\n");
-    self.indent();
-    self.emit("let node_id = self.get_node_id(node);\n");
-    self.emit("self.__custom_props\n");
-    self.indent();
-    self.emit(".entry(node_id)\n");
-    self.emit(".or_insert_with(std::collections::HashMap::new)\n");
-    self.emit(".insert(prop.to_string(), value);\n");
-    self.dedent();
-    self.dedent();
-    self.emit("}\n\n");
+    self.emit_line("fn set_custom_prop<T>(&mut self, node: &T, prop: &str, value: CustomPropValue) {");
+    self.indent += 1;
+    self.emit_line("let node_id = self.get_node_id(node);");
+    self.emit_line("self.__custom_props");
+    self.indent += 1;
+    self.emit_line(".entry(node_id)");
+    self.emit_line(".or_insert_with(std::collections::HashMap::new)");
+    self.emit_line(".insert(prop.to_string(), value);");
+    self.indent -= 1;
+    self.indent -= 1;
+    self.emit_line("}");
+    self.emit_line("");
 
     // get_custom_prop: Get a custom property
-    self.emit("fn get_custom_prop<T>(&self, node: &T, prop: &str) -> Option<&CustomPropValue> {\n");
-    self.indent();
-    self.emit("let node_id = self.get_node_id(node);\n");
-    self.emit("self.__custom_props\n");
-    self.indent();
-    self.emit(".get(&node_id)\n");
-    self.emit(".and_then(|m| m.get(prop))\n");
-    self.dedent();
-    self.dedent();
-    self.emit("}\n\n");
+    self.emit_line("fn get_custom_prop<T>(&self, node: &T, prop: &str) -> Option<&CustomPropValue> {");
+    self.indent += 1;
+    self.emit_line("let node_id = self.get_node_id(node);");
+    self.emit_line("self.__custom_props");
+    self.indent += 1;
+    self.emit_line(".get(&node_id)");
+    self.emit_line(".and_then(|m| m.get(prop))");
+    self.indent -= 1;
+    self.indent -= 1;
+    self.emit_line("}");
+    self.emit_line("");
 
     // delete_custom_prop: Remove a custom property
-    self.emit("fn delete_custom_prop<T>(&mut self, node: &T, prop: &str) {\n");
-    self.indent();
-    self.emit("let node_id = self.get_node_id(node);\n");
-    self.emit("if let Some(props) = self.__custom_props.get_mut(&node_id) {\n");
-    self.indent();
-    self.emit("props.remove(prop);\n");
-    self.dedent();
-    self.emit("}\n");
-    self.dedent();
-    self.emit("}\n");
+    self.emit_line("fn delete_custom_prop<T>(&mut self, node: &T, prop: &str) {");
+    self.indent += 1;
+    self.emit_line("let node_id = self.get_node_id(node);");
+    self.emit_line("if let Some(props) = self.__custom_props.get_mut(&node_id) {");
+    self.indent += 1;
+    self.emit_line("props.remove(prop);");
+    self.indent -= 1;
+    self.emit_line("}");
+    self.indent -= 1;
+    self.emit_line("}");
 
-    self.dedent();
-    self.emit("}\n\n");
+    self.indent -= 1;
+    self.emit_line("}");
+    self.emit_line("");
 }
 ```
 
-#### 7.4 Assignment Generation
+#### 7.6 Complete Example
 
-Custom property assignments compile to helper method calls:
-
-```rust
-fn gen_custom_prop_assignment(&mut self, assign: &CustomPropAssignment) {
-    let value_type = self.infer_expr_type(&assign.value);
-
-    // Check for None assignment (deletion)
-    if self.is_none_literal(&assign.value) {
-        // Generate: self.state.delete_custom_prop(node, "__hexPath")
-        self.emit("self.state.delete_custom_prop(");
-        self.gen_expr(&assign.node);
-        self.emit(", \"");
-        self.emit(&assign.property);
-        self.emit("\")");
-        return;
-    }
-
-    // Generate: self.state.set_custom_prop(node, "__hexPath", CustomPropValue::Str(value))
-    self.emit("self.state.set_custom_prop(");
-    self.gen_expr(&assign.node);
-    self.emit(", \"");
-    self.emit(&assign.property);
-    self.emit("\", ");
-
-    // Wrap value in CustomPropValue variant
-    self.gen_custom_prop_value_wrapper(&value_type);
-    self.emit("(");
-    self.gen_expr(&assign.value);
-    self.emit("))");
-}
-
-fn gen_custom_prop_value_wrapper(&mut self, ty: &Type) {
-    match ty {
-        Type::Bool => self.emit("CustomPropValue::Bool"),
-        Type::I32 => self.emit("CustomPropValue::I32"),
-        Type::I64 => self.emit("CustomPropValue::I64"),
-        Type::F64 => self.emit("CustomPropValue::F64"),
-        Type::Str => self.emit("CustomPropValue::Str"),
-        Type::Vec(_) => self.emit("CustomPropValue::Vec"),
-        Type::HashMap(_, _) => self.emit("CustomPropValue::Map"),
-        Type::Named(name) => self.emit(&format!("CustomPropValue::{}", name)),
-        _ => panic!("Unsupported custom property type: {:?}", ty),
-    }
-}
-```
-
-**Example:**
-
-ReluxScript:
+**ReluxScript:**
 ```reluxscript
 node.__hexPath = "0x1234";
-```
 
-SWC output:
-```rust
-self.state.set_custom_prop(
-    node,
-    "__hexPath",
-    CustomPropValue::Str("0x1234".to_string())
-);
-```
-
-#### 7.5 Access Generation
-
-Custom property reads compile to getter calls with unwrapping:
-
-```rust
-fn gen_custom_prop_access(&mut self, access: &CustomPropAccess) {
-    // Generate: self.state.get_custom_prop(node, "__hexPath")
-    //           .and_then(|v| if let CustomPropValue::Str(s) = v { Some(s.clone()) } else { None })
-
-    self.emit("self.state.get_custom_prop(");
-    self.gen_expr(&access.node);
-    self.emit(", \"");
-    self.emit(&access.property);
-    self.emit("\").and_then(|v| ");
-
-    // Generate unwrapper based on type
-    let prop_type = self.custom_props.get_type(
-        &self.node_type_to_string(&access.node),
-        &access.property
-    );
-
-    if let Some(ty) = prop_type {
-        self.gen_custom_prop_unwrapper(ty);
-    } else {
-        // Unknown type - return None
-        self.emit("None");
-    }
-
-    self.emit(")");
-}
-
-fn gen_custom_prop_unwrapper(&mut self, ty: &Type) {
-    match ty {
-        Type::Str => {
-            self.emit("if let CustomPropValue::Str(s) = v { Some(s.clone()) } else { None }");
-        }
-        Type::Bool => {
-            self.emit("if let CustomPropValue::Bool(b) = v { Some(*b) } else { None }");
-        }
-        Type::I32 => {
-            self.emit("if let CustomPropValue::I32(i) = v { Some(*i) } else { None }");
-        }
-        // ... other types
-        Type::Named(name) => {
-            self.emit(&format!(
-                "if let CustomPropValue::{}(val) = v {{ Some(val.clone()) }} else {{ None }}",
-                name
-            ));
-        }
-        _ => panic!("Unsupported custom property type: {:?}", ty),
-    }
-}
-```
-
-**Example:**
-
-ReluxScript:
-```reluxscript
 if let Some(hex) = node.__hexPath {
     // use hex
 }
 ```
 
-SWC output:
+**After Decoration:**
 ```rust
+// Assignment decorated with metadata
+DecoratedStmt::CustomPropAssignment {
+    node: /* decorated node expr */,
+    property: "__hexPath",
+    value: /* decorated "0x1234" */,
+    metadata: CustomPropMetadata {
+        value_type: Type::Str,
+        variant: "Str",
+        is_deletion: false,
+    }
+}
+
+// Access decorated with unwrapper
+DecoratedExpr::CustomPropAccess {
+    node: /* decorated node expr */,
+    property: "__hexPath",
+    metadata: CustomPropAccessMetadata {
+        property_type: Some(Type::Str),
+        unwrapper_pattern: Some("if let CustomPropValue::Str(s) = v { Some(s.clone()) } else { None }"),
+    }
+}
+```
+
+**After Rewriting:**
+```rust
+// Assignment rewritten to state call
+self.state.set_custom_prop(
+    node,
+    "__hexPath",
+    CustomPropValue::Str("0x1234".to_string())
+)
+
+// Access rewritten to getter with unwrapper
+self.state.get_custom_prop(node, "__hexPath")
+    .and_then(|v| if let CustomPropValue::Str(s) = v { Some(s.clone()) } else { None })
+```
+
+**Emitter Output:**
+```rust
+// Emitter just emits the transformed calls as strings
+self.state.set_custom_prop(node, "__hexPath", CustomPropValue::Str("0x1234".to_string()));
+
 if let Some(hex) = self.state.get_custom_prop(node, "__hexPath")
     .and_then(|v| if let CustomPropValue::Str(s) = v { Some(s.clone()) } else { None })
 {
     // use hex
 }
 ```
+
 
 ### 8. Node Identity Strategy
 

@@ -74,6 +74,7 @@ pub enum PluginItem {
 pub struct StructDecl {
     pub name: String,
     pub fields: Vec<StructField>,
+    pub derives: Vec<String>,  // Traits to derive (e.g., "Clone", "Debug")
     pub span: Span,
 }
 
@@ -352,6 +353,7 @@ pub enum Stmt {
     Traverse(TraverseStmt),
     Function(FnDecl),  // Nested function declaration
     Verbatim(VerbatimStmt),  // Platform-specific code block
+    CustomPropAssignment(CustomPropAssignment),  // Custom AST property assignment
 }
 
 /// Let statement: `let [mut] name [: Type] = expr;`
@@ -512,6 +514,22 @@ pub enum VerbatimTarget {
     Rust,
 }
 
+/// Custom AST property assignment: `node.__propName = value;`
+/// Custom properties are identified by double underscore prefix and allow
+/// attaching metadata to AST nodes in a cross-platform way.
+#[derive(Debug, Clone)]
+pub struct CustomPropAssignment {
+    /// The AST node being assigned to (e.g., `node`)
+    pub node: Box<Expr>,
+    /// The custom property name (e.g., "__hexPath")
+    pub property: String,
+    /// The value being assigned
+    pub value: Box<Expr>,
+    /// Optional type annotation
+    pub ty: Option<Type>,
+    pub span: Span,
+}
+
 /// Traverse statement: `traverse(node) { ... }` or `traverse(node) using Visitor;`
 /// This is the scoped traversal construct that bridges Babel's path.traverse and SWC's visit_mut_with
 #[derive(Debug, Clone)]
@@ -611,6 +629,10 @@ pub enum Expr {
     Tuple(Vec<Expr>),
     /// Matches macro: matches!(expr, pattern)
     Matches(MatchesExpr),
+    /// Regex call: Regex::matches(), Regex::find(), etc.
+    RegexCall(RegexCall),
+    /// Custom AST property access: node.__propName
+    CustomPropAccess(CustomPropAccess),
     /// Return expression: return expr
     Return(Option<Box<Expr>>),
     /// Break expression: break
@@ -689,6 +711,8 @@ pub struct CallExpr {
     pub args: Vec<Expr>,
     pub type_args: Vec<TsType>,
     pub optional: bool,
+    /// True if this is a macro call (e.g., format!(...), vec![...])
+    pub is_macro: bool,
     pub span: Span,
 }
 
@@ -752,6 +776,44 @@ pub struct MatchesExpr {
     pub scrutinee: Box<Expr>,
     pub pattern: Pattern,
     pub span: Span,
+}
+
+/// Regex call expression: Regex::matches(), Regex::find(), etc.
+#[derive(Debug, Clone)]
+pub struct RegexCall {
+    pub method: RegexMethod,
+    pub text_arg: Box<Expr>,
+    pub pattern_arg: String,  // Must be a string literal
+    pub replacement_arg: Option<Box<Expr>>,  // For replace/replace_all
+    pub span: Span,
+}
+
+/// Custom AST property access: `node.__propName`
+/// Reads a custom property from an AST node. Always returns Option<T>.
+#[derive(Debug, Clone)]
+pub struct CustomPropAccess {
+    /// The AST node being accessed (e.g., `node`)
+    pub node: Box<Expr>,
+    /// The custom property name (e.g., "__hexPath")
+    pub property: String,
+    pub span: Span,
+}
+
+/// Regex method variants
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegexMethod {
+    /// Regex::matches(text, pattern) -> bool
+    Matches,
+    /// Regex::find(text, pattern) -> Option<String>
+    Find,
+    /// Regex::find_all(text, pattern) -> Vec<String>
+    FindAll,
+    /// Regex::captures(text, pattern) -> Option<Captures>
+    Captures,
+    /// Regex::replace(text, pattern, replacement) -> String
+    Replace,
+    /// Regex::replace_all(text, pattern, replacement) -> String
+    ReplaceAll,
 }
 
 /// Closure expression

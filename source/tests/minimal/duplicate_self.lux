@@ -1,0 +1,9 @@
+// Test: Reproduces E0415 - duplicate self parameter in writer
+writer DuplicateSelfTest {
+
+fn extract_state_var(&mut self) {
+    // This should NOT generate: fn extract_state_var(&mut self, self: &mut Self)
+    // It should generate: fn extract_state_var(self: &mut Self)
+}
+
+}

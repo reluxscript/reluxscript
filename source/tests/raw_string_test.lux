@@ -1,0 +1,24 @@
+plugin RawStringTest {
+    fn test_raw_vs_normal() {
+        // Raw string - backslashes preserved
+        let pattern1 = r"\d+\.\d+";
+
+        // Normal string - backslashes need escaping
+        let pattern2 = "\\d+\\.\\d+";
+
+        // Both should work for regex
+        Regex::matches("3.14", r"\d+\.\d+");
+        Regex::matches("3.14", "\\d+\\.\\d+");
+    }
+
+    fn test_complex_patterns() {
+        // Word boundary
+        Regex::matches("test", r"\btest\b");
+
+        // Character classes
+        Regex::find("abc123", r"[a-z]+");
+
+        // Named capture groups
+        Regex::captures("foo", r"(?P<name>\w+)");
+    }
+}

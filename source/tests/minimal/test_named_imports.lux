@@ -1,0 +1,17 @@
+// Minimal test for named imports from file modules
+// Based on real minimact patterns
+
+use "./helpers.lux" { escape_string, uppercase };
+
+plugin NamedImportsTest {
+    fn test_use_imported_function(input: &Str) -> Str {
+        // Should emit: escape_string(input)
+        escape_string(input)
+    }
+
+    fn test_multiple_imports(name: &Str) -> Str {
+        // Should be able to use multiple imported functions
+        let escaped = escape_string(name);
+        uppercase(&escaped)
+    }
+}

@@ -1,0 +1,61 @@
+// Minimal test for common minimact patterns
+// Based on hook_analyzer.lux and other real minimact code
+
+plugin MinimactPatternsTest {
+    /// Pattern from hook_analyzer.lux line 134-149
+    /// Destructuring array patterns and nested if-let
+    fn extract_state_names(declarator: &VariableDeclarator) -> Option<Str> {
+        // Pattern: const [value, setValue] = useState(initial);
+        if let Pattern::ArrayPattern(ref array_pattern) = declarator.id {
+            if array_pattern.elements.len() != 2 {
+                return None;
+            }
+
+            // Get value name from first element
+            let value_name = if let Some(ref elem) = array_pattern.elements[0] {
+                if let Pattern::Identifier(ref id) = elem {
+                    id.name.clone()
+                } else {
+                    return None;
+                }
+            } else {
+                return None;
+            };
+
+            Some(value_name)
+        } else {
+            None
+        }
+    }
+
+    /// Pattern: matching on Statement variants
+    /// From hook_analyzer.lux line 120-128
+    fn extract_from_block(block: &BlockStatement) -> Vec<Str> {
+        let mut results = vec![];
+
+        for stmt in &block.body {
+            if let Statement::VariableDeclaration(ref var_decl) = stmt {
+                for declarator in &var_decl.declarations {
+                    if let Some(name) = extract_state_names(declarator) {
+                        results.push(name);
+                    }
+                }
+            }
+        }
+
+        results
+    }
+
+    /// Pattern: matching on Expression variants with member access
+    fn is_use_state_call(expr: &Expression) -> bool {
+        if let Expression::CallExpression(ref call) = expr {
+            if let Expression::Identifier(ref id) = call.callee {
+                id.name == "useState"
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    }
+}

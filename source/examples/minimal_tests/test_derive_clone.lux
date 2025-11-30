@@ -1,0 +1,13 @@
+// Test: Structs that are cloned should get #[derive(Clone)]
+
+plugin TestDeriveClone {
+    struct Item {
+        name: Str,
+        count: i32,
+    }
+
+    fn visit_identifier(node: &mut Identifier, ctx: &Context) {
+        let item = Item { name: "test".into(), count: 1 };
+        let cloned = item.clone();
+    }
+}

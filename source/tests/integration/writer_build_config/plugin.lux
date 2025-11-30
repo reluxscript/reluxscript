@@ -1,0 +1,90 @@
+/// Writer Use Case 8: Extract build configuration and dependency graph
+/// Analyzes imports/exports to build dependency trees and module maps
+
+use json;
+
+writer BuildConfigExtractor {
+    struct ModuleInfo {
+        name: Str,
+        imports: Vec<Str>,
+        exports: Vec<Str>,
+    }
+
+    fn pre() {
+        self.state.module_name = "main".to_string();
+        self.state.imports = vec![];
+        self.state.exports = vec![];
+    }
+
+    fn visit_import_declaration(node: &ImportDeclaration, ctx: &Context) {
+        // Track all imports
+        let source = node.source.clone();
+        self.state.imports.push(source);
+    }
+
+    fn visit_export_named_declaration(node: &ExportNamedDeclaration, ctx: &Context) {
+        // Track named exports
+        if let Some(decl) = &node.declaration {
+            match decl {
+                Declaration::FunctionDeclaration(func) => {
+                    if let Some(id) = &func.id {
+                        self.state.exports.push(id.name.clone());
+                    }
+                }
+                Declaration::VariableDeclaration(var) => {
+                    for declarator in &var.declarations {
+                        if let Pattern::Ident(name) = &declarator.id {
+                            self.state.exports.push(name.clone());
+                        }
+                    }
+                }
+                Declaration::ClassDeclaration(class) => {
+                    if let Some(id) = &class.id {
+                        self.state.exports.push(id.name.clone());
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn visit_export_default_declaration(node: &ExportDefaultDeclaration, ctx: &Context) {
+        // Track default export
+        self.state.exports.push("default".to_string());
+    }
+
+    fn exit() {
+        // Generate build configuration
+        self.builder.write_line("# Build Configuration\n");
+
+        self.builder.write_line("## Module Dependencies\n");
+        if !self.state.imports.is_empty() {
+            self.builder.write_line("Imports:");
+            for import in &self.state.imports {
+                self.builder.write_line(&format!("  - {}", import));
+            }
+        } else {
+            self.builder.write_line("No imports");
+        }
+
+        self.builder.write_line("");
+        if !self.state.exports.is_empty() {
+            self.builder.write_line("Exports:");
+            for export in &self.state.exports {
+                self.builder.write_line(&format!("  - {}", export));
+            }
+        } else {
+            self.builder.write_line("No exports");
+        }
+
+        // Generate JSON dependency graph
+        self.builder.write_line("\n## Dependency Graph (JSON)\n");
+        let graph = format!(
+            "{{\"module\":\"{}\",\"imports\":{},\"exports\":{}}}",
+            self.state.module_name,
+            json::stringify(&self.state.imports),
+            json::stringify(&self.state.exports)
+        );
+        self.builder.write_line(&graph);
+    }
+}

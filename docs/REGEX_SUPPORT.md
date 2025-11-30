@@ -538,6 +538,24 @@ caps.get(index: i32) -> Str     // Get capture group by index
 
 ## Implementation Design
 
+**Architecture Overview:**
+
+ReluxScript uses a **3-stage pipeline** for code generation:
+
+```
+Parser AST → [Decorator] → [Rewriter] → [Emitter] → Target Code
+             Annotate      Transform      Emit
+```
+
+Each stage has a specific responsibility:
+1. **Decorator**: Adds metadata (type info, helper needs, optimization hints)
+2. **Rewriter**: Performs structural transformations (desugaring, lowering)
+3. **Emitter**: "Dumb" string emission based on transformed AST
+
+This separation keeps concerns isolated and makes the implementation cleaner.
+
+---
+
 ### 5. Parser Changes
 
 #### 5.1 Regex Call Recognition
@@ -556,7 +574,7 @@ pub struct RegexCall {
     pub text_arg: Box<Expr>,     // Text to search
     pub pattern_arg: String,     // Pattern literal
     pub replacement_arg: Option<Box<Expr>>,  // For replace methods
-    pub location: Span,
+    pub span: Span,
 }
 
 pub enum RegexMethod {
@@ -695,22 +713,154 @@ impl RegexValidator {
 }
 ```
 
-### 7. Code Generation - Babel
+### 7. Decorator Stage (SWC Path)
 
-#### 7.1 Regex::matches()
+The decorator annotates `RegexCall` nodes with metadata for downstream stages.
+
+#### 7.1 Decorated AST Structure
 
 ```rust
-// codegen/babel.rs
+// decorated_ast.rs
+pub enum DecoratedExprKind {
+    // ... existing variants
+    RegexCall(Box<DecoratedRegexCall>),
+}
+
+pub struct DecoratedRegexCall {
+    pub method: RegexMethod,
+    pub text_arg: DecoratedExpr,
+    pub pattern: String,
+    pub replacement_arg: Option<DecoratedExpr>,
+    pub metadata: RegexCallMetadata,
+    pub span: Span,
+}
+
+pub struct RegexCallMetadata {
+    pub needs_helper: bool,           // For captures(), find_all()
+    pub helper_name: Option<String>,  // "__regex_captures", etc.
+    pub cache_pattern: bool,          // If used multiple times/in loop
+    pub pattern_id: Option<usize>,    // For cached pattern lookup
+}
+```
+
+#### 7.2 Decoration Logic
+
+```rust
+// swc_decorator.rs
+impl SwcDecorator {
+    fn decorate_regex_call(&mut self, call: &RegexCall) -> DecoratedExprKind {
+        let method = call.method;
+
+        // Determine if this method needs a helper function
+        let needs_helper = matches!(method,
+            RegexMethod::Captures | RegexMethod::FindAll
+        );
+
+        let helper_name = if needs_helper {
+            Some(match method {
+                RegexMethod::Captures => "__regex_captures".to_string(),
+                RegexMethod::FindAll => "__regex_find_all".to_string(),
+                _ => unreachable!(),
+            })
+        } else {
+            None
+        };
+
+        // Check if pattern should be cached (used multiple times or in loop)
+        let cache_pattern = self.should_cache_pattern(&call.pattern_arg);
+        let pattern_id = if cache_pattern {
+            Some(self.register_pattern(&call.pattern_arg))
+        } else {
+            None
+        };
+
+        DecoratedExprKind::RegexCall(Box::new(DecoratedRegexCall {
+            method,
+            text_arg: self.decorate_expr(&call.text_arg),
+            pattern: call.pattern_arg.clone(),
+            replacement_arg: call.replacement_arg.as_ref()
+                .map(|e| self.decorate_expr(e)),
+            metadata: RegexCallMetadata {
+                needs_helper,
+                helper_name,
+                cache_pattern,
+                pattern_id,
+            },
+            span: call.span,
+        }))
+    }
+
+    fn should_cache_pattern(&self, pattern: &str) -> bool {
+        // Cache if:
+        // 1. Pattern used more than once in the plugin
+        let usage_count = self.pattern_usage.get(pattern).unwrap_or(&0);
+        if *usage_count > 1 {
+            return true;
+        }
+
+        // 2. Pattern used inside a loop
+        if self.is_in_loop() {
+            return true;
+        }
+
+        // 3. Pattern used in a visitor method (called many times)
+        if self.is_in_visitor_method() {
+            return true;
+        }
+
+        false
+    }
+
+    fn register_pattern(&mut self, pattern: &str) -> usize {
+        let id = self.cached_patterns.len();
+        self.cached_patterns.push(pattern.to_string());
+        id
+    }
+}
+```
+
+### 8. Rewriter Stage (SWC Path)
+
+The rewriter doesn't need to transform regex calls - they're already in the right shape. It just passes them through.
+
+```rust
+// swc_rewriter.rs
+impl SwcRewriter {
+    fn rewrite_regex_call(&mut self, call: DecoratedRegexCall) -> DecoratedRegexCall {
+        // Recursively rewrite child expressions
+        DecoratedRegexCall {
+            method: call.method,
+            text_arg: self.rewrite_expr(call.text_arg),
+            pattern: call.pattern,
+            replacement_arg: call.replacement_arg
+                .map(|e| self.rewrite_expr(e)),
+            metadata: call.metadata,
+            span: call.span,
+        }
+    }
+}
+```
+
+**Note:** For Babel, regex calls can be handled directly in the parser AST without decoration/rewriting since Babel codegen is simpler.
+
+### 9. Emitter Stage - Babel
+
+The Babel emitter just emits the appropriate JavaScript regex syntax.
+
+#### 9.1 Regex::matches()
+
+```rust
+// babel.rs
 impl BabelCodegen {
     fn gen_regex_call(&mut self, call: &RegexCall) {
         match call.method {
             RegexMethod::Matches => {
                 // Regex::matches(text, pattern) -> /pattern/.test(text)
-                self.emit("/");
-                self.emit(&call.pattern_arg);
-                self.emit("/.test(");
+                self.output.push('/');
+                self.output.push_str(&call.pattern_arg);
+                self.output.push_str("/.test(");
                 self.gen_expr(&call.text_arg);
-                self.emit(")");
+                self.output.push(')');
             }
             // ... other methods
         }
@@ -723,16 +873,16 @@ impl BabelCodegen {
 /^use[A-Z]/.test(name)
 ```
 
-#### 7.2 Regex::find()
+#### 9.2 Regex::find()
 
 ```rust
 RegexMethod::Find => {
     // Regex::find(text, pattern) -> /pattern/.exec(text)?.[0] ?? null
-    self.emit("(/");
-    self.emit(&call.pattern_arg);
-    self.emit("/.exec(");
+    self.output.push_str("(/");
+    self.output.push_str(&call.pattern_arg);
+    self.output.push_str("/.exec(");
     self.gen_expr(&call.text_arg);
-    self.emit(")?.[0] ?? null");
+    self.output.push_str(")?.[0] ?? null");
 }
 ```
 
@@ -815,146 +965,232 @@ RegexMethod::ReplaceAll => {
 }
 ```
 
-### 8. Code Generation - SWC
+### 10. Emitter Stage - SWC
 
-#### 8.1 Dependencies
+The SWC emitter is "dumb" - it just emits strings based on the decorated metadata.
 
-Auto-inject regex crate:
+#### 10.1 Import Detection
 
 ```rust
-// codegen/swc.rs
-impl SwcCodegen {
-    fn gen_imports(&mut self) {
+// swc_emit.rs
+impl SwcEmitter {
+    fn detect_imports(&mut self, program: &DecoratedProgram) {
+        // Scan for regex calls
+        if self.has_regex_calls(program) {
+            self.uses_regex = true;
+        }
+    }
+
+    fn emit_header(&mut self) {
+        // ... existing imports ...
+
         if self.uses_regex {
-            self.emit("use regex::Regex;\n");
+            self.emit_line("use regex::Regex;");
         }
     }
 }
 ```
 
-#### 8.2 Regex::matches()
+#### 10.2 Emit Regex Calls
+
+The emitter reads the metadata and emits accordingly:
 
 ```rust
-fn gen_regex_call(&mut self, call: &RegexCall) {
-    match call.method {
-        RegexMethod::Matches => {
-            // Regex::matches(text, pattern) -> Regex::new(r"pattern").unwrap().is_match(text)
-            self.emit("Regex::new(r\"");
-            self.emit(&call.pattern_arg);
-            self.emit("\").unwrap().is_match(");
-            self.gen_expr(&call.text_arg);
-            self.emit(")");
+impl SwcEmitter {
+    fn emit_regex_call(&mut self, call: &DecoratedRegexCall) {
+        match call.method {
+            RegexMethod::Matches => {
+                self.emit_regex_matches(call);
+            }
+            RegexMethod::Find => {
+                self.emit_regex_find(call);
+            }
+            RegexMethod::FindAll => {
+                self.emit_regex_find_all(call);
+            }
+            RegexMethod::Captures => {
+                self.emit_regex_captures(call);
+            }
+            RegexMethod::Replace => {
+                self.emit_regex_replace(call, false);
+            }
+            RegexMethod::ReplaceAll => {
+                self.emit_regex_replace(call, true);
+            }
         }
-        // ... other methods
+    }
+
+    fn emit_regex_matches(&mut self, call: &DecoratedRegexCall) {
+        // Check if cached
+        if call.metadata.cache_pattern {
+            let id = call.metadata.pattern_id.unwrap();
+            self.output.push_str(&format!("REGEX_{}.is_match(", id));
+        } else {
+            // Inline
+            self.output.push_str("Regex::new(r\"");
+            self.output.push_str(&call.pattern);
+            self.output.push_str("\").unwrap().is_match(");
+        }
+
+        self.emit_expr(&call.text_arg);
+        self.output.push(')');
+    }
+
+    fn emit_regex_find(&mut self, call: &DecoratedRegexCall) {
+        if call.metadata.cache_pattern {
+            let id = call.metadata.pattern_id.unwrap();
+            self.output.push_str(&format!("REGEX_{}.find(", id));
+        } else {
+            self.output.push_str("Regex::new(r\"");
+            self.output.push_str(&call.pattern);
+            self.output.push_str("\").unwrap().find(");
+        }
+
+        self.emit_expr(&call.text_arg);
+        self.output.push_str(").map(|m| m.as_str().to_string())");
+    }
+
+    fn emit_regex_find_all(&mut self, call: &DecoratedRegexCall) {
+        if call.metadata.cache_pattern {
+            let id = call.metadata.pattern_id.unwrap();
+            self.output.push_str(&format!("REGEX_{}.find_iter(", id));
+        } else {
+            self.output.push_str("Regex::new(r\"");
+            self.output.push_str(&call.pattern);
+            self.output.push_str("\").unwrap().find_iter(");
+        }
+
+        self.emit_expr(&call.text_arg);
+        self.output.push_str(").map(|m| m.as_str().to_string()).collect::<Vec<String>>()");
+    }
+
+    fn emit_regex_captures(&mut self, call: &DecoratedRegexCall) {
+        // Always use helper function for captures
+        self.output.push_str("__regex_captures(");
+        self.emit_expr(&call.text_arg);
+        self.output.push_str(", r\"");
+        self.output.push_str(&call.pattern);
+        self.output.push_str("\")");
+    }
+
+    fn emit_regex_replace(&mut self, call: &DecoratedRegexCall, all: bool) {
+        if call.metadata.cache_pattern {
+            let id = call.metadata.pattern_id.unwrap();
+            self.output.push_str(&format!("REGEX_{}.replace", id));
+        } else {
+            self.output.push_str("Regex::new(r\"");
+            self.output.push_str(&call.pattern);
+            self.output.push_str("\").unwrap().replace");
+        }
+
+        if all {
+            self.output.push_str("_all");
+        }
+
+        self.output.push('(');
+        self.emit_expr(&call.text_arg);
+        self.output.push_str(", ");
+        self.emit_expr(call.replacement_arg.as_ref().unwrap());
+        self.output.push_str(").to_string()");
+    }
+}
+```
+
+**Output examples:**
+
+```rust
+// Inline (not cached)
+Regex::new(r"^use[A-Z]").unwrap().is_match(name)
+
+// Cached pattern
+REGEX_0.is_match(name)
+```
+
+#### 10.3 Helper Functions
+
+Emit helper functions at the end of the file:
+
+```rust
+impl SwcEmitter {
+    fn emit_regex_helpers(&mut self) {
+        if !self.needs_regex_helpers {
+            return;
+        }
+
+        self.emit_line("");
+        self.emit_line("// Regex helper functions");
+
+        // Emit __regex_captures helper
+        self.emit_line("fn __regex_captures(text: &str, pattern: &str) -> Option<__Captures> {");
+        self.indent += 1;
+        self.emit_line("let re = Regex::new(pattern).unwrap();");
+        self.emit_line("re.captures(text).map(|caps| __Captures { inner: caps })");
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("");
+
+        self.emit_line("struct __Captures {");
+        self.indent += 1;
+        self.emit_line("inner: regex::Captures<'static>,");
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("");
+
+        self.emit_line("impl __Captures {");
+        self.indent += 1;
+        self.emit_line("fn get(&self, index: usize) -> String {");
+        self.indent += 1;
+        self.emit_line("self.inner.get(index)");
+        self.indent += 1;
+        self.emit_line(".map(|m| m.as_str().to_string())");
+        self.emit_line(".unwrap_or_default()");
+        self.indent -= 2;
+        self.emit_line("}");
+        self.indent -= 1;
+        self.emit_line("}");
+    }
+}
+```
+
+#### 10.4 Cached Pattern Generation
+
+Emit lazy_static block for cached patterns:
+
+```rust
+impl SwcEmitter {
+    fn emit_cached_patterns(&mut self, patterns: &[String]) {
+        if patterns.is_empty() {
+            return;
+        }
+
+        self.emit_line("lazy_static::lazy_static! {");
+        self.indent += 1;
+
+        for (id, pattern) in patterns.iter().enumerate() {
+            self.emit_line(&format!(
+                "static ref REGEX_{}: Regex = Regex::new(r\"{}\").unwrap();",
+                id, pattern
+            ));
+        }
+
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("");
     }
 }
 ```
 
 **Output:**
 ```rust
-Regex::new(r"^use[A-Z]").unwrap().is_match(name)
-```
-
-#### 8.3 Regex::find()
-
-```rust
-RegexMethod::Find => {
-    // Regex::find(text, pattern) -> Regex::new(r"pattern").unwrap().find(text).map(|m| m.as_str().to_string())
-    self.emit("Regex::new(r\"");
-    self.emit(&call.pattern_arg);
-    self.emit("\").unwrap().find(");
-    self.gen_expr(&call.text_arg);
-    self.emit(").map(|m| m.as_str().to_string())");
+lazy_static::lazy_static! {
+    static ref REGEX_0: Regex = Regex::new(r"^use[A-Z]").unwrap();
+    static ref REGEX_1: Regex = Regex::new(r"\d+").unwrap();
 }
 ```
 
-#### 8.4 Regex::find_all()
+### 11. Error Handling
 
-```rust
-RegexMethod::FindAll => {
-    // Regex::find_all(text, pattern) -> Regex::new(r"pattern").unwrap().find_iter(text).map(|m| m.as_str().to_string()).collect()
-    self.emit("Regex::new(r\"");
-    self.emit(&call.pattern_arg);
-    self.emit("\").unwrap().find_iter(");
-    self.gen_expr(&call.text_arg);
-    self.emit(").map(|m| m.as_str().to_string()).collect::<Vec<String>>()");
-}
-```
-
-#### 8.5 Regex::captures()
-
-```rust
-RegexMethod::Captures => {
-    // Regex::captures(text, pattern) -> __regex_captures(text, r"pattern")
-    self.emit("__regex_captures(");
-    self.gen_expr(&call.text_arg);
-    self.emit(", r\"");
-    self.emit(&call.pattern_arg);
-    self.emit("\")");
-}
-```
-
-**Helper function generated:**
-```rust
-fn __regex_captures(text: &str, pattern: &str) -> Option<__Captures> {
-    let re = Regex::new(pattern).unwrap();
-    re.captures(text).map(|caps| __Captures { inner: caps })
-}
-
-struct __Captures {
-    inner: regex::Captures<'static>,
-}
-
-impl __Captures {
-    fn get(&self, index: usize) -> String {
-        self.inner.get(index)
-            .map(|m| m.as_str().to_string())
-            .unwrap_or_default()
-    }
-}
-```
-
-#### 8.6 Pattern Caching Optimization
-
-For frequently-used patterns, generate lazy_static:
-
-```rust
-fn gen_regex_optimizations(&mut self) {
-    if self.regex_patterns.len() > 0 {
-        self.emit("lazy_static::lazy_static! {\n");
-
-        for (id, pattern) in &self.regex_patterns {
-            self.emit(&format!(
-                "    static ref REGEX_{}: Regex = Regex::new(r\"{}\").unwrap();\n",
-                id, pattern
-            ));
-        }
-
-        self.emit("}\n\n");
-    }
-}
-
-fn gen_regex_call_optimized(&mut self, call: &RegexCall) {
-    // If pattern is used multiple times, use cached version
-    if let Some(id) = self.get_cached_pattern(&call.pattern_arg) {
-        match call.method {
-            RegexMethod::Matches => {
-                self.emit(&format!("REGEX_{}.is_match(", id));
-                self.gen_expr(&call.text_arg);
-                self.emit(")");
-            }
-            // ... other methods
-        }
-    } else {
-        // Inline version
-        self.gen_regex_call_inline(call);
-    }
-}
-```
-
-### 9. Error Handling
-
-#### 9.1 Compile-Time Errors
+#### 11.1 Compile-Time Errors
 
 **Invalid pattern:**
 ```reluxscript
@@ -1009,15 +1245,15 @@ error: regex pattern must be a string literal
    = help: use a string literal: Regex::matches(text, r"pattern")
 ```
 
-### 10. Performance Considerations
+### 12. Performance Considerations
 
-#### 10.1 Babel Performance
+#### 12.1 Babel Performance
 
 - Regex literals are compiled by JavaScript engine at parse time
 - Very fast: < 1μs for simple patterns
 - Native browser/Node.js optimization
 
-#### 10.2 SWC Performance
+#### 12.2 SWC Performance
 
 **Without optimization:**
 - Pattern compiled on every call: ~10-100μs
@@ -1039,9 +1275,9 @@ fn should_cache_pattern(&self, pattern: &str) -> bool {
 }
 ```
 
-### 11. Examples
+### 13. Examples
 
-#### 11.1 Hook Detection
+#### 13.1 Hook Detection
 
 ```reluxscript
 plugin HookDetector {
@@ -1055,7 +1291,7 @@ plugin HookDetector {
 }
 ```
 
-#### 11.2 Hex Path Validation
+#### 13.2 Hex Path Validation
 
 ```reluxscript
 plugin HexPathValidator {
@@ -1073,7 +1309,7 @@ plugin HexPathValidator {
 }
 ```
 
-#### 11.3 CSS Value Parsing
+#### 13.3 CSS Value Parsing
 
 ```reluxscript
 plugin CSSParser {
@@ -1093,7 +1329,7 @@ plugin CSSParser {
 }
 ```
 
-#### 11.4 Identifier Sanitization
+#### 13.4 Identifier Sanitization
 
 ```reluxscript
 plugin IdentifierSanitizer {
@@ -1111,7 +1347,7 @@ plugin IdentifierSanitizer {
 }
 ```
 
-#### 11.5 Version Extraction
+#### 13.5 Version Extraction
 
 ```reluxscript
 plugin VersionExtractor {
@@ -1134,7 +1370,7 @@ plugin VersionExtractor {
 }
 ```
 
-#### 11.6 Extract All Numbers
+#### 13.6 Extract All Numbers
 
 ```reluxscript
 plugin NumberExtractor {
@@ -1148,9 +1384,9 @@ plugin NumberExtractor {
 }
 ```
 
-### 12. Testing Strategy
+### 14. Testing Strategy
 
-#### 12.1 Pattern Validation Tests
+#### 14.1 Pattern Validation Tests
 
 ```rust
 #[test]
@@ -1288,10 +1524,18 @@ Regex support in ReluxScript provides:
 - `Regex::replace(text, pattern, repl)` - Replace first
 - `Regex::replace_all(text, pattern, repl)` - Replace all
 
-**Implementation priority:**
-1. Parser support (Regex:: namespace recognition)
-2. Pattern validation (unsupported feature detection)
-3. Babel codegen (regex literal generation)
-4. SWC codegen (regex crate calls + optimization)
-5. Runtime helpers (Captures wrapper, find_all)
-6. Testing and documentation
+**Implementation priority (3-stage pipeline):**
+1. **Parser support** - Recognize `Regex::` namespace and create `RegexCall` AST nodes
+2. **Pattern validation** - Check for unsupported features (lookbehind, backreferences)
+3. **Decorator** (SWC only) - Annotate with metadata (helper needs, caching hints)
+4. **Rewriter** (optional) - Pass through (no transformation needed)
+5. **Emitter - Babel** - Emit regex literals (`/pattern/.test()`)
+6. **Emitter - SWC** - Emit regex crate calls (inline or cached)
+7. **Helper generation** - Emit helper functions (`__regex_captures`, cached patterns)
+8. **Testing and documentation**
+
+**Architecture benefits:**
+- **Decorator** decides optimization strategy (caching) based on usage analysis
+- **Rewriter** stays simple (no regex-specific transformations needed)
+- **Emitter** stays "dumb" - just emits based on metadata
+- Clean separation of concerns following the pipeline principle
