@@ -130,16 +130,18 @@ struct ComponentInfo {
     templates: HashMap<Str, Template>,
 }
 
-fn component_info_new(name: Str) -> ComponentInfo {
-    ComponentInfo {
-        name: name,
-        props: vec![],
-        use_state: vec![],
-        use_effect: vec![],
-        use_ref: vec![],
-        event_handlers: vec![],
-        render_body: None,
-        templates: HashMap::new(),
+impl ComponentInfo {
+    fn new(name: Str) -> ComponentInfo {
+        ComponentInfo {
+            name: name,
+            props: vec![],
+            use_state: vec![],
+            use_effect: vec![],
+            use_ref: vec![],
+            event_handlers: vec![],
+            render_body: None,
+            templates: HashMap::new(),
+        }
     }
 }
 

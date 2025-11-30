@@ -748,16 +748,15 @@ impl SwcEmitter {
         // Parameters
         sig.push('(');
 
-        // For SWC visitor methods (visit_mut_*) and writer helper methods, add &mut self as first parameter
-        // Writer methods (write_*, generate_*, etc.) also need &mut self
-        let needs_self = func.name.starts_with("visit_") ||
-                        (self.is_writer && func.name.starts_with("extract_")) ||
-                        (self.is_writer && !func.name.starts_with("new"));
-
         // Check if first parameter is already a self parameter
         let first_is_self = func.params.first()
             .map(|p| p.name == "self")
             .unwrap_or(false);
+
+        // Only add &mut self if:
+        // 1. It's a visitor method (visit_*), OR
+        // 2. The function already has self as first parameter in source
+        let needs_self = func.name.starts_with("visit_") || first_is_self;
 
         if needs_self && !first_is_self {
             sig.push_str("&mut self");
@@ -1151,7 +1150,13 @@ impl SwcEmitter {
                 if let Some(ref deref) = ident_metadata.deref_pattern {
                     self.output.push_str(deref);
                 }
-                self.output.push_str(name);
+
+                // Transform built-in module names
+                if name == "json" {
+                    self.output.push_str("serde_json");
+                } else {
+                    self.output.push_str(name);
+                }
 
                 // Check if we need .sym
                 if ident_metadata.use_sym {

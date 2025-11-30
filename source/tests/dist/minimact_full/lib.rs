@@ -86,17 +86,24 @@ impl VisitMut for __InlineVisitor_0 {
     fn visit_mut_var_declarator(&mut self, decl: &mut VarDeclarator) {
         if let Some(init) = &decl.init {
             if matches!(init, CallExpression) {
-                extract_hook_from_call(init, &decl.id, &mut component)
+                MinimactTranspiler::extract_hook_from_call(init, &decl.name, &mut self.component)
             }
         }
     }
     
     fn visit_mut_return_stmt(&mut self, ret: &mut ReturnStmt) {
-        if let Some(arg) = &ret.argument {
+        if let Some(arg) = &ret.arg {
             if matches!(arg, JSXElement) {
-                component.render_body = Some(arg.clone())
+                self.component.render_body = Some(arg.clone())
             }
         }
+    }
+    
+}
+
+impl ComponentInfo {
+    fn new(name: String) -> ComponentInfo {
+        ComponentInfo { name: name, props: vec![], use_state: vec![], use_effect: vec![], use_ref: vec![], event_handlers: vec![], render_body: None, templates: HashMap::new() }
     }
     
 }
@@ -184,14 +191,10 @@ impl MinimactTranspiler {
                 all_templates.insert(full_key, template.clone())
             }
         }
-        TranspilerOutput { csharp: csharp_code, templates: json::to_string_pretty(&all_templates).unwrap(), hooks: json::to_string_pretty(&self.hooks).unwrap() }
+        TranspilerOutput { csharp: csharp_code, templates: serde_json::to_string_pretty(&all_templates).unwrap(), hooks: serde_json::to_string_pretty(&self.hooks).unwrap() }
     }
     
-    fn component_info_new(&mut self, name: String) -> ComponentInfo {
-        ComponentInfo { name: name, props: vec![], use_state: vec![], use_effect: vec![], use_ref: vec![], event_handlers: vec![], render_body: None, templates: HashMap::new() }
-    }
-    
-    fn is_pascal_case(&mut self, name: &String) -> bool {
+    fn is_pascal_case(name: &String) -> bool {
         if (name.len() == 0) {
             return false;
         }
@@ -199,7 +202,7 @@ impl MinimactTranspiler {
         return first_char.is_uppercase();
     }
     
-    fn extract_props(&mut self, param: &Pat, component: &mut ComponentInfo) {
+    fn extract_props(param: &Pat, component: &mut ComponentInfo) {
         if match param {
             ObjectPattern => {
                 true
@@ -234,7 +237,7 @@ impl MinimactTranspiler {
         }
     }
     
-    fn extract_hook_from_call(&mut self, call: &CallExpr, binding: &Pat, component: &mut ComponentInfo) {
+    fn extract_hook_from_call(call: &CallExpr, binding: &Pat, component: &mut ComponentInfo) {
         if !match call.callee.as_expr().unwrap() {
             Identifier => {
                 true
@@ -262,7 +265,7 @@ impl MinimactTranspiler {
         }
     }
     
-    fn extract_use_state(&mut self, call: &CallExpr, binding: &Pat, component: &mut ComponentInfo) {
+    fn extract_use_state(call: &CallExpr, binding: &Pat, component: &mut ComponentInfo) {
         if !match binding {
             ArrayPattern => {
                 true
@@ -296,7 +299,7 @@ impl MinimactTranspiler {
         component.use_state.push(StateInfo { name: state_var, setter: setter_var, initial_value: initial_value, state_type: state_type });
     }
     
-    fn extract_use_effect(&mut self, call: &CallExpr, component: &mut ComponentInfo) {
+    fn extract_use_effect(call: &CallExpr, component: &mut ComponentInfo) {
         let mut deps = vec![];
         if (call.args.len() > 1) {
             let deps_arg = &call.args[1];
@@ -325,7 +328,7 @@ impl MinimactTranspiler {
         component.use_effect.push(EffectInfo { dependencies: deps, is_client_side: false });
     }
     
-    fn extract_use_ref(&mut self, call: &CallExpr, binding: &Pat, component: &mut ComponentInfo) {
+    fn extract_use_ref(call: &CallExpr, binding: &Pat, component: &mut ComponentInfo) {
         if !match binding {
             Identifier => {
                 true
@@ -345,7 +348,7 @@ impl MinimactTranspiler {
         component.use_ref.push(RefInfo { name: ref_name, initial_value: initial_value });
     }
     
-    fn expr_to_csharp(&mut self, expr: &Expr) -> String {
+    fn expr_to_csharp(expr: &Expr) -> String {
         if match expr {
             StringLiteral => {
                 true
@@ -429,7 +432,7 @@ impl MinimactTranspiler {
         return "null".to_string();
     }
     
-    fn infer_csharp_type(&mut self, expr: &Expr) -> String {
+    fn infer_csharp_type(expr: &Expr) -> String {
         if match expr {
             StringLiteral => {
                 true
@@ -492,7 +495,7 @@ impl MinimactTranspiler {
         return "dynamic".to_string();
     }
     
-    fn generate_csharp_class(&mut self, component: &ComponentInfo) -> String {
+    fn generate_csharp_class(component: &ComponentInfo) -> String {
         let mut builder = String::new();
         { builder.push_str(&"using Minimact.Core;"); builder.push_str("\n"); };
         { builder.push_str(&"using Minimact.VDom;"); builder.push_str("\n"); };

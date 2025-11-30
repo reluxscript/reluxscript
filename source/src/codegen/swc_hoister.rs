@@ -34,6 +34,9 @@ pub struct SwcHoister {
 
     /// Hoisted impl blocks for visitor structs
     hoisted_impls: Vec<DecoratedImplBlock>,
+
+    /// Current writer type name for qualifying function calls
+    current_writer: Option<String>,
 }
 
 impl SwcHoister {
@@ -42,6 +45,7 @@ impl SwcHoister {
             visitor_counter: 0,
             hoisted_structs: Vec::new(),
             hoisted_impls: Vec::new(),
+            current_writer: None,
         }
     }
 
@@ -120,6 +124,9 @@ impl SwcHoister {
 
     /// Hoist inline visitors from a writer
     fn hoist_writer(&mut self, writer: DecoratedWriter) -> DecoratedWriter {
+        // Set the current writer name for qualifying function calls in hoisted visitors
+        self.current_writer = Some(writer.name.clone());
+
         let mut new_body = Vec::new();
 
         // First pass: process items and collect hoisted structs
@@ -581,6 +588,7 @@ impl SwcHoister {
         // Collect all captured variable names
         let mut captured_vars = HashSet::new();
         for capture in captures {
+            eprintln!("DEBUG: Registering captured variable: {}", capture.name);
             captured_vars.insert(capture.name.clone());
         }
         for let_stmt in state {
@@ -593,6 +601,7 @@ impl SwcHoister {
         let mut transformer = CaptureTransformer {
             captured_vars,
             params: params.to_vec(),
+            writer_type: self.current_writer.clone(),
         };
 
         // Transform each statement in the body
@@ -611,6 +620,7 @@ impl SwcHoister {
 struct CaptureTransformer {
     captured_vars: HashSet<String>,
     params: Vec<crate::parser::Param>,
+    writer_type: Option<String>,
 }
 
 impl CaptureTransformer {
@@ -683,6 +693,7 @@ impl CaptureTransformer {
             DecoratedExprKind::Ident { name, ident_metadata } => {
                 // If this identifier is a captured variable, prefix with self.
                 if self.captured_vars.contains(&name) {
+                    eprintln!("DEBUG: Transforming captured variable '{}' to 'self.{}'", name, name);
                     let name_clone = name.clone();
                     DecoratedExpr {
                         kind: DecoratedExprKind::Member {
@@ -777,15 +788,137 @@ impl CaptureTransformer {
                 }
             }
             DecoratedExprKind::Call(call) => {
-                // TODO: Transform callee and args
+                // Transform callee and arguments to handle captured variables
+                eprintln!("DEBUG: Transforming Call expression with {} args", call.args.len());
+                let transformed_args: Vec<_> = call.args.into_iter()
+                    .enumerate()
+                    .map(|(i, arg)| {
+                        eprintln!("DEBUG: Transforming arg {}", i);
+                        self.transform_expr(arg)
+                    })
+                    .collect();
+
+                // Check if callee is a bare identifier - if so, qualify it with writer type
+                let transformed_callee = if let DecoratedExprKind::Ident { name, .. } = &call.callee.kind {
+                    // Don't qualify built-in types/functions
+                    let is_builtin = matches!(name.as_str(),
+                        "Some" | "None" | "Ok" | "Err" | "vec" | "Vec" | "Box" |
+                        "String" | "println" | "format" | "print" | "panic" | "assert" |
+                        "HashMap" | "HashSet" | "Option" | "Result"
+                    );
+
+                    if let Some(writer_type) = &self.writer_type {
+                        if !is_builtin {
+                            // Transform bare function call to WriterType::function_name
+                            eprintln!("DEBUG: Qualifying bare function call '{}' to '{}::{}'", name, writer_type, name);
+                        DecoratedExpr {
+                            kind: DecoratedExprKind::Member {
+                                object: Box::new(DecoratedExpr {
+                                    kind: DecoratedExprKind::Ident {
+                                        name: writer_type.clone(),
+                                        ident_metadata: crate::codegen::swc_metadata::SwcIdentifierMetadata {
+                                            use_sym: false,
+                                            deref_pattern: None,
+                                            span: call.callee.metadata.span,
+                                        },
+                                    },
+                                    metadata: crate::codegen::swc_metadata::SwcExprMetadata {
+                                        swc_type: writer_type.clone(),
+                                        is_boxed: false,
+                                        is_optional: false,
+                                        type_kind: crate::type_system::SwcTypeKind::Unknown,
+                                        span: call.callee.metadata.span,
+                                    },
+                                }),
+                                property: name.clone(),
+                                optional: false,
+                                computed: false,
+                                is_path: true,  // This is a path like WriterType::function
+                                field_metadata: crate::codegen::swc_metadata::SwcFieldMetadata {
+                                    swc_field_name: name.clone(),
+                                    accessor: crate::codegen::swc_metadata::FieldAccessor::Direct,
+                                    field_type: "Function".to_string(),
+                                    source_field: Some(name.clone()),
+                                    span: call.callee.metadata.span,
+                                    read_conversion: String::new(),
+                                },
+                            },
+                            metadata: call.callee.metadata.clone(),
+                        }
+                        } else {
+                            self.transform_expr(call.callee)
+                        }
+                    } else {
+                        self.transform_expr(call.callee)
+                    }
+                } else {
+                    self.transform_expr(call.callee)
+                };
+
+                let transformed_call = Box::new(crate::codegen::decorated_ast::DecoratedCallExpr {
+                    callee: transformed_callee,
+                    args: transformed_args,
+                    type_args: call.type_args,
+                    optional: call.optional,
+                    is_macro: call.is_macro,
+                    span: call.span,
+                });
                 DecoratedExpr {
-                    kind: DecoratedExprKind::Call(call),
+                    kind: DecoratedExprKind::Call(transformed_call),
                     metadata: expr.metadata,
                 }
             }
-            other => DecoratedExpr {
-                kind: other,
-                metadata: expr.metadata,
+            DecoratedExprKind::Unary { op, operand, unary_metadata } => {
+                // Transform the operand (e.g., &mut component -> &mut self.component)
+                eprintln!("DEBUG: Transforming Unary expression with op {:?}", op);
+                DecoratedExpr {
+                    kind: DecoratedExprKind::Unary {
+                        op,
+                        operand: Box::new(self.transform_expr(*operand)),
+                        unary_metadata,
+                    },
+                    metadata: expr.metadata,
+                }
+            }
+            DecoratedExprKind::Ref { expr: inner, mutable } => {
+                // Transform &component or &mut component -> &self.component or &mut self.component
+                eprintln!("DEBUG: Transforming Ref expression (mutable: {})", mutable);
+                DecoratedExpr {
+                    kind: DecoratedExprKind::Ref {
+                        expr: Box::new(self.transform_expr(*inner)),
+                        mutable,
+                    },
+                    metadata: expr.metadata,
+                }
+            }
+            DecoratedExprKind::Deref(inner) => {
+                // Transform *expr
+                DecoratedExpr {
+                    kind: DecoratedExprKind::Deref(Box::new(self.transform_expr(*inner))),
+                    metadata: expr.metadata,
+                }
+            }
+            ref other @ _ => {
+                use crate::codegen::decorated_ast::DecoratedExprKind as Kind;
+                let name = match other {
+                    Kind::Literal(_) => "Literal",
+                    Kind::Ident { .. } => "Ident",
+                    Kind::Binary { .. } => "Binary",
+                    Kind::Unary { .. } => "Unary",
+                    Kind::Call(_) => "Call",
+                    Kind::Member { .. } => "Member",
+                    Kind::Index { .. } => "Index",
+                    Kind::StructInit(_) => "StructInit",
+                    Kind::Assign { .. } => "Assign",
+                    Kind::RegexCall(_) => "RegexCall",
+                    Kind::CustomPropAccess(_) => "CustomPropAccess",
+                    _ => "Other",
+                };
+                eprintln!("DEBUG: Unhandled expression kind: {}", name);
+                DecoratedExpr {
+                    kind: other.clone(),
+                    metadata: expr.metadata,
+                }
             },
         }
     }
