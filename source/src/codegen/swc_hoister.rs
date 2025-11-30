@@ -321,10 +321,12 @@ impl SwcHoister {
                     );
 
                     // Convert method body, marking captured variables
+                    // Pass parameter type information for field mapping
                     let method_body = self.transform_method_body_with_captures(
                         &method.body,
                         &traverse.captures,
                         &inline.state,
+                        &method.params,
                     );
 
                     let impl_method = DecoratedFnDecl {
@@ -574,6 +576,7 @@ impl SwcHoister {
         body: &Block,
         captures: &[crate::parser::Capture],
         state: &[crate::parser::LetStmt],
+        params: &[crate::parser::Param],
     ) -> DecoratedBlock {
         // Collect all captured variable names
         let mut captured_vars = HashSet::new();
@@ -586,9 +589,10 @@ impl SwcHoister {
             }
         }
 
-        // Create a transformer to prefix captured variables
+        // Create a transformer with parameter type information
         let mut transformer = CaptureTransformer {
             captured_vars,
+            params: params.to_vec(),
         };
 
         // Transform each statement in the body
@@ -606,6 +610,7 @@ impl SwcHoister {
 /// Helper to transform captured variable references to self.var
 struct CaptureTransformer {
     captured_vars: HashSet<String>,
+    params: Vec<crate::parser::Param>,
 }
 
 impl CaptureTransformer {
@@ -613,10 +618,26 @@ impl CaptureTransformer {
     fn transform_stmt(&mut self, stmt: &crate::parser::Stmt) -> DecoratedStmt {
         use crate::parser::Stmt;
         use crate::codegen::swc_decorator::SwcDecorator;
+        use crate::type_system::TypeContext;
 
-        // For now, use the decorator to convert the statement, then we'll transform it
-        // This is a simplified approach - we need to decorate first
-        let mut decorator = SwcDecorator::new();
+        // Create decorator for traverse blocks
+        let mut decorator = SwcDecorator::for_traverse();
+
+        // Register parameter types in the decorator's type environment
+        // This enables field mapping (e.g., ident.name → ident.sym)
+        for param in &self.params {
+            if let crate::parser::Type::Reference { inner, .. } = &param.ty {
+                if let crate::parser::Type::Named(type_name) = inner.as_ref() {
+                    // Look up SWC type from mapping
+                    let swc_type = crate::mapping::get_node_mapping(type_name)
+                        .map(|m| m.swc.to_string())
+                        .unwrap_or_else(|| type_name.clone());
+
+                    decorator.register_param_type(&param.name, &swc_type);
+                }
+            }
+        }
+
         let decorated = decorator.decorate_stmt(stmt);
 
         self.transform_decorated_stmt(decorated)
@@ -721,6 +742,36 @@ impl CaptureTransformer {
                         op,
                         right: Box::new(self.transform_expr(*right)),
                         binary_metadata,
+                    },
+                    metadata: expr.metadata,
+                }
+            }
+            DecoratedExprKind::Member { object, property, optional, computed, is_path, field_metadata } => {
+                // Transform the object recursively
+                let transformed_object = Box::new(self.transform_expr(*object));
+
+                // Get the object's type to do field mapping
+                // Strip reference/mut markers to get base type
+                let obj_type_raw = &transformed_object.metadata.swc_type;
+                let obj_type = obj_type_raw
+                    .trim_start_matches("&mut ")
+                    .trim_start_matches("&");
+
+                // Try to map Babel field name to SWC field name
+                let swc_field = if let Some(mapping) = crate::codegen::type_context::get_typed_field_mapping(obj_type, &property) {
+                    mapping.swc_field.to_string()
+                } else {
+                    property
+                };
+
+                DecoratedExpr {
+                    kind: DecoratedExprKind::Member {
+                        object: transformed_object,
+                        property: swc_field,
+                        optional,
+                        computed,
+                        is_path,
+                        field_metadata,
                     },
                     metadata: expr.metadata,
                 }

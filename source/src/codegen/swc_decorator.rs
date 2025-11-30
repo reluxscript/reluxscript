@@ -39,6 +39,10 @@ pub struct SwcDecorator {
     /// (affects field replacements like self.builder → self)
     is_writer: bool,
 
+    /// Whether we're inside a traverse block
+    /// (affects field mapping - use SWC field names directly instead of translating)
+    in_traverse: bool,
+
     /// Custom property registry
     /// Maps (node_type, property_name) -> inferred_type
     custom_props: HashMap<(String, String), crate::parser::Type>,
@@ -63,6 +67,7 @@ impl SwcDecorator {
             current_params: HashMap::new(),
             semantic_type_env: None,
             is_writer: false,
+            in_traverse: false,
             custom_props: HashMap::new(),
         }
     }
@@ -86,8 +91,29 @@ impl SwcDecorator {
             current_params: HashMap::new(),
             semantic_type_env: Some(semantic_type_env),
             is_writer: false,
+            in_traverse: false,
             custom_props: HashMap::new(),
         }
+    }
+
+    /// Create a decorator for traverse block context
+    /// In traverse blocks, we skip Babel→SWC field mapping since traverse blocks use SWC types directly
+    pub fn for_traverse() -> Self {
+        let mut decorator = Self::new();
+        decorator.in_traverse = true;
+        decorator
+    }
+
+    /// Register a parameter type in the type environment
+    /// Used by traverse blocks to enable field mapping
+    pub fn register_param_type(&mut self, param_name: &str, swc_type: &str) {
+        self.type_env.insert(param_name.to_string(), TypeContext {
+            reluxscript_type: swc_type.to_string(),
+            swc_type: swc_type.to_string(),
+            kind: SwcTypeKind::Struct, // AST nodes are structs
+            known_variant: None,
+            needs_deref: false,
+        });
     }
 
     /// Look up variable type from semantic TypeEnv and convert to SWC type string

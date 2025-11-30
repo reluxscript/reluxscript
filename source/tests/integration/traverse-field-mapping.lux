@@ -1,0 +1,19 @@
+/// Test Babel field name → SWC field name translation in traverse
+plugin FieldMappingTest {
+    struct State {
+        found_ids: i32,
+    }
+
+    fn visit_jsx_element(node: &mut JSXElement, ctx: &Context) {
+        traverse(node) {
+            let mut found_ids = 0;
+
+            fn visit_ident(ident: &mut Ident) {
+                // Use Babel field name "name" which should map to SWC's "sym"
+                if ident.name == "test" {
+                    found_ids = found_ids + 1;
+                }
+            }
+        }
+    }
+}
