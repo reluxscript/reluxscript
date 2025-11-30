@@ -1769,6 +1769,7 @@ impl Parser {
             captures.push(Capture {
                 name,
                 mutable,
+                var_type: None, // TODO: Type inference from surrounding scope
                 span: capture_span,
             });
 

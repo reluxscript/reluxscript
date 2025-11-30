@@ -11,14 +11,14 @@ use std::fs;
 use std::path::Path;
 
 
-#[derive(Serialize)]
+#[derive(Clone, Debug)]
 struct TranspilerOutput {
     csharp: String,
     templates: String,
     hooks: String,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
 struct ComponentInfo {
     name: String,
     props: Vec<PropInfo>,
@@ -30,14 +30,14 @@ struct ComponentInfo {
     templates: HashMap<String, Template>,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
 struct PropInfo {
     name: String,
     prop_type: String,
     optional: bool,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
 struct StateInfo {
     name: String,
     setter: Option<String>,
@@ -45,33 +45,33 @@ struct StateInfo {
     state_type: String,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
 struct EffectInfo {
     dependencies: Vec<String>,
     is_client_side: bool,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
 struct RefInfo {
     name: String,
     initial_value: String,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
 struct EventHandlerInfo {
     name: String,
     params: Vec<String>,
     is_async: bool,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
 struct Template {
     path: String,
     template: String,
     bindings: Vec<String>,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
 struct HookSignature {
     name: String,
     hook_type: String,
@@ -79,7 +79,7 @@ struct HookSignature {
 
 #[derive(Clone, Debug)]
 struct __InlineVisitor_0 {
-    component: &mut i32,
+    component: &mut UserDefined,
 }
 
 impl VisitMut for __InlineVisitor_0 {
@@ -170,7 +170,7 @@ impl MinimactTranspiler {
         if (node.function.params.len() > 0) {
             Self::extract_props(&node.function.params[0], &mut component)
         }
-        if let Some(body) = &node.body {
+        if let Some(body) = &node.function.body {
             body.visit_mut_with(&mut __InlineVisitor_0 { component: &mut component })
         }
         self.components.push(component);

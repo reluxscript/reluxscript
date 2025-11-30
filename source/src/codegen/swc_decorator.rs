@@ -330,6 +330,37 @@ impl SwcDecorator {
                 // Use that type for pattern decoration
                 let pattern = self.decorate_pattern_with_context(&let_stmt.pattern, init_type);
 
+                // Register the variable in type_env for later use (e.g., in traverse captures)
+                if let Pattern::Ident(ref name) = let_stmt.pattern {
+                    // Try to infer a better type from the init expression
+                    // If it's a call like `ComponentInfo::new()`, the type should be ComponentInfo
+                    let inferred_type = if init_type == "UserDefined" {
+                        // Check if init is a static call (Type::method())
+                        if let DecoratedExprKind::Call(ref call) = init.kind {
+                            if let DecoratedExprKind::Member { ref object, .. } = call.callee.kind {
+                                if let DecoratedExprKind::Ident { ref name, .. } = object.kind {
+                                    // Use the type name before ::
+                                    name.clone()
+                                } else {
+                                    init_type.clone()
+                                }
+                            } else {
+                                init_type.clone()
+                            }
+                        } else {
+                            init_type.clone()
+                        }
+                    } else {
+                        init_type.clone()
+                    };
+
+                    self.type_env.insert(name.clone(), TypeContext {
+                        reluxscript_type: inferred_type.clone(),
+                        swc_type: inferred_type,
+                        type_kind: crate::type_system::SwcTypeKind::Unknown,
+                    });
+                }
+
                 DecoratedStmt::Let(DecoratedLetStmt {
                     mutable: let_stmt.mutable,
                     pattern,
@@ -434,7 +465,21 @@ impl SwcDecorator {
 
             Stmt::Continue(_) => DecoratedStmt::Continue,
 
-            Stmt::Traverse(traverse) => DecoratedStmt::Traverse(traverse.clone()),
+            Stmt::Traverse(traverse) => {
+                // Clone the traverse stmt so we can mutate captures
+                let mut traverse = traverse.clone();
+                // Infer types for captured variables from the type environment
+                for capture in &mut traverse.captures {
+                    if capture.var_type.is_none() {
+                        // Try to look up the variable's type from the type environment
+                        if let Some(type_ctx) = self.type_env.get(&capture.name) {
+                            // Convert the SWC type back to a ReluxScript Type
+                            capture.var_type = Some(Type::Named(type_ctx.reluxscript_type.clone()));
+                        }
+                    }
+                }
+                DecoratedStmt::Traverse(traverse)
+            },
 
             Stmt::Function(func_decl) => DecoratedStmt::Function(func_decl.clone()),
 

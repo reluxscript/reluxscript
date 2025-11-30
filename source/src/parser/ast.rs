@@ -553,6 +553,8 @@ pub struct Capture {
     pub name: String,
     /// Whether the capture is mutable (&mut vs &)
     pub mutable: bool,
+    /// Type of the captured variable (if known)
+    pub var_type: Option<Type>,
     pub span: Span,
 }
 

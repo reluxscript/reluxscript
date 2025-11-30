@@ -681,6 +681,15 @@ pub fn get_typed_field_mapping(parent_swc_type: &str, field: &str) -> Option<Typ
             read_conversion: "",
             write_conversion: "",
         }),
+        ("FnDecl", "body") => Some(TypedFieldMapping {
+            reluxscript_field: "body",
+            swc_field: "function.body",
+            needs_deref: false,
+            result_type_rs: "Option<BlockStatement>",
+            result_type_swc: "Option<BlockStmt>",
+            read_conversion: "",
+            write_conversion: "",
+        }),
 
         // ArrayPat fields
         ("ArrayPat", "elements") => Some(TypedFieldMapping {

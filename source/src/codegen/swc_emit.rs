@@ -646,7 +646,17 @@ impl SwcEmitter {
     fn emit_struct(&mut self, struct_decl: &StructDecl) {
         // Emit derives if any, or default to Clone + Debug for SWC
         if !struct_decl.derives.is_empty() {
-            self.emit_line(&format!("#[derive({})]", struct_decl.derives.join(", ")));
+            // Filter out Serialize/Deserialize for SWC (not supported on AST types)
+            let filtered_derives: Vec<_> = struct_decl.derives.iter()
+                .filter(|d| *d != "Serialize" && *d != "Deserialize")
+                .cloned()
+                .collect();
+
+            if !filtered_derives.is_empty() {
+                self.emit_line(&format!("#[derive({})]", filtered_derives.join(", ")));
+            } else {
+                self.emit_line("#[derive(Clone, Debug)]");
+            }
         } else {
             // Default derives for user structs in SWC
             self.emit_line("#[derive(Clone, Debug)]");

@@ -237,16 +237,20 @@ impl SwcHoister {
 
                 // Add captured variables as fields
                 for capture in &traverse.captures {
+                    // Use the captured variable's type if known, otherwise fallback to i32
+                    let inner_type = capture.var_type.clone()
+                        .unwrap_or_else(|| Type::Primitive("i32".to_string()));
+
                     let field_type = if capture.mutable {
                         // &mut T
                         Type::Reference {
-                            inner: Box::new(Type::Primitive("i32".to_string())), // TODO: proper type inference
+                            inner: Box::new(inner_type.clone()),
                             mutable: true,
                         }
                     } else {
                         // &T
                         Type::Reference {
-                            inner: Box::new(Type::Primitive("i32".to_string())),
+                            inner: Box::new(inner_type),
                             mutable: false,
                         }
                     };
