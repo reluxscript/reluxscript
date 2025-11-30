@@ -171,7 +171,7 @@ impl MinimactTranspiler {
         if (node.function.params.len() > 0) {
             Self::extract_props(&node.function.params[0], &mut component)
         }
-        if let Some(body) = &node.body {
+        if let Some(body) = &node.function.body {
             body.visit_mut_with(&mut __InlineVisitor_0 { component: &mut component })
         }
         self.components.push(component);

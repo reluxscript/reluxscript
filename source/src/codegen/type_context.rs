@@ -681,6 +681,33 @@ pub fn get_typed_field_mapping(parent_swc_type: &str, field: &str) -> Option<Typ
             read_conversion: "",
             write_conversion: "",
         }),
+        ("FnDecl", "body") => Some(TypedFieldMapping {
+            reluxscript_field: "body",
+            swc_field: "function.body",
+            needs_deref: false,
+            result_type_rs: "Option<BlockStatement>",
+            result_type_swc: "Option<BlockStmt>",
+            read_conversion: "",
+            write_conversion: "",
+        }),
+        ("FnDecl", "async") => Some(TypedFieldMapping {
+            reluxscript_field: "async",
+            swc_field: "function.is_async",
+            needs_deref: false,
+            result_type_rs: "bool",
+            result_type_swc: "bool",
+            read_conversion: "",
+            write_conversion: "",
+        }),
+        ("FnDecl", "generator") => Some(TypedFieldMapping {
+            reluxscript_field: "generator",
+            swc_field: "function.is_generator",
+            needs_deref: false,
+            result_type_rs: "bool",
+            result_type_swc: "bool",
+            read_conversion: "",
+            write_conversion: "",
+        }),
 
         // ArrayPat fields
         ("ArrayPat", "elements") => Some(TypedFieldMapping {
