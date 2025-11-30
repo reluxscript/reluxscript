@@ -38,6 +38,10 @@ pub struct SwcDecorator {
     /// Whether we're currently in a writer context
     /// (affects field replacements like self.builder → self)
     is_writer: bool,
+
+    /// Custom property registry
+    /// Maps (node_type, property_name) -> inferred_type
+    custom_props: HashMap<(String, String), crate::parser::Type>,
 }
 
 impl SwcDecorator {
@@ -47,6 +51,7 @@ impl SwcDecorator {
             current_params: HashMap::new(),
             semantic_type_env: None,
             is_writer: false,
+            custom_props: HashMap::new(),
         }
     }
 
@@ -57,6 +62,7 @@ impl SwcDecorator {
             current_params: HashMap::new(),
             semantic_type_env: Some(semantic_type_env),
             is_writer: false,
+            custom_props: HashMap::new(),
         }
     }
 
@@ -385,9 +391,7 @@ impl SwcDecorator {
             Stmt::Verbatim(verbatim) => DecoratedStmt::Verbatim(verbatim.clone()),
 
             Stmt::CustomPropAssignment(assign) => {
-                // TODO: Implement custom property assignment decoration
-                // For now, pass through as-is
-                DecoratedStmt::CustomPropAssignment(assign.clone())
+                self.decorate_custom_prop_assignment(assign)
             }
         }
     }
@@ -1035,10 +1039,20 @@ impl SwcDecorator {
             }
 
             Expr::Literal(lit) => {
+                // Determine specific type based on literal variant
+                let swc_type = match lit {
+                    Literal::String(_) => "String",
+                    Literal::Int(_) => "i32",
+                    Literal::Float(_) => "f64",
+                    Literal::Bool(_) => "bool",
+                    Literal::Null => "Null",
+                    Literal::Unit => "Unit",
+                }.to_string();
+
                 DecoratedExpr {
                     kind: DecoratedExprKind::Literal(lit.clone()),
                     metadata: SwcExprMetadata {
-                        swc_type: "Literal".to_string(),
+                        swc_type,
                         is_boxed: false,
                         is_optional: false,
                         type_kind: SwcTypeKind::Primitive,
@@ -1480,18 +1494,7 @@ impl SwcDecorator {
             }
 
             Expr::CustomPropAccess(access) => {
-                // TODO: Implement custom property access decoration with type tracking
-                // For now, pass through as-is
-                DecoratedExpr {
-                    kind: DecoratedExprKind::CustomPropAccess(access.clone()),
-                    metadata: SwcExprMetadata {
-                        swc_type: "Option<Unknown>".to_string(),
-                        is_boxed: false,
-                        is_optional: true,
-                        type_kind: SwcTypeKind::Unknown,
-                        span: None,
-                    },
-                }
+                self.decorate_custom_prop_access(access)
             }
         }
     }
@@ -1645,6 +1648,189 @@ impl SwcDecorator {
                 }
             }
             _ => ty.clone(),
+        }
+    }
+
+    /// Convert ReluxScript Type to CustomPropValue enum variant name
+    fn type_to_custom_prop_variant(&self, ty: &crate::parser::Type) -> String {
+        use crate::parser::Type;
+
+        match ty {
+            Type::Primitive(prim) => match prim.as_str() {
+                "bool" => "Bool".to_string(),
+                "i32" => "I32".to_string(),
+                "i64" => "I64".to_string(),
+                "f64" => "F64".to_string(),
+                "Str" | "String" => "Str".to_string(),
+                _ => "Unknown".to_string(),
+            },
+            Type::Container { name, type_args } if name == "Vec" => "Vec".to_string(),
+            Type::Container { name, type_args } if name == "HashMap" => "Map".to_string(),
+            Type::Named(name) => {
+                // User-defined type - use the name as variant
+                name.clone()
+            }
+            _ => "Unknown".to_string(),
+        }
+    }
+
+    /// Generate unwrapper pattern for converting CustomPropValue back to concrete type
+    fn gen_unwrapper_pattern(&self, ty: &crate::parser::Type) -> String {
+        let variant = self.type_to_custom_prop_variant(ty);
+
+        match variant.as_str() {
+            "Bool" => "if let CustomPropValue::Bool(v) = v { Some(v.clone()) } else { None }".to_string(),
+            "I32" => "if let CustomPropValue::I32(v) = v { Some(v.clone()) } else { None }".to_string(),
+            "I64" => "if let CustomPropValue::I64(v) = v { Some(v.clone()) } else { None }".to_string(),
+            "F64" => "if let CustomPropValue::F64(v) = v { Some(v.clone()) } else { None }".to_string(),
+            "Str" => "if let CustomPropValue::Str(v) = v { Some(v.clone()) } else { None }".to_string(),
+            "Vec" => "if let CustomPropValue::Vec(v) = v { Some(v.clone()) } else { None }".to_string(),
+            "Map" => "if let CustomPropValue::Map(v) = v { Some(v.clone()) } else { None }".to_string(),
+            variant_name => format!("if let CustomPropValue::{}(v) = v {{ Some(v.clone()) }} else {{ None }}", variant_name),
+        }
+    }
+
+    /// Check if an expression is a None literal
+    fn is_none_literal(&self, expr: &crate::parser::Expr) -> bool {
+        matches!(expr, crate::parser::Expr::Ident(id) if id.name == "None")
+    }
+
+    /// Decorate custom property assignment with type inference and metadata
+    fn decorate_custom_prop_assignment(&mut self, assign: &crate::parser::CustomPropAssignment) -> DecoratedStmt {
+        use crate::codegen::decorated_ast::{DecoratedCustomPropAssignment, DecoratedStmt};
+        use crate::codegen::swc_metadata::SwcCustomPropAssignmentMetadata;
+
+        // Decorate the node and value expressions
+        let decorated_node = self.decorate_expr(&assign.node);
+        let decorated_value = self.decorate_expr(&assign.value);
+
+        // Infer the value type from the decorated expression metadata
+        let value_type = self.infer_type_from_swc_type(&decorated_value.metadata.swc_type);
+
+        // Determine the CustomPropValue variant
+        let variant = self.type_to_custom_prop_variant(&value_type);
+
+        // Check if this is a deletion (None assignment)
+        let is_deletion = self.is_none_literal(&assign.value);
+
+        // Get the node type from the decorated node
+        let node_type = decorated_node.metadata.swc_type.clone();
+
+        // Register the property type in our registry
+        let key = (node_type, assign.property.clone());
+        self.custom_props.insert(key, value_type.clone());
+
+        // Create the decorated assignment
+        DecoratedStmt::CustomPropAssignment(Box::new(DecoratedCustomPropAssignment {
+            node: decorated_node,
+            property: assign.property.clone(),
+            value: decorated_value,
+            metadata: SwcCustomPropAssignmentMetadata {
+                value_type,
+                variant,
+                is_deletion,
+                span: Some(assign.span),
+            },
+        }))
+    }
+
+    /// Decorate custom property access with type tracking and unwrapper generation
+    fn decorate_custom_prop_access(&mut self, access: &crate::parser::CustomPropAccess) -> DecoratedExpr {
+        use crate::codegen::decorated_ast::{DecoratedCustomPropAccess, DecoratedExprKind};
+        use crate::codegen::swc_metadata::SwcCustomPropAccessMetadata;
+
+        // Decorate the node expression
+        let decorated_node = self.decorate_expr(&access.node);
+
+        // Get the node type
+        let node_type = decorated_node.metadata.swc_type.clone();
+
+        // Look up registered type for this property
+        let key = (node_type, access.property.clone());
+        let property_type = self.custom_props.get(&key).cloned();
+
+        // Generate unwrapper pattern if we know the type
+        let unwrapper_pattern = property_type.as_ref().map(|t| self.gen_unwrapper_pattern(t));
+
+        // The return type is always Option<T>
+        let swc_type = if let Some(ref ty) = property_type {
+            format!("Option<{}>", self.type_to_swc_string(ty))
+        } else {
+            "Option<Unknown>".to_string()
+        };
+
+        DecoratedExpr {
+            kind: DecoratedExprKind::CustomPropAccess(Box::new(DecoratedCustomPropAccess {
+                node: Box::new(decorated_node),
+                property: access.property.clone(),
+                metadata: SwcCustomPropAccessMetadata {
+                    property_type,
+                    unwrapper_pattern,
+                    span: Some(access.span),
+                },
+            })),
+            metadata: SwcExprMetadata {
+                swc_type,
+                is_boxed: false,
+                is_optional: true,
+                type_kind: SwcTypeKind::Unknown,
+                span: Some(access.span),
+            },
+        }
+    }
+
+    /// Infer ReluxScript Type from SWC type string
+    fn infer_type_from_swc_type(&self, swc_type: &str) -> crate::parser::Type {
+        use crate::parser::Type;
+
+        // Handle common SWC types
+        match swc_type {
+            "bool" => Type::Primitive("bool".to_string()),
+            "i32" | "usize" => Type::Primitive("i32".to_string()),
+            "i64" => Type::Primitive("i64".to_string()),
+            "f64" => Type::Primitive("f64".to_string()),
+            "String" | "&str" | "Literal" => Type::Primitive("Str".to_string()),
+            s if s.starts_with("Option<") => {
+                // Extract inner type
+                let inner = s.trim_start_matches("Option<").trim_end_matches(">");
+                Type::Container {
+                    name: "Option".to_string(),
+                    type_args: vec![self.infer_type_from_swc_type(inner)],
+                }
+            }
+            s if s.starts_with("Vec<") => {
+                let inner = s.trim_start_matches("Vec<").trim_end_matches(">");
+                Type::Container {
+                    name: "Vec".to_string(),
+                    type_args: vec![self.infer_type_from_swc_type(inner)],
+                }
+            }
+            _ => Type::Named(swc_type.to_string()),
+        }
+    }
+
+    /// Convert Type to SWC type string
+    fn type_to_swc_string(&self, ty: &crate::parser::Type) -> String {
+        use crate::parser::Type;
+
+        match ty {
+            Type::Primitive(name) => match name.as_str() {
+                "Str" => "String".to_string(),
+                _ => name.clone(),
+            },
+            Type::Named(name) => name.clone(),
+            Type::Container { name, type_args } => {
+                if type_args.is_empty() {
+                    name.clone()
+                } else {
+                    let args = type_args.iter()
+                        .map(|t| self.type_to_swc_string(t))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!("{}<{}>", name, args)
+                }
+            }
+            _ => "Unknown".to_string(),
         }
     }
 

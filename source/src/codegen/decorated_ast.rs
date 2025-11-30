@@ -121,7 +121,7 @@ pub enum DecoratedExprKind {
     Break,
     Continue,
     RegexCall(Box<DecoratedRegexCall>),
-    CustomPropAccess(crate::parser::CustomPropAccess), // TODO: Add metadata for type info
+    CustomPropAccess(Box<DecoratedCustomPropAccess>),
 }
 
 /// Decorated call expression
@@ -187,7 +187,7 @@ pub enum DecoratedStmt {
     Traverse(crate::parser::TraverseStmt), // TODO: Decorate if needed
     Function(crate::parser::FnDecl), // Nested functions - TODO: Decorate if needed
     Verbatim(crate::parser::VerbatimStmt), // Platform-specific code - no decoration needed
-    CustomPropAssignment(crate::parser::CustomPropAssignment), // TODO: Decorate with metadata
+    CustomPropAssignment(Box<DecoratedCustomPropAssignment>),
 }
 
 /// Decorated let statement
@@ -264,4 +264,33 @@ impl DecoratedExpr {
     pub fn new(kind: DecoratedExprKind, metadata: SwcExprMetadata) -> Self {
         Self { kind, metadata }
     }
+}
+
+/// Decorated custom AST property assignment
+#[derive(Debug, Clone)]
+pub struct DecoratedCustomPropAssignment {
+    /// The AST node being assigned to
+    pub node: DecoratedExpr,
+
+    /// The custom property name (e.g., "__hexPath")
+    pub property: String,
+
+    /// The value being assigned
+    pub value: DecoratedExpr,
+
+    /// Metadata about the assignment
+    pub metadata: SwcCustomPropAssignmentMetadata,
+}
+
+/// Decorated custom AST property access
+#[derive(Debug, Clone)]
+pub struct DecoratedCustomPropAccess {
+    /// The AST node being read from
+    pub node: Box<DecoratedExpr>,
+
+    /// The custom property name (e.g., "__hexPath")
+    pub property: String,
+
+    /// Metadata about the access
+    pub metadata: SwcCustomPropAccessMetadata,
 }

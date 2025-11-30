@@ -323,3 +323,33 @@ impl SwcIdentifierMetadata {
         }
     }
 }
+
+/// Metadata for custom AST property assignments
+#[derive(Debug, Clone)]
+pub struct SwcCustomPropAssignmentMetadata {
+    /// The inferred type of the value being assigned
+    pub value_type: crate::parser::Type,
+
+    /// The CustomPropValue enum variant to use (e.g., "Str", "Bool", "I32")
+    pub variant: String,
+
+    /// Whether this is a deletion (assignment to None)
+    pub is_deletion: bool,
+
+    /// Source location for error reporting
+    pub span: Option<crate::lexer::Span>,
+}
+
+/// Metadata for custom AST property access
+#[derive(Debug, Clone)]
+pub struct SwcCustomPropAccessMetadata {
+    /// The registered type for this property (if known)
+    pub property_type: Option<crate::parser::Type>,
+
+    /// Pattern to unwrap CustomPropValue back to the concrete type
+    /// e.g., "if let CustomPropValue::Str(s) = v { Some(s.clone()) } else { None }"
+    pub unwrapper_pattern: Option<String>,
+
+    /// Source location for error reporting
+    pub span: Option<crate::lexer::Span>,
+}

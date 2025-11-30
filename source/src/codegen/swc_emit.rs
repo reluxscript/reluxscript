@@ -49,6 +49,12 @@ pub struct SwcEmitter {
 
     /// Whether regex crate is used
     uses_regex: bool,
+
+    /// Whether custom AST properties are used
+    uses_custom_props: bool,
+
+    /// Set of custom types used in custom properties (for CustomPropValue enum)
+    custom_prop_types: std::collections::HashSet<String>,
 }
 
 impl SwcEmitter {
@@ -67,6 +73,8 @@ impl SwcEmitter {
             uses_codegen: false,
             needs_regex_captures_helper: false,
             uses_regex: false,
+            uses_custom_props: false,
+            custom_prop_types: std::collections::HashSet::new(),
         }
     }
 
@@ -248,6 +256,16 @@ impl SwcEmitter {
         // Recursively check child expressions
         match &expr.kind {
             DecoratedExprKind::Call(call) => {
+                // Check for custom prop method calls
+                if let DecoratedExprKind::Member { object, property, .. } = &call.callee.kind {
+                    if let DecoratedExprKind::Member { property: state_prop, .. } = &object.kind {
+                        if state_prop == "state" && (property == "set_custom_prop" || property == "get_custom_prop" || property == "delete_custom_prop") {
+                            self.uses_custom_props = true;
+                            self.uses_hashmap = true; // Custom props use HashMap
+                        }
+                    }
+                }
+
                 self.detect_regex_usage_in_expr(&call.callee);
                 for arg in &call.args {
                     self.detect_regex_usage_in_expr(arg);
@@ -407,6 +425,11 @@ impl SwcEmitter {
             }
         });
 
+        // If custom props are used, emit the CustomPropValue enum first
+        if self.uses_custom_props && has_state {
+            self.emit_custom_prop_value_enum();
+        }
+
         // Emit structs, enums, and impl blocks FIRST (at module level)
         for item in &plugin.body {
             match item {
@@ -474,6 +497,11 @@ impl SwcEmitter {
                 for field in &state.fields {
                     let default_value = self.get_default_value_for_type(&field.ty);
                     self.emit_line(&format!("{}: {},", field.name, default_value));
+                }
+
+                // Initialize __custom_props if used
+                if self.uses_custom_props {
+                    self.emit_line("__custom_props: std::collections::HashMap::new(),");
                 }
 
                 self.indent -= 1;
@@ -604,9 +632,20 @@ impl SwcEmitter {
             self.emit_line(&format!("{}: {},", field.name, type_str));
         }
 
+        // If this is the State struct and custom props are used, inject the __custom_props field
+        if struct_decl.name == "State" && self.uses_custom_props {
+            self.emit_line("// Auto-generated: Custom AST property storage");
+            self.emit_line("__custom_props: std::collections::HashMap<usize, std::collections::HashMap<String, CustomPropValue>>,");
+        }
+
         self.indent -= 1;
         self.emit_line("}");
         self.emit_line("");
+
+        // If this is the State struct and custom props are used, emit helper methods
+        if struct_decl.name == "State" && self.uses_custom_props {
+            self.emit_custom_prop_helpers();
+        }
     }
 
     fn emit_enum(&mut self, enum_decl: &EnumDecl) {
@@ -875,12 +914,9 @@ impl SwcEmitter {
             }
 
             DecoratedStmt::CustomPropAssignment(assign) => {
-                // TODO: Emit as self.state.set_custom_prop(node, "prop", value)
-                // For now, just emit a comment
-                self.emit_indent();
-                self.output.push_str("// TODO: CustomPropAssignment: ");
-                self.output.push_str(&assign.property);
-                self.output.push_str("\n");
+                // This should have been transformed by the rewriter into a Call expression
+                // If we reach here, the rewriter didn't run
+                panic!("CustomPropAssignment should have been rewritten by SwcRewriter");
             }
         }
     }
@@ -1073,6 +1109,14 @@ impl SwcEmitter {
             }
 
             DecoratedExprKind::Ident { name, ident_metadata } => {
+                // Special handling for CLOSURE_UNWRAPPER marker
+                if let Some(unwrapper) = name.strip_prefix("CLOSURE_UNWRAPPER:") {
+                    // Emit the closure directly: |v| unwrapper_pattern
+                    self.output.push_str("|v| ");
+                    self.output.push_str(unwrapper);
+                    return;
+                }
+
                 // Check for deref pattern
                 if let Some(ref deref) = ident_metadata.deref_pattern {
                     self.output.push_str(deref);
@@ -1438,11 +1482,9 @@ impl SwcEmitter {
             }
 
             DecoratedExprKind::CustomPropAccess(access) => {
-                // TODO: Emit as self.state.get_custom_prop(node, "prop")
-                // For now, just emit a comment
-                self.output.push_str("/* TODO: CustomPropAccess: ");
-                self.output.push_str(&access.property);
-                self.output.push_str(" */");
+                // This should have been transformed by the rewriter into a Call expression
+                // If we reach here, the rewriter didn't run
+                panic!("CustomPropAccess should have been rewritten by SwcRewriter");
             }
 
             DecoratedExprKind::Closure(closure) => {
@@ -2192,5 +2234,81 @@ impl SwcEmitter {
             }
             _ => "Default::default()".to_string(),
         }
+    }
+
+    // ========================================================================
+    // CUSTOM AST PROPERTIES - INFRASTRUCTURE GENERATION
+    // ========================================================================
+
+    fn emit_custom_prop_value_enum(&mut self) {
+        self.emit_line("#[derive(Clone, Debug)]");
+        self.emit_line("enum CustomPropValue {");
+        self.indent += 1;
+        self.emit_line("Bool(bool),");
+        self.emit_line("I32(i32),");
+        self.emit_line("I64(i64),");
+        self.emit_line("F64(f64),");
+        self.emit_line("Str(String),");
+        // TODO: Add Vec, Map, and user-defined types if needed
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("");
+    }
+
+    fn emit_custom_prop_helpers(&mut self) {
+        self.emit_line("impl State {");
+        self.indent += 1;
+
+        // get_node_id: Generate unique ID for AST nodes
+        self.emit_line("fn get_node_id<T>(&self, node: &T) -> usize {");
+        self.indent += 1;
+        self.emit_line("// Use node memory address as ID");
+        self.emit_line("node as *const T as usize");
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("");
+
+        // set_custom_prop: Set a custom property
+        self.emit_line("fn set_custom_prop<T>(&mut self, node: &T, prop: &str, value: CustomPropValue) {");
+        self.indent += 1;
+        self.emit_line("let node_id = self.get_node_id(node);");
+        self.emit_line("self.__custom_props");
+        self.indent += 1;
+        self.emit_line(".entry(node_id)");
+        self.emit_line(".or_insert_with(std::collections::HashMap::new)");
+        self.emit_line(".insert(prop.to_string(), value);");
+        self.indent -= 1;
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("");
+
+        // get_custom_prop: Get a custom property
+        self.emit_line("fn get_custom_prop<T>(&self, node: &T, prop: &str) -> Option<&CustomPropValue> {");
+        self.indent += 1;
+        self.emit_line("let node_id = self.get_node_id(node);");
+        self.emit_line("self.__custom_props");
+        self.indent += 1;
+        self.emit_line(".get(&node_id)");
+        self.emit_line(".and_then(|m| m.get(prop))");
+        self.indent -= 1;
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("");
+
+        // delete_custom_prop: Remove a custom property
+        self.emit_line("fn delete_custom_prop<T>(&mut self, node: &T, prop: &str) {");
+        self.indent += 1;
+        self.emit_line("let node_id = self.get_node_id(node);");
+        self.emit_line("if let Some(props) = self.__custom_props.get_mut(&node_id) {");
+        self.indent += 1;
+        self.emit_line("props.remove(prop);");
+        self.indent -= 1;
+        self.emit_line("}");
+        self.indent -= 1;
+        self.emit_line("}");
+
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("");
     }
 }

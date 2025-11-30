@@ -270,9 +270,7 @@ impl SwcRewriter {
             }
 
             DecoratedStmt::CustomPropAssignment(assign) => {
-                // TODO: Transform to state.set_custom_prop() call
-                // For now, pass through unchanged
-                DecoratedStmt::CustomPropAssignment(assign)
+                self.rewrite_custom_prop_assignment(*assign)
             }
         }
     }
@@ -953,13 +951,15 @@ impl SwcRewriter {
             }
 
             // Leaf expressions that don't need child rewriting
+            DecoratedExprKind::CustomPropAccess(access) => {
+                return self.rewrite_custom_prop_access(*access);
+            }
+
             DecoratedExprKind::Literal(_) |
             DecoratedExprKind::Ident { .. } |
             DecoratedExprKind::Break |
             DecoratedExprKind::Continue |
-            DecoratedExprKind::CustomPropAccess(_) |
             DecoratedExprKind::Closure(_) => {
-                // TODO: Transform CustomPropAccess to state.get_custom_prop() call
                 expr.kind
             }
         };
@@ -2202,6 +2202,213 @@ impl SwcRewriter {
             is_optional: false,
             type_kind: crate::type_system::SwcTypeKind::Unknown,
             span: None,
+        }
+    }
+
+    /// Rewrite custom property assignment to state.set_custom_prop() call
+    fn rewrite_custom_prop_assignment(&mut self, assign: DecoratedCustomPropAssignment) -> DecoratedStmt {
+        use crate::codegen::decorated_ast::{DecoratedCallExpr, DecoratedExprKind};
+
+        // Check if this is a deletion (assignment to None)
+        if assign.metadata.is_deletion {
+            // Transform: node.__prop = None → self.state.delete_custom_prop(node, "__prop")
+            return self.build_delete_call(assign.node, assign.property);
+        }
+
+        // Transform: node.__prop = value → self.state.set_custom_prop(node, "__prop", CustomPropValue::Variant(value))
+        let wrapped_value = self.wrap_in_custom_prop_value(
+            assign.value,
+            &assign.metadata.variant
+        );
+
+        // Build self.state.set_custom_prop(node, "__prop", wrapped_value)
+        let set_call = DecoratedExpr {
+            kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                callee: self.build_state_method_path("set_custom_prop"),
+                args: vec![
+                    assign.node,
+                    self.string_literal(&assign.property),
+                    wrapped_value,
+                ],
+                is_macro: false,
+                optional: false,
+                type_args: vec![],
+                span: crate::lexer::Span::new(0, 0, 0, 0),
+            })),
+            metadata: Self::simple_metadata("()"),
+        };
+
+        DecoratedStmt::Expr(set_call)
+    }
+
+    /// Rewrite custom property access to state.get_custom_prop() call
+    fn rewrite_custom_prop_access(&mut self, access: DecoratedCustomPropAccess) -> DecoratedExpr {
+        use crate::codegen::decorated_ast::{DecoratedCallExpr, DecoratedExprKind};
+
+        // Build: self.state.get_custom_prop(node, "__prop")
+        let get_call = DecoratedExpr {
+            kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                callee: self.build_state_method_path("get_custom_prop"),
+                args: vec![
+                    *access.node,
+                    self.string_literal(&access.property),
+                ],
+                is_macro: false,
+                optional: false,
+                type_args: vec![],
+                span: crate::lexer::Span::new(0, 0, 0, 0),
+            })),
+            metadata: Self::simple_metadata("Option<&CustomPropValue>"),
+        };
+
+        // If we have an unwrapper pattern, chain with .and_then(|v| unwrapper)
+        if let Some(unwrapper) = access.metadata.unwrapper_pattern {
+            self.chain_and_then(get_call, unwrapper)
+        } else {
+            get_call
+        }
+    }
+
+    /// Build a delete_custom_prop call
+    fn build_delete_call(&mut self, node: DecoratedExpr, property: String) -> DecoratedStmt {
+        use crate::codegen::decorated_ast::{DecoratedCallExpr, DecoratedExprKind};
+
+        let delete_call = DecoratedExpr {
+            kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                callee: self.build_state_method_path("delete_custom_prop"),
+                args: vec![
+                    node,
+                    self.string_literal(&property),
+                ],
+                is_macro: false,
+                optional: false,
+                type_args: vec![],
+                span: crate::lexer::Span::new(0, 0, 0, 0),
+            })),
+            metadata: Self::simple_metadata("()"),
+        };
+
+        DecoratedStmt::Expr(delete_call)
+    }
+
+    /// Wrap a value in CustomPropValue::Variant(value)
+    fn wrap_in_custom_prop_value(&mut self, value: DecoratedExpr, variant: &str) -> DecoratedExpr {
+        use crate::codegen::decorated_ast::{DecoratedCallExpr, DecoratedExprKind};
+
+        // Rewrite the value expression first
+        let rewritten_value = self.rewrite_expr(value);
+
+        // Build: CustomPropValue::Variant(value)
+        DecoratedExpr {
+            kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                callee: self.path_expr(&format!("CustomPropValue::{}", variant)),
+                args: vec![rewritten_value],
+                is_macro: false,
+                optional: false,
+                type_args: vec![],
+                span: crate::lexer::Span::new(0, 0, 0, 0),
+            })),
+            metadata: Self::simple_metadata("CustomPropValue"),
+        }
+    }
+
+    /// Build self.state.method_name expression
+    fn build_state_method_path(&self, method_name: &str) -> DecoratedExpr {
+        use crate::codegen::decorated_ast::DecoratedExprKind;
+        use crate::codegen::swc_metadata::SwcIdentifierMetadata;
+
+        // Build: self.state.method_name
+        DecoratedExpr {
+            kind: DecoratedExprKind::Member {
+                object: Box::new(DecoratedExpr {
+                    kind: DecoratedExprKind::Member {
+                        object: Box::new(DecoratedExpr {
+                            kind: DecoratedExprKind::Ident {
+                                name: "self".to_string(),
+                                ident_metadata: SwcIdentifierMetadata::name(),
+                            },
+                            metadata: Self::simple_metadata("&mut Self"),
+                        }),
+                        property: "state".to_string(),
+                        optional: false,
+                        computed: false,
+                        is_path: false,
+                        field_metadata: crate::codegen::swc_metadata::SwcFieldMetadata::direct("state".to_string(), "State".to_string()),
+                    },
+                    metadata: Self::simple_metadata("&mut State"),
+                }),
+                property: method_name.to_string(),
+                optional: false,
+                computed: false,
+                is_path: false,
+                field_metadata: crate::codegen::swc_metadata::SwcFieldMetadata::direct(method_name.to_string(), "fn".to_string()),
+            },
+            metadata: Self::simple_metadata("fn"),
+        }
+    }
+
+    /// Build a string literal expression
+    fn string_literal(&self, s: &str) -> DecoratedExpr {
+        use crate::codegen::decorated_ast::DecoratedExprKind;
+        use crate::parser::Literal;
+
+        DecoratedExpr {
+            kind: DecoratedExprKind::Literal(Literal::String(s.to_string())),
+            metadata: Self::simple_metadata("&str"),
+        }
+    }
+
+    /// Build a path expression like "CustomPropValue::Str"
+    fn path_expr(&self, path: &str) -> DecoratedExpr {
+        use crate::codegen::decorated_ast::DecoratedExprKind;
+        use crate::codegen::swc_metadata::SwcIdentifierMetadata;
+
+        DecoratedExpr {
+            kind: DecoratedExprKind::Ident {
+                name: path.to_string(),
+                ident_metadata: SwcIdentifierMetadata::name(),
+            },
+            metadata: Self::simple_metadata("Path"),
+        }
+    }
+
+    /// Chain a .and_then(|v| unwrapper) call
+    fn chain_and_then(&mut self, expr: DecoratedExpr, unwrapper_pattern: String) -> DecoratedExpr {
+        use crate::codegen::decorated_ast::{DecoratedCallExpr, DecoratedExprKind};
+        use crate::codegen::swc_metadata::SwcIdentifierMetadata;
+        use crate::parser::Literal;
+
+        // For now, we'll emit this as a verbatim closure call
+        // TODO: Properly construct a closure DecoratedExpr
+
+        // Build: expr.and_then(|v| unwrapper_pattern)
+        DecoratedExpr {
+            kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                callee: DecoratedExpr {
+                    kind: DecoratedExprKind::Member {
+                        object: Box::new(expr),
+                        property: "and_then".to_string(),
+                        optional: false,
+                        computed: false,
+                        is_path: false,
+                        field_metadata: crate::codegen::swc_metadata::SwcFieldMetadata::direct("and_then".to_string(), "fn".to_string()),
+                    },
+                    metadata: Self::simple_metadata("fn"),
+                },
+                // For the closure argument, we'll use a special marker that the emitter will handle
+                args: vec![DecoratedExpr {
+                    kind: DecoratedExprKind::Ident {
+                        name: format!("CLOSURE_UNWRAPPER:{}", unwrapper_pattern),
+                        ident_metadata: SwcIdentifierMetadata::name(),
+                    },
+                    metadata: Self::simple_metadata("Closure"),
+                }],
+                is_macro: false,
+                optional: false,
+                type_args: vec![],
+                span: crate::lexer::Span::new(0, 0, 0, 0),
+            })),
+            metadata: Self::simple_metadata("Option<T>"),
         }
     }
 }
