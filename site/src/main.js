@@ -87,10 +87,19 @@ document.querySelector('#app').innerHTML = `
             <div class="code-block">
                 <div class="code-label">.lux source</div>
                 <pre><code><span class="comment">// Write once in ReluxScript</span>
+<span class="comment">/// Remove console.log statements</span>
 <span class="keyword">plugin</span> <span class="function">RemoveConsole</span> {
     <span class="keyword">fn</span> <span class="function">visit_call_expression</span>(node: &<span class="keyword">mut</span> CallExpression, ctx: &Context) {
-        <span class="keyword">if</span> <span class="function">matches!</span>(node.callee, <span class="string">"console.log"</span>) {
-            *node = Statement::<span class="function">empty</span>();
+        <span class="keyword">if let</span> Callee::MemberExpression(<span class="keyword">ref</span> member) = node.callee {
+            <span class="keyword">if let</span> Expression::Identifier(<span class="keyword">ref</span> obj) = *member.object {
+                <span class="keyword">if</span> obj.name == <span class="string">"console"</span> {
+                    <span class="keyword">if let</span> Expression::Identifier(<span class="keyword">ref</span> prop) = *member.property {
+                        <span class="keyword">if</span> prop.name == <span class="string">"log"</span> {
+                            ctx.<span class="function">remove</span>();
+                        }
+                    }
+                }
+            }
         }
     }
 }</code></pre>
@@ -105,12 +114,23 @@ document.querySelector('#app').innerHTML = `
   <span class="keyword">return</span> {
     visitor: {
       <span class="function">CallExpression</span>(path) {
-        <span class="keyword">if</span> (
-          t.<span class="function">isMemberExpression</span>(path.node.callee) &&
-          path.node.callee.object.name === <span class="string">'console'</span> &&
-          path.node.callee.property.name === <span class="string">'log'</span>
-        ) {
-          path.<span class="function">remove</span>();
+        <span class="keyword">const</span> node = path.node;
+        <span class="keyword">const</span> __iflet_0 = node.callee;
+        <span class="keyword">if</span> (__iflet_0 !== <span class="keyword">null</span>) {
+          <span class="keyword">const</span> member = __iflet_0;
+          <span class="keyword">const</span> __iflet_1 = member.object;
+          <span class="keyword">if</span> (__iflet_1 !== <span class="keyword">null</span>) {
+            <span class="keyword">const</span> obj = __iflet_1;
+            <span class="keyword">if</span> (obj.name === <span class="string">"console"</span>) {
+              <span class="keyword">const</span> __iflet_2 = member.property;
+              <span class="keyword">if</span> (__iflet_2 !== <span class="keyword">null</span>) {
+                <span class="keyword">const</span> prop = __iflet_2;
+                <span class="keyword">if</span> (prop.name === <span class="string">"log"</span>) {
+                  path.<span class="function">remove</span>();
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -120,15 +140,22 @@ document.querySelector('#app').innerHTML = `
 
                 <div class="code-block">
                     <div class="code-label">SWC (Rust)</div>
-                    <pre><code><span class="keyword">pub struct</span> <span class="function">RemoveConsole</span>;
+                    <pre><code><span class="keyword">pub struct</span> <span class="function">RemoveConsole</span> {}
 
 <span class="keyword">impl</span> VisitMut <span class="keyword">for</span> RemoveConsole {
-    <span class="keyword">fn</span> <span class="function">visit_mut_call_expr</span>(
-        &<span class="keyword">mut self</span>,
-        node: &<span class="keyword">mut</span> CallExpr
-    ) {
-        <span class="keyword">if</span> <span class="function">is_console_log</span>(node) {
-            *node = <span class="function">empty_stmt</span>();
+    <span class="keyword">fn</span> <span class="function">visit_mut_call_expr</span>(&<span class="keyword">mut</span> <span class="keyword">self</span>, node: &<span class="keyword">mut</span> CallExpr) {
+        <span class="keyword">if let</span> Callee::Expr(__callee_expr) = &node.callee {
+            <span class="keyword">if let</span> Expr::Member(member) = __callee_expr.as_ref() {
+                <span class="keyword">if let</span> Expr::Ident(obj) = &*member.obj.as_ref() {
+                    <span class="keyword">if</span> (&*obj.sym.to_string() == <span class="string">"console"</span>) {
+                        <span class="keyword">if let</span> MemberProp::Ident(prop) = &member.prop {
+                            <span class="keyword">if</span> (&*prop.sym.to_string() == <span class="string">"log"</span>) {
+                                node.callee = Callee::Expr(Box::new(Expr::Ident(Ident::new(<span class="string">"undefined"</span>.into(), DUMMY_SP, SyntaxContext::empty()))))
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }</code></pre>
