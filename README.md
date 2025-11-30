@@ -449,10 +449,10 @@ relux --help
 - [x] **Regex support** (v0.1.2) - `Regex::matches()`, `Regex::find()`, `Regex::captures()`, etc.
 - [x] **Custom AST properties** (v0.1.2) - Unified metadata tracking with `__` prefix
 - [x] **VS Code extension** - Syntax highlighting and language support
+- [x] **Language server protocol (LSP)** - Code completion, diagnostics, and more
 
 ### 🚧 In Progress
 
-- [ ] **Language server protocol (LSP)** - Code completion, diagnostics, go-to-definition
 - [ ] **Minimact conversion** - Complete real-world plugin port
 
 ### 🔮 Future
