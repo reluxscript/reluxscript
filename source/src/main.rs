@@ -40,7 +40,7 @@ enum Commands {
         /// Input file
         file: PathBuf,
         /// Automatically fix common issues (path-qualified if-let patterns)
-        #[arg(long)]
+        #[arg(long, default_value = "true")]
         autofix: bool,
     },
     /// Build a ReluxScript project
@@ -55,7 +55,7 @@ enum Commands {
         #[arg(short, long, default_value = "dist")]
         output: PathBuf,
         /// Automatically fix common issues (path-qualified if-let patterns)
-        #[arg(long)]
+        #[arg(long, default_value = "true")]
         autofix: bool,
         /// Dump decorated AST for SWC (debug mode - before rewriting)
         #[arg(long)]
