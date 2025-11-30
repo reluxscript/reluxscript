@@ -54,7 +54,7 @@ impl VisitMut for KitchenSinkPlugin {
         if let Some(component_name) = &self.state.current_component {
             if let Some(callee_name) = Self::get_callee_name(&node.callee.as_expr().unwrap()) {
                 if Self::is_hook_call(&callee_name) {
-                    let hook_info = HookInfo { name: callee_name.clone(), hook_type: categorize_hook(&callee_name), args_count: 0 };
+                    let hook_info = HookInfo { name: callee_name.clone(), hook_type: Self::categorize_hook(&callee_name), args_count: 0 };
                     for component in &mut self.state.components {
                         if (component.name == *component_name) {
                             component.hooks.push(hook_info);
@@ -65,7 +65,7 @@ impl VisitMut for KitchenSinkPlugin {
             }
         }
         if let Some(member) = Self::extract_member_call(node) {
-            if ((member.obj == "console") && Self::should_remove_console(&member.prop)) {
+            if ((member.object == "console") && Self::should_remove_console(&member.property)) {
                 self.state.removed_count += 1
             }
         }
@@ -95,7 +95,7 @@ impl VisitMut for KitchenSinkPlugin {
         if let Some(component_name) = &self.state.current_component {
             for component in &mut self.state.components {
                 if (component.name == *component_name) {
-                    let updated = ComponentStats { name: component.name.clone(), hooks: component.hooks.clone(), has_jsx: true };
+                    let updated = ComponentStats { name: component.name.to_string(), hooks: component.hooks.clone(), has_jsx: true };
                     *component = updated;
                     break;
                 }
@@ -179,7 +179,7 @@ impl KitchenSinkPlugin {
         if let Callee::Expr(__callee_expr) = &&call.callee.as_expr().unwrap() {
             if let Expr::Member(member) = __callee_expr.as_ref() {
                 if let Expr::Ident(obj) = &member.obj {
-                    return Some(MemberInfo { object: obj.sym.to_string().clone(), property: member.prop.clone() });
+                    return Some(MemberInfo { object: obj.sym.to_string(), property: member.prop.clone() });
                 }
             }
         }
@@ -214,7 +214,7 @@ impl KitchenSinkPlugin {
     
     fn safe_get_name(stats: &ComponentStats) -> Result<String, String> {
         if stats.name.is_empty() {
-            Err("No name")
+            Err("No name".to_string())
         } else {
             Ok(stats.name.to_string())
         }
