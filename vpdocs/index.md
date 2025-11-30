@@ -65,10 +65,19 @@ relux build my-plugin.lux --target swc
 Write once in ReluxScript:
 
 ```reluxscript
+/// Remove console.log statements
 plugin RemoveConsole {
     fn visit_call_expression(node: &mut CallExpression, ctx: &Context) {
-        if matches!(node.callee, "console.log") {
-            *node = Statement::empty();
+        if let Callee::MemberExpression(ref member) = node.callee {
+            if let Expression::Identifier(ref obj) = *member.object {
+                if obj.name == "console" {
+                    if let Expression::Identifier(ref prop) = *member.property {
+                        if prop.name == "log" {
+                            ctx.remove();
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -82,12 +91,23 @@ module.exports = function({ types: t }) {
   return {
     visitor: {
       CallExpression(path) {
-        if (
-          t.isMemberExpression(path.node.callee) &&
-          path.node.callee.object.name === 'console' &&
-          path.node.callee.property.name === 'log'
-        ) {
-          path.remove();
+        const node = path.node;
+        const __iflet_0 = node.callee;
+        if (__iflet_0 !== null) {
+          const member = __iflet_0;
+          const __iflet_1 = member.object;
+          if (__iflet_1 !== null) {
+            const obj = __iflet_1;
+            if (obj.name === "console") {
+              const __iflet_2 = member.property;
+              if (__iflet_2 !== null) {
+                const prop = __iflet_2;
+                if (prop.name === "log") {
+                  path.remove();
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -97,15 +117,28 @@ module.exports = function({ types: t }) {
 
 **SWC (Rust)**
 ```rust
-pub struct RemoveConsole;
+pub struct RemoveConsole {}
 
 impl VisitMut for RemoveConsole {
-    fn visit_mut_call_expr(
-        &mut self,
-        node: &mut CallExpr
-    ) {
-        if is_console_log(node) {
-            *node = empty_stmt();
+    fn visit_mut_call_expr(&mut self, node: &mut CallExpr) {
+        if let Callee::Expr(__callee_expr) = &node.callee {
+            if let Expr::Member(member) = __callee_expr.as_ref() {
+                if let Expr::Ident(obj) = &*member.obj.as_ref() {
+                    if (&*obj.sym.to_string() == "console") {
+                        if let MemberProp::Ident(prop) = &member.prop {
+                            if (&*prop.sym.to_string() == "log") {
+                                node.callee = Callee::Expr(Box::new(
+                                    Expr::Ident(Ident::new(
+                                        "undefined".into(),
+                                        DUMMY_SP,
+                                        SyntaxContext::empty()
+                                    ))
+                                ))
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
