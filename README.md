@@ -446,17 +446,16 @@ relux --help
 - [x] Format strings
 - [x] Pattern matching
 - [x] Verbatim blocks
+- [x] **Regex support** (v0.1.2) - `Regex::matches()`, `Regex::find()`, `Regex::captures()`, etc.
+- [x] **Custom AST properties** (v0.1.2) - Unified metadata tracking with `__` prefix
+- [x] **VS Code extension** - Syntax highlighting and language support
 
 ### 🚧 In Progress
 
-- [ ] **Regex support** (v0.2.0) - `Regex::matches()`, `Regex::find()`, etc.
-- [ ] **Custom AST properties** (v0.3.0) - Unified metadata tracking
-- [ ] **Minimact conversion** (v0.4.0) - Complete real-world plugin
+- [ ] **Language server protocol (LSP)** - Code completion, diagnostics, go-to-definition
+- [ ] **Minimact conversion** - Complete real-world plugin port
 
 ### 🔮 Future
-
-- [ ] Language server protocol (LSP)
-- [ ] VS Code extension
 - [ ] Plugin registry
 - [ ] Online playground
 - [ ] More built-in AST node constructors
