@@ -125,15 +125,21 @@ module.exports = function({ types: t }) {
   
   
   function extract_props(param, component) {
-    if ((true)) {
+    const __iflet_0 = param;
+    if (__iflet_0 !== null && __iflet_0 !== undefined) {
+      const ObjectPattern = __iflet_0;
       for (const prop of param.properties) {
-        if ((true)) {
+        const __iflet_1 = prop;
+        if (__iflet_1 !== null && __iflet_1 !== undefined) {
+          const ObjectPatternProperty = __iflet_1;
           const prop_name = prop.key.name;
           component.props.push({ name: prop_name, prop_type: "dynamic".toString(), optional: false });
         }
       }
     } else {
-      if ((true)) {
+      const __iflet_2 = param;
+      if (__iflet_2 !== null && __iflet_2 !== undefined) {
+        const Identifier = __iflet_2;
       }
     }
   }
@@ -181,9 +187,13 @@ module.exports = function({ types: t }) {
     let deps = [];
     if ((call.arguments.length > 1)) {
       const deps_arg = call.arguments[1];
-      if ((true)) {
+      const __iflet_3 = deps_arg;
+      if (__iflet_3 !== null && __iflet_3 !== undefined) {
+        const ArrayExpression = __iflet_3;
         for (const elem of deps_arg.elements) {
-          if ((true)) {
+          const __iflet_4 = elem;
+          if (__iflet_4 !== null && __iflet_4 !== undefined) {
+            const Identifier = __iflet_4;
             deps.push(elem.name);
           }
         }
@@ -204,25 +214,39 @@ module.exports = function({ types: t }) {
   
   
   function expr_to_csharp(expr) {
-    if ((true)) {
+    const __iflet_5 = expr;
+    if (__iflet_5 !== null && __iflet_5 !== undefined) {
+      const StringLiteral = __iflet_5;
       return `"${expr.value}"`;
     } else {
-      if ((true)) {
+      const __iflet_6 = expr;
+      if (__iflet_6 !== null && __iflet_6 !== undefined) {
+        const NumericLiteral = __iflet_6;
         return expr.value.toString();
       } else {
-        if ((true)) {
+        const __iflet_7 = expr;
+        if (__iflet_7 !== null && __iflet_7 !== undefined) {
+          const BooleanLiteral = __iflet_7;
           return (expr.value ? "true" : "false").toString();
         } else {
-          if ((true)) {
+          const __iflet_8 = expr;
+          if (__iflet_8 !== null && __iflet_8 !== undefined) {
+            const NullLiteral = __iflet_8;
             return "null".toString();
           } else {
-            if ((true)) {
+            const __iflet_9 = expr;
+            if (__iflet_9 !== null && __iflet_9 !== undefined) {
+              const Identifier = __iflet_9;
               return expr.name;
             } else {
-              if ((true)) {
+              const __iflet_10 = expr;
+              if (__iflet_10 !== null && __iflet_10 !== undefined) {
+                const ArrayExpression = __iflet_10;
                 return "new List<dynamic>()".toString();
               } else {
-                if ((true)) {
+                const __iflet_11 = expr;
+                if (__iflet_11 !== null && __iflet_11 !== undefined) {
+                  const ObjectExpression = __iflet_11;
                   return "new Dictionary<string, dynamic>()".toString();
                 }
               }
@@ -236,10 +260,14 @@ module.exports = function({ types: t }) {
   
   
   function infer_csharp_type(expr) {
-    if ((true)) {
+    const __iflet_12 = expr;
+    if (__iflet_12 !== null && __iflet_12 !== undefined) {
+      const StringLiteral = __iflet_12;
       return "string".toString();
     } else {
-      if ((true)) {
+      const __iflet_13 = expr;
+      if (__iflet_13 !== null && __iflet_13 !== undefined) {
+        const NumericLiteral = __iflet_13;
         const val = expr.value;
         if ((val === val.floor())) {
           return "int".toString();
@@ -247,13 +275,19 @@ module.exports = function({ types: t }) {
           return "double".toString();
         }
       } else {
-        if ((true)) {
+        const __iflet_14 = expr;
+        if (__iflet_14 !== null && __iflet_14 !== undefined) {
+          const BooleanLiteral = __iflet_14;
           return "bool".toString();
         } else {
-          if ((true)) {
+          const __iflet_15 = expr;
+          if (__iflet_15 !== null && __iflet_15 !== undefined) {
+            const ArrayExpression = __iflet_15;
             return "List<dynamic>".toString();
           } else {
-            if ((true)) {
+            const __iflet_16 = expr;
+            if (__iflet_16 !== null && __iflet_16 !== undefined) {
+              const ObjectExpression = __iflet_16;
               return "Dictionary<string, dynamic>".toString();
             }
           }
@@ -349,16 +383,16 @@ module.exports = function({ types: t }) {
         if ((node.params.length > 0)) {
           extract_props(node.params[0], component);
         }
-        const __iflet_0 = node.body;
-        if (__iflet_0 !== null && __iflet_0 !== undefined) {
-          const body = __iflet_0;
+        const __iflet_17 = node.body;
+        if (__iflet_17 !== null && __iflet_17 !== undefined) {
+          const body = __iflet_17;
           // Captures: [&mut component]
           const __visitor_0 = {
             VariableDeclarator(path) {
               const decl = path.node;
-              const __iflet_1 = decl.init;
-              if (__iflet_1 !== null && __iflet_1 !== undefined) {
-                const init = __iflet_1;
+              const __iflet_18 = decl.init;
+              if (__iflet_18 !== null && __iflet_18 !== undefined) {
+                const init = __iflet_18;
                 if ((true)) {
                   extract_hook_from_call(init, decl.id, component);
                 }
@@ -366,9 +400,9 @@ module.exports = function({ types: t }) {
             },
             ReturnStatement(path) {
               const ret = path.node;
-              const __iflet_2 = ret.argument;
-              if (__iflet_2 !== null && __iflet_2 !== undefined) {
-                const arg = __iflet_2;
+              const __iflet_19 = ret.argument;
+              if (__iflet_19 !== null && __iflet_19 !== undefined) {
+                const arg = __iflet_19;
                 if ((true)) {
                   component.render_body = arg;
                 }

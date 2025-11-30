@@ -278,6 +278,42 @@ impl SwcRewriter {
 
     /// 🔥 CRITICAL: Rewrite if-statements (handles pattern desugaring)
     fn rewrite_if_stmt(&mut self, mut if_stmt: DecoratedIfStmt) -> DecoratedIfStmt {
+        eprintln!("[DEBUG SHADOWING] rewrite_if_stmt called, pattern.is_none() = {}", if_stmt.pattern.is_none());
+
+        // 🌟 PROBABILITY FIELD COLLAPSE: Convert `if matches!(expr, Pattern)` to `if let Pattern(expr) = expr`
+        if if_stmt.pattern.is_none() {
+            eprintln!("[DEBUG SHADOWING] Checking if condition for matches!");
+            // Clone the condition to inspect it without moving
+            if let DecoratedExprKind::Matches { expr: scrutinee, pattern } = if_stmt.condition.clone().kind {
+                eprintln!("[DEBUG SHADOWING] Found matches! in condition");
+                // Extract the variable name from the scrutinee
+                if let DecoratedExprKind::Ident { name, .. } = &scrutinee.kind {
+                    eprintln!("[DEBUG SHADOWING] Scrutinee is identifier: {}", name);
+                    // Transform: if matches!(expr, StringLiteral)
+                    // Into:      if let Expr::Lit(Lit::Str(expr)) = expr
+                    //
+                    // This shadows `expr` with the unwrapped variant!
+
+                    // Create a binding pattern that shadows the original variable
+                    let shadow_binding = DecoratedPattern {
+                        kind: DecoratedPatternKind::Ident(name.clone()),
+                        metadata: SwcPatternMetadata::direct(name.clone()),
+                    };
+
+                    // Wrap the variant pattern to include the shadow binding
+                    let shadowing_pattern = self.wrap_pattern_with_binding(pattern, shadow_binding);
+
+                    eprintln!("[DEBUG SHADOWING] Pattern after wrapping: {:?}", shadowing_pattern.metadata.swc_pattern);
+
+                    // Convert to if-let
+                    if_stmt.pattern = Some(shadowing_pattern);
+                    if_stmt.condition = *scrutinee;
+
+                    eprintln!("[DEBUG SHADOWING] Transformation applied! Pattern set.");
+                }
+            }
+        }
+
         // Strip read_conversion from if-let conditions BEFORE any processing
         if if_stmt.pattern.is_some() {
             if_stmt.condition = self.strip_read_conversion_for_pattern_match(if_stmt.condition);
@@ -969,6 +1005,55 @@ impl SwcRewriter {
             kind,
             metadata: expr.metadata,
         }
+    }
+
+    // ========================================================================
+    // HELPER: Pattern Wrapping for Shadowing
+    // ========================================================================
+
+    /// Wrap a variant pattern with a binding to enable implicit shadowing
+    /// Example: Expr::Lit(Lit::Str(_)) → Expr::Lit(Lit::Str(expr))
+    fn wrap_pattern_with_binding(&self, mut pattern: DecoratedPattern, binding: DecoratedPattern) -> DecoratedPattern {
+        // Update the metadata's swc_pattern to include the binding
+        // The metadata contains the SWC pattern like "Expr::Lit(Lit::Str(_))"
+        // We need to replace the _ with the binding name
+
+        if let DecoratedPatternKind::Ident(binding_name) = &binding.kind {
+            // Replace _ or __ with the binding name in the swc_pattern
+            let swc_pattern = pattern.metadata.swc_pattern.clone();
+
+            // Map ReluxScript names to proper SWC patterns if needed
+            let proper_swc_pattern = match swc_pattern.as_str() {
+                "StringLiteral" => "Expr::Lit(Lit::Str(_))".to_string(),
+                "NumericLiteral" => "Expr::Lit(Lit::Num(_))".to_string(),
+                "BooleanLiteral" => "Expr::Lit(Lit::Bool(_))".to_string(),
+                "NullLiteral" => "Expr::Lit(Lit::Null(_))".to_string(),
+                "Identifier" => "Expr::Ident(_)".to_string(),
+                "CallExpression" => "Expr::Call(_)".to_string(),
+                "MemberExpression" => "Expr::Member(_)".to_string(),
+                "ArrayExpression" => "Expr::Array(_)".to_string(),
+                "ObjectExpression" => "Expr::Object(_)".to_string(),
+                "BinaryExpression" => "Expr::Bin(_)".to_string(),
+                "UnaryExpression" => "Expr::Unary(_)".to_string(),
+                _ => swc_pattern.clone(),
+            };
+
+            // Common patterns to replace:
+            // "Expr::Lit(Lit::Str(_))" → "Expr::Lit(Lit::Str(binding))"
+            let new_pattern = if proper_swc_pattern.contains("(_)") {
+                proper_swc_pattern.replace("(_)", &format!("({})", binding_name))
+            } else if proper_swc_pattern.contains('(') {
+                // Already has parentheses, use as-is
+                proper_swc_pattern
+            } else {
+                // No placeholder found, append the binding
+                format!("{}({})", proper_swc_pattern, binding_name)
+            };
+
+            pattern.metadata.swc_pattern = new_pattern;
+        }
+
+        pattern
     }
 
     // ========================================================================

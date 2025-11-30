@@ -1,0 +1,9 @@
+// Minimal shadowing test
+plugin TestShadowingSimple {
+    fn visit_call_expression(node: &CallExpression) {
+        if matches!(node.arguments[0].expr, StringLiteral(arg)) {
+            // Use arg here
+            let x = arg.value;
+        }
+    }
+}

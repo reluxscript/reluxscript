@@ -186,13 +186,17 @@ plugin {name} {{
 
             let mut parser = Parser::new_with_source(tokens, source.clone());
 
-            let program = match parser.parse() {
+            let mut program = match parser.parse() {
                 Ok(p) => p,
                 Err(e) => {
                     eprintln!("Parse error at {}:{}: {}", e.span.line, e.span.column, e.message);
                     std::process::exit(1);
                 }
             };
+
+            // AST lowering (transform matches! and deep chains to pattern matching)
+            // This MUST run before semantic analysis so pattern bindings are visible
+            lower(&mut program);
 
             // Get base directory from file path
             let base_dir = file.parent().unwrap_or_else(|| std::path::Path::new(".")).to_path_buf();
@@ -264,6 +268,10 @@ plugin {name} {{
                 }
             };
 
+            // AST lowering (transform matches! and deep chains to pattern matching)
+            // This MUST run before semantic analysis so pattern bindings are visible
+            lower(&mut program);
+
             // Semantic analysis
             let base_dir = file.parent().unwrap_or_else(|| std::path::Path::new(".")).to_path_buf();
             let result = analyze_with_base_dir(&program, base_dir);
@@ -277,9 +285,6 @@ plugin {name} {{
                 eprintln!("Build failed: {} error(s)", result.errors.len());
                 std::process::exit(1);
             }
-
-            // AST lowering (transform deep chains to pattern matching)
-            lower(&mut program);
 
             // Determine target
             let target_enum = match target.as_str() {

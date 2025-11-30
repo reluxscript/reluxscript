@@ -204,36 +204,15 @@ impl MinimactTranspiler {
     }
     
     fn extract_props(param: &Pat, component: &mut ComponentInfo) {
-        if match param {
-            ObjectPattern => {
-                true
-            }
-            _ => {
-                false
-            }
-        } {
+        if let ObjectPattern = param {
             for prop in &param.properties {
-                if match prop {
-                    ObjectPatternProperty => {
-                        true
-                    }
-                    _ => {
-                        false
-                    }
-                } {
+                if let ObjectPatternProperty = prop {
                     let prop_name = prop.key.name.to_string();
                     component.props.push(PropInfo { name: prop_name, prop_type: "dynamic".to_string(), optional: false })
                 }
             }
         } else {
-            if match param {
-                Identifier => {
-                    true
-                }
-                _ => {
-                    false
-                }
-            } {
+            if let Identifier = param {
             }
         }
     }
@@ -304,23 +283,9 @@ impl MinimactTranspiler {
         let mut deps = vec![];
         if (call.args.len() > 1) {
             let deps_arg = &call.args[1];
-            if match deps_arg {
-                ArrayExpression => {
-                    true
-                }
-                _ => {
-                    false
-                }
-            } {
+            if let ArrayExpression = deps_arg {
                 for elem in &deps_arg.elements {
-                    if match elem {
-                        Identifier => {
-                            true
-                        }
-                        _ => {
-                            false
-                        }
-                    } {
+                    if let Identifier = elem {
                         deps.push(elem.name.to_string())
                     }
                 }
@@ -350,78 +315,29 @@ impl MinimactTranspiler {
     }
     
     fn expr_to_csharp(expr: &Expr) -> String {
-        if match expr {
-            StringLiteral => {
-                true
-            }
-            _ => {
-                false
-            }
-        } {
+        if let StringLiteral = expr {
             return format!("\"{}\"", expr.value);
         } else {
-            if match expr {
-                NumericLiteral => {
-                    true
-                }
-                _ => {
-                    false
-                }
-            } {
+            if let NumericLiteral = expr {
                 return expr.value.to_string();
             } else {
-                if match expr {
-                    BooleanLiteral => {
-                        true
-                    }
-                    _ => {
-                        false
-                    }
-                } {
+                if let BooleanLiteral = expr {
                     return if expr.value {
                         "true".to_string()
                     } else {
                         "false".to_string()
                     }.to_string();
                 } else {
-                    if match expr {
-                        NullLiteral => {
-                            true
-                        }
-                        _ => {
-                            false
-                        }
-                    } {
+                    if let NullLiteral = expr {
                         return "null".to_string();
                     } else {
-                        if match expr {
-                            Identifier => {
-                                true
-                            }
-                            _ => {
-                                false
-                            }
-                        } {
+                        if let Identifier = expr {
                             return expr.name.to_string();
                         } else {
-                            if match expr {
-                                ArrayExpression => {
-                                    true
-                                }
-                                _ => {
-                                    false
-                                }
-                            } {
+                            if let ArrayExpression = expr {
                                 return "new List<dynamic>()".to_string();
                             } else {
-                                if match expr {
-                                    ObjectExpression => {
-                                        true
-                                    }
-                                    _ => {
-                                        false
-                                    }
-                                } {
+                                if let ObjectExpression = expr {
                                     return "new Dictionary<string, dynamic>()".to_string();
                                 }
                             }
@@ -434,24 +350,10 @@ impl MinimactTranspiler {
     }
     
     fn infer_csharp_type(expr: &Expr) -> String {
-        if match expr {
-            StringLiteral => {
-                true
-            }
-            _ => {
-                false
-            }
-        } {
+        if let StringLiteral = expr {
             return "string".to_string();
         } else {
-            if match expr {
-                NumericLiteral => {
-                    true
-                }
-                _ => {
-                    false
-                }
-            } {
+            if let NumericLiteral = expr {
                 let val = expr.value;
                 if (val == val.floor()) {
                     return "int".to_string();
@@ -459,34 +361,13 @@ impl MinimactTranspiler {
                     return "double".to_string();
                 }
             } else {
-                if match expr {
-                    BooleanLiteral => {
-                        true
-                    }
-                    _ => {
-                        false
-                    }
-                } {
+                if let BooleanLiteral = expr {
                     return "bool".to_string();
                 } else {
-                    if match expr {
-                        ArrayExpression => {
-                            true
-                        }
-                        _ => {
-                            false
-                        }
-                    } {
+                    if let ArrayExpression = expr {
                         return "List<dynamic>".to_string();
                     } else {
-                        if match expr {
-                            ObjectExpression => {
-                                true
-                            }
-                            _ => {
-                                false
-                            }
-                        } {
+                        if let ObjectExpression = expr {
                             return "Dictionary<string, dynamic>".to_string();
                         }
                     }

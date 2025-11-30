@@ -3,12 +3,14 @@ mod type_checker;
 mod ownership;
 mod types;
 pub mod hoist_unwraps;
+pub mod swc_lowering;
 
 pub use resolver::Resolver;
 pub use type_checker::TypeChecker;
 pub use ownership::OwnershipChecker;
 pub use types::{TypeInfo, TypeEnv};
 pub use hoist_unwraps::UnwrapHoister;
+pub use swc_lowering::SwcLowering;
 
 use crate::parser::Program;
 use crate::lexer::Span;
@@ -80,8 +82,14 @@ pub fn analyze_with_base_dir(program: &Program, base_dir: std::path::PathBuf) ->
     }
 }
 
-/// Run the AST lowering pass (transforms deep chains into explicit pattern matching)
+/// Run the AST lowering pass (transforms matches! and deep chains)
 pub fn lower(program: &mut Program) {
+    // Pass 1: SWC-specific lowering (matches! → if-let)
+    // This must run BEFORE semantic analysis so pattern bindings are visible
+    let mut swc_lowering = SwcLowering::new();
+    swc_lowering.run(program);
+
+    // Pass 2: Deep chain hoisting (member.prop.name → pattern matching)
     let mut hoister = UnwrapHoister::new();
     hoister.run(program);
 }
