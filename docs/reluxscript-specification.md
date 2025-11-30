@@ -1998,6 +1998,276 @@ fn escape_string(s: &Str) -> Str;
 
 ---
 
+## 20. Regex Support
+
+ReluxScript provides unified regex pattern matching through the `Regex::` namespace. All methods are static and patterns must be compile-time string literals.
+
+### 20.1 Supported Syntax
+
+ReluxScript supports the **intersection** of JavaScript and Rust regex features:
+
+**✅ Fully Supported:**
+- Character classes: `[abc]`, `[^abc]`, `[a-z]`, `[0-9]`
+- Predefined classes: `.`, `\d`, `\D`, `\w`, `\W`, `\s`, `\S`
+- Anchors: `^`, `$`, `\b`, `\B`
+- Quantifiers: `*`, `+`, `?`, `{n}`, `{n,}`, `{n,m}` (greedy and lazy)
+- Groups: `(...)`, `(?:...)`, `|`
+- Named captures: `(?P<name>...)` (Rust syntax, works in both targets)
+- Lookahead: `(?=...)`, `(?!...)`
+
+**❌ Not Supported:**
+- Lookbehind: `(?<=...)`, `(?<!...)` (Rust `regex` crate limitation)
+- Backreferences: `\1`, `\2`, `\k<name>` (Rust limitation)
+
+### 20.2 API Reference
+
+```reluxscript
+/// Test if pattern matches anywhere in text
+Regex::matches(text: &Str, pattern: &str) -> bool
+
+/// Find first match
+Regex::find(text: &Str, pattern: &str) -> Option<Str>
+
+/// Find all matches
+Regex::find_all(text: &Str, pattern: &str) -> Vec<Str>
+
+/// Extract capture groups from first match
+Regex::captures(text: &Str, pattern: &str) -> Option<Captures>
+
+/// Replace first match
+Regex::replace(text: &Str, pattern: &str, replacement: &Str) -> Str
+
+/// Replace all matches
+Regex::replace_all(text: &Str, pattern: &str, replacement: &Str) -> Str
+```
+
+### 20.3 Examples
+
+**Test for React hooks:**
+```reluxscript
+fn is_hook(name: &Str) -> bool {
+    Regex::matches(name, r"^use[A-Z]\w*$")
+}
+```
+
+**Extract version numbers:**
+```reluxscript
+fn extract_version(text: &Str) -> Option<(i32, i32, i32)> {
+    if let Some(caps) = Regex::captures(text, r"^v?(\d+)\.(\d+)\.(\d+)") {
+        let major = caps.get(1).parse::<i32>().ok()?;
+        let minor = caps.get(2).parse::<i32>().ok()?;
+        let patch = caps.get(3).parse::<i32>().ok()?;
+        Some((major, minor, patch))
+    } else {
+        None
+    }
+}
+```
+
+**Sanitize identifiers:**
+```reluxscript
+fn sanitize_identifier(name: &Str) -> Str {
+    Regex::replace_all(name, r"[^a-zA-Z0-9_]", "_")
+}
+```
+
+### 20.4 Compilation
+
+**Babel Target:**
+```javascript
+// Regex::matches(name, r"^use[A-Z]")
+/^use[A-Z]/.test(name)
+
+// Regex::captures(text, r"(\d+)")
+__regex_captures(text, /(\d+)/)
+```
+
+**SWC Target:**
+```rust
+// Regex::matches(name, r"^use[A-Z]")
+regex::Regex::new(r"^use[A-Z]").unwrap().is_match(name)
+
+// Cached patterns (in loops/visitor methods)
+lazy_static::lazy_static! {
+    static ref REGEX_0: Regex = Regex::new(r"^use[A-Z]").unwrap();
+}
+```
+
+See [REGEX_SUPPORT.md](REGEX_SUPPORT.md) for complete implementation details.
+
+---
+
+## 21. Custom AST Properties
+
+ReluxScript allows attaching custom metadata to AST nodes using the `__` prefix convention. Properties are stored separately and work identically across both Babel and SWC targets.
+
+### 21.1 Property Assignment
+
+Custom properties start with double underscore `__`:
+
+```reluxscript
+plugin MetadataTracker {
+    fn visit_jsx_element(node: &mut JSXElement, ctx: &Context) {
+        // Assign string property
+        node.__componentName = "Button";
+
+        // Assign boolean flag
+        node.__processed = true;
+
+        // Assign integer
+        node.__visitCount = 42;
+    }
+}
+```
+
+### 21.2 Property Access
+
+Read properties using if-let patterns:
+
+```reluxscript
+fn check_component(node: &JSXElement) {
+    if let Some(name) = node.__componentName {
+        println!("Component: {}", name);
+    }
+
+    if let Some(count) = node.__visitCount {
+        // Increment and reassign
+        node.__visitCount = count + 1;
+    }
+}
+```
+
+### 21.3 Supported Types
+
+Custom properties support these value types:
+- `String` (Str)
+- `bool`
+- `i32`, `i64`
+- `f64`
+
+Type is inferred from first assignment and remains consistent.
+
+### 21.4 Property Deletion
+
+```reluxscript
+// Delete by assigning None
+node.__processed = None;
+```
+
+### 21.5 Compilation
+
+**SWC Target:**
+```rust
+// Generated infrastructure
+#[derive(Clone, Debug)]
+enum CustomPropValue {
+    Bool(bool),
+    I32(i32),
+    I64(i64),
+    F64(f64),
+    Str(String),
+}
+
+struct State {
+    // Your fields...
+    __custom_props: HashMap<usize, HashMap<String, CustomPropValue>>,
+}
+
+impl State {
+    fn get_node_id<T>(&self, node: &T) -> usize {
+        node as *const T as usize
+    }
+
+    fn set_custom_prop<T>(&mut self, node: &T, prop: &str, value: CustomPropValue) {
+        let node_id = self.get_node_id(node);
+        self.__custom_props
+            .entry(node_id)
+            .or_insert_with(HashMap::new)
+            .insert(prop.to_string(), value);
+    }
+
+    fn get_custom_prop<T>(&self, node: &T, prop: &str) -> Option<&CustomPropValue> {
+        let node_id = self.get_node_id(node);
+        self.__custom_props.get(&node_id).and_then(|m| m.get(prop))
+    }
+}
+
+// Usage
+self.state.set_custom_prop(node, "__componentName", CustomPropValue::Str("Button".to_string()));
+
+if let Some(name) = self.state.get_custom_prop(node, "__componentName")
+    .and_then(|v| if let CustomPropValue::Str(v) = v { Some(v.clone()) } else { None })
+{
+    println!("Component: {}", name);
+}
+```
+
+**Babel Target:**
+```javascript
+// Use WeakMap for storage
+const __customProps = new WeakMap();
+
+function setCustomProp(node, prop, value) {
+    if (!__customProps.has(node)) {
+        __customProps.set(node, {});
+    }
+    __customProps.get(node)[prop] = value;
+}
+
+function getCustomProp(node, prop) {
+    return __customProps.get(node)?.[prop];
+}
+
+// Usage
+setCustomProp(node, '__componentName', 'Button');
+
+const name = getCustomProp(node, '__componentName');
+if (name !== undefined) {
+    console.log(`Component: ${name}`);
+}
+```
+
+### 21.6 Use Cases
+
+**Track transformation state:**
+```reluxscript
+plugin MultiPassTransform {
+    fn visit_identifier(node: &mut Identifier, ctx: &Context) {
+        if let Some(count) = node.__transformCount {
+            if count >= 3 {
+                return; // Already processed
+            }
+            node.__transformCount = count + 1;
+        } else {
+            node.__transformCount = 1;
+        }
+
+        // Apply transformation...
+    }
+}
+```
+
+**Store computed paths:**
+```reluxscript
+plugin PathTracker {
+    fn visit_jsx_element(node: &mut JSXElement, ctx: &Context) {
+        let path = compute_jsx_path(node);
+        node.__elementPath = path;
+    }
+
+    fn visit_jsx_closing_element(node: &mut JSXClosingElement, ctx: &Context) {
+        // Retrieve path set on opening element
+        if let Some(path) = node.parent.__elementPath {
+            validate_closing_tag(path, node);
+        }
+    }
+}
+```
+
+See [CUSTOM_AST_PROPERTIES.md](CUSTOM_AST_PROPERTIES.md) for complete implementation details.
+
+---
+
 ## 19. Error Handling
 
 ### 13.1 Result Type
