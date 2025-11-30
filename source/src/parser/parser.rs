@@ -1321,14 +1321,24 @@ impl Parser {
                 if self.match_token(TokenKind::Dot) {
                     let property = self.expect_ident()?;
                     let span = self.current_span();
-                    expr = Expr::Member(MemberExpr {
-                        object: Box::new(expr),
-                        property,
-                        optional: false,
-                        computed: false,
-                        is_path: false,
-                        span,
-                    });
+
+                    // Check if this is a custom property access (starts with __)
+                    if property.starts_with("__") {
+                        expr = Expr::CustomPropAccess(CustomPropAccess {
+                            node: Box::new(expr),
+                            property,
+                            span,
+                        });
+                    } else {
+                        expr = Expr::Member(MemberExpr {
+                            object: Box::new(expr),
+                            property,
+                            optional: false,
+                            computed: false,
+                            is_path: false,
+                            span,
+                        });
+                    }
                 } else {
                     break;
                 }
@@ -1347,14 +1357,24 @@ impl Parser {
                 if self.match_token(TokenKind::Dot) {
                     let property = self.expect_ident()?;
                     let span = self.current_span();
-                    expr = Expr::Member(MemberExpr {
-                        object: Box::new(expr),
-                        property,
-                        optional: false,
-                        computed: false,
-                        is_path: false,
-                        span,
-                    });
+
+                    // Check if this is a custom property access (starts with __)
+                    if property.starts_with("__") {
+                        expr = Expr::CustomPropAccess(CustomPropAccess {
+                            node: Box::new(expr),
+                            property,
+                            span,
+                        });
+                    } else {
+                        expr = Expr::Member(MemberExpr {
+                            object: Box::new(expr),
+                            property,
+                            optional: false,
+                            computed: false,
+                            is_path: false,
+                            span,
+                        });
+                    }
                 } else if self.check(TokenKind::Not) && self.peek_ahead(1).map_or(false, |t| t.kind == TokenKind::LParen) {
                     // Macro call: format!(...), println!(...), vec![...]
                     self.advance(); // consume !

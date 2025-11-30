@@ -1,0 +1,16 @@
+/// Test reading custom AST properties
+plugin CustomPropsReadTest {
+    struct State {
+        counter: i32,
+    }
+
+    fn visit_jsx_element(node: &mut JSXElement, ctx: &Context) {
+        // First set a property
+        node.__hexPath = "0x1234";
+
+        // Then read it back
+        if let Some(path) = node.__hexPath {
+            self.state.counter = self.state.counter + 1;
+        }
+    }
+}

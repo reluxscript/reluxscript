@@ -1694,21 +1694,29 @@ impl SwcDecorator {
         let decorated_node = self.decorate_expr(&assign.node);
         let decorated_value = self.decorate_expr(&assign.value);
 
-        // Infer the value type from the decorated expression
-        let value_type = self.infer_type_from_expr(&decorated_value);
+        // Get the node type from the decorated node
+        let node_type = decorated_node.metadata.swc_type.clone();
+
+        // Check if this property was already registered with a type
+        let key = (node_type.clone(), assign.property.clone());
+        let value_type = if let Some(existing_type) = self.custom_props.get(&key) {
+            // Use the existing registered type
+            existing_type.clone()
+        } else {
+            // Infer the value type from the decorated expression
+            let inferred_type = self.infer_type_from_expr(&decorated_value);
+
+            // Register the property type in our registry
+            self.custom_props.insert(key, inferred_type.clone());
+
+            inferred_type
+        };
 
         // Determine the CustomPropValue variant
         let variant = self.type_to_custom_prop_variant(&value_type);
 
         // Check if this is a deletion (None assignment)
         let is_deletion = self.is_none_literal(&assign.value);
-
-        // Get the node type from the decorated node
-        let node_type = decorated_node.metadata.swc_type.clone();
-
-        // Register the property type in our registry
-        let key = (node_type, assign.property.clone());
-        self.custom_props.insert(key, value_type.clone());
 
         // Create the decorated assignment
         DecoratedStmt::CustomPropAssignment(Box::new(DecoratedCustomPropAssignment {
