@@ -59,6 +59,7 @@ impl VisitMut for CustomPropsTest {
     fn visit_mut_jsx_element(&mut self, node: &mut JSXElement) {
         self.state.set_custom_prop(node, "__hexPath", CustomPropValue::Str("0x1234".to_string()));
         self.state.set_custom_prop(node, "__processed", CustomPropValue::Bool(true));
+        self.state.set_custom_prop(node, "__count", CustomPropValue::I32(42));
     }
     
 }

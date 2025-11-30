@@ -1039,20 +1039,10 @@ impl SwcDecorator {
             }
 
             Expr::Literal(lit) => {
-                // Determine specific type based on literal variant
-                let swc_type = match lit {
-                    Literal::String(_) => "String",
-                    Literal::Int(_) => "i32",
-                    Literal::Float(_) => "f64",
-                    Literal::Bool(_) => "bool",
-                    Literal::Null => "Null",
-                    Literal::Unit => "Unit",
-                }.to_string();
-
                 DecoratedExpr {
                     kind: DecoratedExprKind::Literal(lit.clone()),
                     metadata: SwcExprMetadata {
-                        swc_type,
+                        swc_type: "Literal".to_string(),
                         is_boxed: false,
                         is_optional: false,
                         type_kind: SwcTypeKind::Primitive,
@@ -1704,8 +1694,8 @@ impl SwcDecorator {
         let decorated_node = self.decorate_expr(&assign.node);
         let decorated_value = self.decorate_expr(&assign.value);
 
-        // Infer the value type from the decorated expression metadata
-        let value_type = self.infer_type_from_swc_type(&decorated_value.metadata.swc_type);
+        // Infer the value type from the decorated expression
+        let value_type = self.infer_type_from_expr(&decorated_value);
 
         // Determine the CustomPropValue variant
         let variant = self.type_to_custom_prop_variant(&value_type);
@@ -1779,7 +1769,28 @@ impl SwcDecorator {
         }
     }
 
-    /// Infer ReluxScript Type from SWC type string
+    /// Infer type from decorated expression by inspecting its kind
+    fn infer_type_from_expr(&self, expr: &DecoratedExpr) -> crate::parser::Type {
+        use crate::parser::{Type, Literal};
+        use crate::codegen::decorated_ast::DecoratedExprKind;
+
+        // Check if it's a literal - we can get precise type
+        if let DecoratedExprKind::Literal(lit) = &expr.kind {
+            return match lit {
+                Literal::String(_) => Type::Primitive("Str".to_string()),
+                Literal::Int(_) => Type::Primitive("i32".to_string()),
+                Literal::Float(_) => Type::Primitive("f64".to_string()),
+                Literal::Bool(_) => Type::Primitive("bool".to_string()),
+                Literal::Null => Type::Named("Null".to_string()),
+                Literal::Unit => Type::Named("Unit".to_string()),
+            };
+        }
+
+        // Otherwise fall back to swc_type
+        self.infer_type_from_swc_type(&expr.metadata.swc_type)
+    }
+
+    /// Infer ReluxScript Type from SWC type string and optional expression
     fn infer_type_from_swc_type(&self, swc_type: &str) -> crate::parser::Type {
         use crate::parser::Type;
 
@@ -1789,7 +1800,8 @@ impl SwcDecorator {
             "i32" | "usize" => Type::Primitive("i32".to_string()),
             "i64" => Type::Primitive("i64".to_string()),
             "f64" => Type::Primitive("f64".to_string()),
-            "String" | "&str" | "Literal" => Type::Primitive("Str".to_string()),
+            "String" | "&str" => Type::Primitive("Str".to_string()),
+            "Literal" => Type::Primitive("Str".to_string()),  // Default literals to Str for now
             s if s.starts_with("Option<") => {
                 // Extract inner type
                 let inner = s.trim_start_matches("Option<").trim_end_matches(">");

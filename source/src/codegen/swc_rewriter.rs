@@ -2294,9 +2294,37 @@ impl SwcRewriter {
     /// Wrap a value in CustomPropValue::Variant(value)
     fn wrap_in_custom_prop_value(&mut self, value: DecoratedExpr, variant: &str) -> DecoratedExpr {
         use crate::codegen::decorated_ast::{DecoratedCallExpr, DecoratedExprKind};
+        use crate::codegen::swc_metadata::SwcFieldMetadata;
 
         // Rewrite the value expression first
-        let rewritten_value = self.rewrite_expr(value);
+        let mut rewritten_value = self.rewrite_expr(value);
+
+        // For Str variant, wrap string literals with .to_string()
+        if variant == "Str" {
+            if matches!(rewritten_value.kind, DecoratedExprKind::Literal(_)) {
+                rewritten_value = DecoratedExpr {
+                    kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                        callee: DecoratedExpr {
+                            kind: DecoratedExprKind::Member {
+                                object: Box::new(rewritten_value),
+                                property: "to_string".to_string(),
+                                optional: false,
+                                computed: false,
+                                is_path: false,
+                                field_metadata: SwcFieldMetadata::direct("to_string".to_string(), "fn".to_string()),
+                            },
+                            metadata: Self::simple_metadata("String"),
+                        },
+                        args: vec![],
+                        is_macro: false,
+                        optional: false,
+                        type_args: vec![],
+                        span: crate::lexer::Span::new(0, 0, 0, 0),
+                    })),
+                    metadata: Self::simple_metadata("String"),
+                };
+            }
+        }
 
         // Build: CustomPropValue::Variant(value)
         DecoratedExpr {

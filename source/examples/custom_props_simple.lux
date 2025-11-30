@@ -10,5 +10,8 @@ plugin CustomPropsTest {
 
         // Test boolean flag
         node.__processed = true;
+
+        // Test integer assignment
+        node.__count = 42;
     }
 }
