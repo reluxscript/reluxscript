@@ -415,11 +415,16 @@ serde_json = "1.0.145"
                 }
 
                 // Validate generated Rust code with cargo check
+                // Set CFLAGS="" to bypass C compiler detection for dependencies like stacker
                 let cargo_check = std::process::Command::new("cargo")
                     .arg("check")
                     .arg("--manifest-path")
                     .arg(&cargo_toml_path)
                     .arg("--lib")
+                    .env("CFLAGS", "")
+                    .env("CXXFLAGS", "")
+                    .env("CC", "")
+                    .env("CXX", "")
                     .output();
 
                 match cargo_check {
