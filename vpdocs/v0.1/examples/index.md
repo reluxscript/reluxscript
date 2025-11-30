@@ -11,11 +11,16 @@ Remove all `console.log()` calls from your code.
 ```reluxscript
 plugin RemoveConsole {
     fn visit_call_expression(node: &mut CallExpression, ctx: &Context) {
-        if matches!(node.callee, MemberExpression {
-            object: Identifier { name: "console" },
-            property: Identifier { name: "log" }
-        }) {
-            *node = Statement::empty();
+        if let Callee::MemberExpression(ref member) = node.callee {
+            if let Expression::Identifier(ref obj) = *member.object {
+                if obj.name == "console" {
+                    if let Expression::Identifier(ref prop) = *member.property {
+                        if prop.name == "log" {
+                            ctx.remove();
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -37,20 +42,23 @@ doWork();
 
 ---
 
-### Transform Arrow Functions
+### Analyze Arrow Functions
 
-Convert arrow functions to regular functions.
+Track and analyze arrow function usage.
 
 ```reluxscript
-plugin ArrowToFunction {
-    fn visit_arrow_function(node: &mut ArrowFunctionExpression, ctx: &Context) {
-        *node = FunctionExpression {
-            id: None,
-            params: node.params.clone(),
-            body: node.body.clone(),
-            async: node.async,
-            generator: false,
-        };
+plugin ArrowFunctionAnalyzer {
+    struct State {
+        arrow_count: i32,
+        async_arrow_count: i32,
+    }
+
+    fn visit_arrow_function_expression(node: &mut ArrowFunctionExpression, ctx: &Context) {
+        self.state.arrow_count = self.state.arrow_count + 1;
+        if node.async_ {
+            self.state.async_arrow_count = self.state.async_arrow_count + 1;
+        }
+        node.__isArrowFunction = true;
     }
 }
 ```
@@ -58,11 +66,13 @@ plugin ArrowToFunction {
 **Input:**
 ```javascript
 const add = (a, b) => a + b;
+const fetchData = async () => fetch('/api');
 ```
 
 **Output:**
-```javascript
-const add = function(a, b) { return a + b; };
+```
+Found 2 arrow functions
+  1 are async
 ```
 
 [Learn more →](/v0.1/examples/arrow-functions)
@@ -73,20 +83,29 @@ const add = function(a, b) { return a + b; };
 
 ### JSX Key Checker
 
-Warn about missing `key` props in JSX arrays.
+Warn about missing `key` props in JSX elements.
 
 ```reluxscript
 plugin JSXKeyChecker {
-    fn visit_jsx_element(node: &mut JSXElement, ctx: &Context) {
-        // Check if this JSX element is in an array
-        if is_in_array_context(ctx) {
-            // Check for key attribute
-            let has_key = node.opening_element.attributes.iter()
-                .any(|attr| matches!(attr.name, "key"));
+    struct State {
+        jsx_without_keys: i32,
+    }
 
-            if !has_key {
-                ctx.warn("JSX element in array should have a key prop");
+    fn visit_jsx_element(node: &mut JSXElement, ctx: &Context) {
+        let mut has_key = false;
+        for attr in &node.opening_element.attributes {
+            if let JSXAttribute::JSXAttribute(jsx_attr) = attr {
+                if let JSXAttributeName::Identifier(ref ident) = jsx_attr.name {
+                    if ident.name == "key" {
+                        has_key = true;
+                        break;
+                    }
+                }
             }
+        }
+        if !has_key {
+            node.__missingKey = true;
+            self.state.jsx_without_keys = self.state.jsx_without_keys + 1;
         }
     }
 }

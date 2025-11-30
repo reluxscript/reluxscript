@@ -7,67 +7,46 @@ Analyze and report React Hook usage patterns in components.
 ```reluxscript
 plugin HookAnalyzer {
     struct State {
-        hooks: Vec<HookInfo>,
-        current_component: Option<Str>,
-    }
-
-    struct HookInfo {
-        name: Str,
-        hook_type: Str,
-        component: Str,
-    }
-
-    fn visit_function_declaration(node: &mut FunctionDeclaration, ctx: &Context) {
-        let name = node.id.name.clone();
-        if is_component_name(&name) {
-            self.state.current_component = Some(name);
-        }
-        node.visit_children(self);
-        self.state.current_component = None;
+        use_state_count: i32,
+        use_effect_count: i32,
+        use_memo_count: i32,
+        use_callback_count: i32,
+        use_ref_count: i32,
+        custom_hooks_count: i32,
     }
 
     fn visit_call_expression(node: &mut CallExpression, ctx: &Context) {
-        if let Some(component) = &self.state.current_component {
-            if let Some(name) = get_callee_name(&node.callee) {
-                if name.starts_with("use") {
-                    self.state.hooks.push(HookInfo {
-                        name: name.clone(),
-                        hook_type: categorize_hook(&name),
-                        component: component.clone(),
-                    });
+        // Check if this is a hook call (function name starts with "use")
+        if let Callee::Identifier(ref ident) = node.callee {
+            if Regex::matches(&ident.name, r"^use[A-Z]") {
+                // Count specific built-in hooks
+                if ident.name == "useState" {
+                    self.state.use_state_count = self.state.use_state_count + 1;
+                } else if ident.name == "useEffect" {
+                    self.state.use_effect_count = self.state.use_effect_count + 1;
+                } else if ident.name == "useMemo" {
+                    self.state.use_memo_count = self.state.use_memo_count + 1;
+                } else if ident.name == "useCallback" {
+                    self.state.use_callback_count = self.state.use_callback_count + 1;
+                } else if ident.name == "useRef" {
+                    self.state.use_ref_count = self.state.use_ref_count + 1;
+                } else {
+                    // Custom hook
+                    self.state.custom_hooks_count = self.state.custom_hooks_count + 1;
+                    node.__customHookName = ident.name.clone();
                 }
             }
         }
-        node.visit_children(self);
     }
 
-    fn exit(program: &mut Program, state: &PluginState) {
+    fn exit(program: &mut Program, ctx: &Context) {
         println!("Hook Usage Report:");
-        for hook in &self.state.hooks {
-            println!("  {} uses {} ({})", hook.component, hook.name, hook.hook_type);
-        }
-    }
-}
-
-fn is_component_name(name: &Str) -> bool {
-    let first = name.chars().next();
-    first.map(|c| c.is_uppercase()).unwrap_or(false)
-}
-
-fn get_callee_name(callee: &Expression) -> Option<Str> {
-    match callee {
-        Expression::Identifier(id) => Some(id.name.clone()),
-        _ => None,
-    }
-}
-
-fn categorize_hook(name: &Str) -> Str {
-    match name.as_str() {
-        "useState" | "useReducer" => "state",
-        "useEffect" | "useLayoutEffect" => "effect",
-        "useRef" => "ref",
-        "useMemo" | "useCallback" => "memoization",
-        _ => "custom",
+        println!("  useState: {}", self.state.use_state_count);
+        println!("  useEffect: {}", self.state.use_effect_count);
+        println!("  useMemo: {}", self.state.use_memo_count);
+        println!("  useCallback: {}", self.state.use_callback_count);
+        println!("  useRef: {}", self.state.use_ref_count);
+        println!("  Custom hooks: {}", self.state.custom_hooks_count);
     }
 }
 ```
@@ -83,6 +62,11 @@ function Counter() {
         console.log("Count changed:", count);
     }, [count]);
 
+    const memoValue = useMemo(() => count * 2, [count]);
+    const callback = useCallback(() => setCount(0), []);
+    const ref = useRef(null);
+    const data = useCustomData();
+
     return <div>{count}</div>;
 }
 ```
@@ -91,17 +75,20 @@ function Counter() {
 
 ```
 Hook Usage Report:
-  Counter uses useState (state)
-  Counter uses useState (state)
-  Counter uses useEffect (effect)
+  useState: 2
+  useEffect: 1
+  useMemo: 1
+  useCallback: 1
+  useRef: 1
+  Custom hooks: 1
 ```
 
 ## How It Works
 
-1. Track the current component name when entering function declarations
-2. Check if the function name starts with uppercase (component convention)
-3. When visiting call expressions, check if they start with "use" (hook convention)
-4. Collect hook information with component context
-5. On exit, generate a report of all hook usage
+1. For each call expression, check if callee is an identifier
+2. Use `Regex::matches()` to check if the name matches hook pattern (`^use[A-Z]`)
+3. Count occurrences of each built-in hook type (useState, useEffect, etc.)
+4. Mark custom hooks with `__customHookName` property for further analysis
+5. In `exit()`, print a summary report of all hook usage statistics
 
 [Back to Examples](/v0.1/examples/)

@@ -8,12 +8,16 @@ Remove all `console.log()` calls from your JavaScript code.
 plugin RemoveConsole {
     fn visit_call_expression(node: &mut CallExpression, ctx: &Context) {
         // Check if this is a console.log call
-        if matches!(node.callee, MemberExpression {
-            object: Identifier { name: "console" },
-            property: Identifier { name: "log" }
-        }) {
-            // Replace with an empty statement
-            *node = Statement::empty();
+        if let Callee::MemberExpression(ref member) = node.callee {
+            if let Expression::Identifier(ref obj) = *member.object {
+                if obj.name == "console" {
+                    if let Expression::Identifier(ref prop) = *member.property {
+                        if prop.name == "log" {
+                            ctx.remove();
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -36,9 +40,10 @@ doWork();
 ## How It Works
 
 1. `visit_call_expression` is called for every function call
-2. `matches!` checks if the callee is `console.log`
-3. If it matches, replace the node with an empty statement
-4. Empty statements are removed during code generation
+2. Use nested `if let` to check if callee is a member expression
+3. Check if the object is an identifier named "console"
+4. Check if the property is an identifier named "log"
+5. If all conditions match, call `ctx.remove()` to remove the statement
 
 ## Variations
 
@@ -46,10 +51,13 @@ doWork();
 
 ```reluxscript
 fn visit_call_expression(node: &mut CallExpression, ctx: &Context) {
-    if matches!(node.callee, MemberExpression {
-        object: Identifier { name: "console" }
-    }) {
-        *node = Statement::empty();
+    if let Callee::MemberExpression(ref member) = node.callee {
+        if let Expression::Identifier(ref obj) = *member.object {
+            if obj.name == "console" {
+                // Remove any console.* call
+                ctx.remove();
+            }
+        }
     }
 }
 ```
@@ -58,11 +66,16 @@ fn visit_call_expression(node: &mut CallExpression, ctx: &Context) {
 
 ```reluxscript
 fn visit_call_expression(node: &mut CallExpression, ctx: &Context) {
-    match get_console_method(&node.callee) {
-        Some("log") | Some("debug") => {
-            *node = Statement::empty();
+    if let Callee::MemberExpression(ref member) = node.callee {
+        if let Expression::Identifier(ref obj) = *member.object {
+            if obj.name == "console" {
+                if let Expression::Identifier(ref prop) = *member.property {
+                    if prop.name == "log" || prop.name == "debug" {
+                        ctx.remove();
+                    }
+                }
+            }
         }
-        _ => {}
     }
 }
 ```
