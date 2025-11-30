@@ -461,6 +461,7 @@ mod tests {
             ],
             type_args: Vec::new(),
             optional: false,
+            is_macro: true,
             span: crate::lexer::Span::new(0, 0, 0, 0),
         });
 
