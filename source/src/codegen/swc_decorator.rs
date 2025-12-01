@@ -1861,18 +1861,93 @@ impl SwcDecorator {
                     "UserDefined".to_string()
                 };
 
-                DecoratedExpr {
-                    kind: DecoratedExprKind::Index {
-                        object,
-                        index: index_expr,
-                    },
-                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
-                        swc_type: element_type,
-                        is_boxed: false,
-                        is_optional: false,
-                        type_kind: SwcTypeKind::Unknown,
-                        span: Some(index.span),
-                    },
+                // Check if element_type is a wrapper type that needs automatic unwrapping
+                // Wrapper types: ExprOrSpread -> expr, Param -> pat, etc.
+                let (needs_unwrap, unwrap_field, unwrapped_type) = match element_type.as_str() {
+                    "ExprOrSpread" => (true, "expr", "Expr"),
+                    "Param" => (true, "pat", "Pat"),
+                    "Option<ExprOrSpread>" => (false, "", ""), // Handle separately if needed
+                    _ => (false, "", ""),
+                };
+
+                if needs_unwrap {
+                    // Transform arr[i] into arr[i].field automatically
+                    // Create the index expression first
+                    let index_decorated = DecoratedExpr {
+                        kind: DecoratedExprKind::Index {
+                            object: object.clone(),
+                            index: index_expr.clone(),
+                        },
+                        metadata: SwcExprMetadata {
+                            needs_enum_unwrap: None,
+                            swc_type: element_type.clone(),
+                            is_boxed: false,
+                            is_optional: false,
+                            type_kind: SwcTypeKind::Unknown,
+                            span: Some(index.span),
+                        },
+                    };
+
+                    // Look up the field mapping to get proper metadata
+                    let field_metadata = if let Some(mapping) = get_typed_field_mapping(&element_type, unwrap_field) {
+                        SwcFieldMetadata {
+                            swc_field_name: mapping.swc_field.to_string(),
+                            accessor: if mapping.needs_deref {
+                                FieldAccessor::BoxedAsRef
+                            } else {
+                                FieldAccessor::Direct
+                            },
+                            field_type: mapping.result_type_swc.to_string(),
+                            source_field: Some(unwrap_field.to_string()),
+                            span: Some(index.span),
+                            read_conversion: mapping.read_conversion.to_string(),
+                        }
+                    } else {
+                        // Fallback if no mapping found
+                        SwcFieldMetadata {
+                            swc_field_name: unwrap_field.to_string(),
+                            accessor: FieldAccessor::Direct,
+                            field_type: unwrapped_type.to_string(),
+                            source_field: Some(unwrap_field.to_string()),
+                            span: Some(index.span),
+                            read_conversion: String::new(),
+                        }
+                    };
+
+                    // Wrap in a member access: (arr[i]).field
+                    DecoratedExpr {
+                        kind: DecoratedExprKind::Member {
+                            object: Box::new(index_decorated),
+                            property: unwrap_field.to_string(),
+                            optional: false,
+                            computed: false,
+                            is_path: false,
+                            field_metadata,
+                        },
+                        metadata: SwcExprMetadata {
+                            needs_enum_unwrap: None,
+                            swc_type: unwrapped_type.to_string(),
+                            is_boxed: false, // Will be set by field_metadata.accessor
+                            is_optional: false,
+                            type_kind: SwcTypeKind::Unknown,
+                            span: Some(index.span),
+                        },
+                    }
+                } else {
+                    // Normal index access, no unwrapping needed
+                    DecoratedExpr {
+                        kind: DecoratedExprKind::Index {
+                            object,
+                            index: index_expr,
+                        },
+                        metadata: SwcExprMetadata { needs_enum_unwrap: None,
+                            swc_type: element_type,
+                            is_boxed: false,
+                            is_optional: false,
+                            type_kind: SwcTypeKind::Unknown,
+                            span: Some(index.span),
+                        },
+                    }
                 }
             }
 

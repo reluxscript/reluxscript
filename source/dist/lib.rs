@@ -182,7 +182,7 @@ impl MinimactTranspiler {
         }
         let mut component = ComponentInfo::new(name.clone());
         if (node.function.params.len() > 0) {
-            Self::extract_props(&node.function.params[0], &mut component)
+            Self::extract_props(&node.function.params[0].pat, &mut component)
         }
         match &node.function.body {
             Option::Some(body) => {
@@ -199,13 +199,13 @@ impl MinimactTranspiler {
         for component in &self.components {
             let code = Self::generate_csharp_class(&component);
             csharp_code.push_str(&code);
-            csharp_code.push_str("\n")
+            csharp_code.push_str("\n");
         }
         let mut all_templates = HashMap::new();
         for component in &self.components {
             for (key, template) in &component.templates {
                 let full_key = format!("{}.{}", component.name, key);
-                all_templates.insert(full_key, template.clone())
+                all_templates.insert(full_key, template.clone());
             }
         }
         TranspilerOutput { csharp: csharp_code, templates: serde_json::to_string_pretty(&all_templates).unwrap(), hooks: serde_json::to_string_pretty(&self.hooks).unwrap() }
@@ -293,12 +293,12 @@ impl MinimactTranspiler {
             None
         };
         let initial_value = if (call.args.len() > 0) {
-            Self::expr_to_csharp(&call.args[0])
+            Self::expr_to_csharp(&*call.args[0].expr.as_ref())
         } else {
             "null".to_string()
         };
         let state_type = if (call.args.len() > 0) {
-            Self::infer_csharp_type(&call.args[0])
+            Self::infer_csharp_type(&*call.args[0].expr.as_ref())
         } else {
             "dynamic".to_string()
         };
@@ -308,7 +308,7 @@ impl MinimactTranspiler {
     fn extract_use_effect(call: &CallExpr, component: &mut ComponentInfo) {
         let mut deps = vec![];
         if (call.args.len() > 1) {
-            let deps_arg = &call.args[1];
+            let deps_arg = &*call.args[1].expr.as_ref();
             match deps_arg {
                 Expr::Array(deps_arg) => {
                     for elem in &deps_arg.elems {
@@ -340,7 +340,7 @@ impl MinimactTranspiler {
         let binding = binding.as_ref().unwrap();
         let ref_name = binding.sym.to_string();
         let initial_value = if (call.args.len() > 0) {
-            Self::expr_to_csharp(&call.args[0])
+            Self::expr_to_csharp(&*call.args[0].expr.as_ref())
         } else {
             "null".to_string()
         };
@@ -456,10 +456,10 @@ impl MinimactTranspiler {
         builder.append_line(&"{");
         builder.indent();
         for state in &component.use_state {
-            builder.append_line(&format!("[State] private {} {} = {};", state.state_type, state.name, state.initial_value))
+            builder.append_line(&format!("[State] private {} {} = {};", state.state_type, state.name, state.initial_value));
         }
         for ref_info in &component.use_ref {
-            builder.append_line(&format!("[Ref] private object {} = {};", ref_info.name, ref_info.initial_value))
+            builder.append_line(&format!("[Ref] private object {} = {};", ref_info.name, ref_info.initial_value));
         }
         if ((component.use_state.len() > 0) || (component.use_ref.len() > 0)) {
             builder.newline()

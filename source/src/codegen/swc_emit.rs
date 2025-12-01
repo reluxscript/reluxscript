@@ -957,7 +957,7 @@ impl SwcEmitter {
                 self.emit_expr(&for_stmt.iter);
                 self.output.push_str(" {\n");
                 self.indent += 1;
-                self.emit_block(&for_stmt.body);
+                self.emit_block_with_context(&for_stmt.body, true); // Force semicolons in for loop body
                 self.indent -= 1;
                 self.emit_line("}");
             }
@@ -968,7 +968,7 @@ impl SwcEmitter {
                 self.emit_expr(&while_stmt.condition);
                 self.output.push_str(" {\n");
                 self.indent += 1;
-                self.emit_block(&while_stmt.body);
+                self.emit_block_with_context(&while_stmt.body, true); // Force semicolons in while loop body
                 self.indent -= 1;
                 self.emit_line("}");
             }
@@ -976,7 +976,7 @@ impl SwcEmitter {
             DecoratedStmt::Loop(loop_body) => {
                 self.emit_line("loop {");
                 self.indent += 1;
-                self.emit_block(loop_body);
+                self.emit_block_with_context(loop_body, true); // Force semicolons in loop body
                 self.indent -= 1;
                 self.emit_line("}");
             }
