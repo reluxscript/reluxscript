@@ -752,6 +752,16 @@ pub static NODE_MAPPINGS: Lazy<Vec<NodeMapping>> = Lazy::new(|| vec![
         swc_visitor: "visit_mut_object_pat",
     },
     NodeMapping {
+        reluxscript: "ObjectPatternProperty",
+        babel: "ObjectProperty",  // Babel uses ObjectProperty in patterns
+        swc: "KeyValuePatProp",    // SWC uses KeyValuePatProp for key-value pairs in object patterns
+        swc_enum: Some("ObjectPatProp::KeyValue"),
+        babel_checker: "isObjectProperty",
+        swc_pattern: "ObjectPatProp::KeyValue",
+        visitor_method: "visit_object_pattern_property",
+        swc_visitor: "visit_mut_key_value_pat_prop",
+    },
+    NodeMapping {
         reluxscript: "RestElement",
         babel: "RestElement",
         swc: "RestPat",
