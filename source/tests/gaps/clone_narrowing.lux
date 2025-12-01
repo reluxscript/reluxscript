@@ -1,0 +1,24 @@
+/// Test that clone() preserves narrowed types
+
+plugin TestCloneNarrowing {
+    pub fn visit_var_declarator(node: &VariableDeclarator) {
+        test_clone_narrowing(&node.init);
+    }
+}
+
+fn test_clone_narrowing(binding: &Option<Box<Expr>>) {
+    // Guard: early return if not Some
+    if !matches!(binding, Some) {
+        return;
+    }
+
+    // After guard, binding should be narrowed to Box<Expr>
+    // When we clone it, the clone should also have type Box<Expr>
+    let expr = binding.clone();
+
+    // This should work - expr should be Box<Expr>, not Option<Box<Expr>>
+    // So we should be able to match it against Expr variants
+    if matches!(expr, CallExpression) {
+        // Do something
+    }
+}

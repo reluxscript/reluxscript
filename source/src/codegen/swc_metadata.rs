@@ -82,6 +82,10 @@ pub struct SwcExprMetadata {
     /// SWC type kind (Enum, Struct, WrapperEnum, etc.)
     pub type_kind: crate::type_system::SwcTypeKind,
 
+    /// If this is a narrowed type that needs enum unwrapping, contains (parent_enum, variant_name)
+    /// Example: swc_type="ArrayPat" but stored in Pat enum → Some(("Pat", "Array"))
+    pub needs_enum_unwrap: Option<(String, String)>,
+
     /// Source location for error reporting
     pub span: Option<Span>,
 }
@@ -134,6 +138,15 @@ pub enum FieldAccessor {
     /// Boxed field in pattern context, use &*
     /// Example: &*member.obj
     BoxedRefDeref,
+
+    /// Deref-able field that needs &* prefix for Display (e.g., Atom)
+    /// Example: &*str_lit.value (where value is JsWord/Atom)
+    /// This is emitted differently than BoxedRefDeref - needs wrapping at expr level
+    DerefDisplay,
+
+    /// Atom/JsWord field that needs String::from_utf8_lossy(x.as_bytes()) for Display
+    /// Example: String::from_utf8_lossy(str_lit.value.as_bytes())
+    Utf8Lossy,
 
     /// Enum field that has a different type than expected
     /// Example: member.prop is MemberProp, not Expr

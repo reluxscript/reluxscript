@@ -81,7 +81,10 @@ impl TypeContext {
 
     /// Check if this type is boxed
     pub fn is_boxed(&self) -> bool {
-        matches!(self.kind, SwcTypeKind::Boxed(_)) || self.needs_deref
+        matches!(self.kind, SwcTypeKind::Boxed(_)) || self.needs_deref ||
+        self.swc_type.starts_with("Box<") ||
+        self.swc_type.starts_with("&Box<") ||
+        self.swc_type.starts_with("&mut Box<")
     }
 
     /// Check if this type requires enum unwrapping
@@ -320,10 +323,17 @@ pub fn map_reluxscript_to_swc(rs_type: &str) -> (String, SwcTypeKind) {
 
         // Pattern types (Struct after unwrapping from Pat)
         "ArrayPattern" => ("ArrayPat".into(), SwcTypeKind::Struct),
+        "ArrayPat" => ("ArrayPat".into(), SwcTypeKind::Struct), // SWC name
         "ObjectPattern" => ("ObjectPat".into(), SwcTypeKind::Struct),
+        "ObjectPat" => ("ObjectPat".into(), SwcTypeKind::Struct), // SWC name
+        "ObjectPatternProperty" => ("KeyValuePatProp".into(), SwcTypeKind::Struct),
+        "KeyValuePatProp" => ("KeyValuePatProp".into(), SwcTypeKind::Struct), // SWC name
         "RestElement" => ("RestPat".into(), SwcTypeKind::Struct),
+        "RestPat" => ("RestPat".into(), SwcTypeKind::Struct), // SWC name
         "AssignmentPattern" => ("AssignPat".into(), SwcTypeKind::Struct),
+        "AssignPat" => ("AssignPat".into(), SwcTypeKind::Struct), // SWC name
         "BindingIdentifier" => ("BindingIdent".into(), SwcTypeKind::Struct),
+        "BindingIdent" => ("BindingIdent".into(), SwcTypeKind::Struct), // SWC name
 
         // JSX types (Struct)
         "JSXElement" => ("JSXElement".into(), SwcTypeKind::Struct),
@@ -460,6 +470,16 @@ pub fn get_swc_variant_in_context(rs_type: &str, context: &str) -> (String, Stri
         };
     }
 
+    // Handle ObjectPatProp context - properties in object patterns
+    if context == "ObjectPatProp" {
+        return match rs_type {
+            "ObjectPatternProperty" => ("ObjectPatProp".into(), "KeyValue".into(), "KeyValuePatProp".into()),
+            "RestElement" => ("ObjectPatProp".into(), "Rest".into(), "RestPat".into()),
+            "AssignmentPattern" => ("ObjectPatProp".into(), "Assign".into(), "AssignPatProp".into()),
+            _ => ("ObjectPatProp".into(), rs_type.to_string(), rs_type.to_string()),
+        };
+    }
+
     // Handle PropName context - property names in objects
     if context == "PropName" {
         return match rs_type {
@@ -511,12 +531,30 @@ pub fn get_swc_variant_in_context(rs_type: &str, context: &str) -> (String, Stri
         };
     }
 
+    // Handle ExprOrSpread context - when matching inside ExprOrSpread wrapper
+    // ExprOrSpread { expr: Box<Expr>, spread: Option<...> }
+    // When pattern is an Expr variant, it's matching the expr field
+    if context == "ExprOrSpread" || context.starts_with("ExprOrSpread") {
+        // Delegate to Expr context since ExprOrSpread.expr is Box<Expr>
+        return get_swc_variant_in_context(rs_type, "Expr");
+    }
+
     // Handle Option context - Option enum variants
     if context == "Option" || context.starts_with("Option<") {
         return match rs_type {
             "Some" => ("Option".into(), "Some".into(), "Some".into()),
             "None" => ("Option".into(), "None".into(), "None".into()),
-            _ => ("Option".into(), rs_type.to_string(), rs_type.to_string()),
+            _ => {
+                // Pattern is not Some/None, so it's matching the inner type
+                // Extract the inner type from Option<T> and recurse
+                if context.starts_with("Option<") {
+                    let inner_type = context.strip_prefix("Option<").unwrap_or(context).trim_end_matches('>');
+                    // Recurse with inner type as context
+                    return get_swc_variant_in_context(rs_type, inner_type);
+                }
+                // Fallback if just "Option" with no generic
+                ("Option".into(), rs_type.to_string(), rs_type.to_string())
+            }
         };
     }
 
@@ -556,6 +594,8 @@ pub fn get_swc_variant_in_context(rs_type: &str, context: &str) -> (String, Stri
         "ObjectExpression" => ("Expr".into(), "Object".into(), "ObjectLit".into()),
         "FunctionExpression" => ("Expr".into(), "Fn".into(), "FnExpr".into()),
         "ArrowFunctionExpression" => ("Expr".into(), "Arrow".into(), "ArrowExpr".into()),
+        "JSXElement" => ("Expr".into(), "JSXElement".into(), "JSXElement".into()),
+        "JSXFragment" => ("Expr".into(), "JSXFragment".into(), "JSXFragment".into()),
         // Literals - when context is Expr, we need Expr::Lit(Lit::X) pattern
         // But the current pattern generation doesn't support nested patterns
         // For now, map to Expr::Lit for literals in Expr context
@@ -595,7 +635,8 @@ pub struct TypedFieldMapping {
 
 /// Get field mapping for a parent type and field name
 pub fn get_typed_field_mapping(parent_swc_type: &str, field: &str) -> Option<TypedFieldMapping> {
-    match (parent_swc_type, field) {
+    eprintln!("[CODEGEN FIELD MAPPING] Lookup: parent='{}', field='{}'", parent_swc_type, field);
+    let result = match (parent_swc_type, field) {
         // MemberExpr fields
         ("MemberExpr", "object") => Some(TypedFieldMapping {
             reluxscript_field: "object",
@@ -656,6 +697,39 @@ pub fn get_typed_field_mapping(parent_swc_type: &str, field: &str) -> Option<Typ
             result_type_swc: "JsWord",
             read_conversion: ".to_string()",
             write_conversion: ".into()",
+        }),
+
+        // Option<Pat> fields - accessing .name requires unwrap + destructure
+        ("Option<Pat>", "name") => Some(TypedFieldMapping {
+            reluxscript_field: "name",
+            swc_field: "sym",
+            needs_deref: false,
+            result_type_rs: "Str",
+            result_type_swc: "JsWord",
+            read_conversion: ".to_string()",
+            write_conversion: ".into()",
+        }),
+
+        // ExprStmt fields
+        ("ExprStmt", "expr") | ("ExprStmt", "expression") => Some(TypedFieldMapping {
+            reluxscript_field: "expr",
+            swc_field: "expr",
+            needs_deref: true, // Box<Expr>
+            result_type_rs: "Expr",
+            result_type_swc: "Expr",
+            read_conversion: "",
+            write_conversion: "",
+        }),
+
+        // KeyValuePatProp fields (ObjectPatternProperty in ReluxScript)
+        ("KeyValuePatProp", "key") => Some(TypedFieldMapping {
+            reluxscript_field: "key",
+            swc_field: "key",
+            needs_deref: false,
+            result_type_rs: "PropName",
+            result_type_swc: "PropName",
+            read_conversion: "",
+            write_conversion: "",
         }),
 
         // BlockStmt fields
@@ -781,13 +855,13 @@ pub fn get_typed_field_mapping(parent_swc_type: &str, field: &str) -> Option<Typ
         }),
 
         // Literal fields
-        ("Str", "value") => Some(TypedFieldMapping {
+        ("Str", "value") | ("StrExpr", "value") => Some(TypedFieldMapping {
             reluxscript_field: "value",
             swc_field: "value",
             needs_deref: false,
             result_type_rs: "Str",
             result_type_swc: "Atom",
-            read_conversion: ".as_ref()",  // Atom.as_ref() returns &str
+            read_conversion: ".as_bytes()",  // For Display, use String::from_utf8_lossy(x.as_bytes())
             write_conversion: ".into()",
         }),
         ("Number", "value") => Some(TypedFieldMapping {
@@ -980,7 +1054,9 @@ pub fn get_typed_field_mapping(parent_swc_type: &str, field: &str) -> Option<Typ
         }),
 
         _ => None,
-    }
+    };
+    eprintln!("[CODEGEN FIELD MAPPING] Result: {:?}", result.as_ref().map(|m| &m.result_type_swc));
+    result
 }
 
 // =============================================================================

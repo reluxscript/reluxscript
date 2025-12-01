@@ -35,6 +35,11 @@ pub struct SwcDecorator {
     /// Contains all type information already computed
     semantic_type_env: Option<crate::semantic::TypeEnv>,
 
+    /// Tracks variables that were narrowed from a parent enum to a specific variant
+    /// Maps variable name -> (parent_enum, variant)
+    /// E.g., "arg" -> ("Expr", "JSXElement") when arg was bound in match Expr::JSXElement(arg)
+    narrowed_enum_vars: HashMap<String, (String, String)>,
+
     /// Whether we're currently in a writer context
     /// (affects field replacements like self.builder → self)
     is_writer: bool,
@@ -53,11 +58,11 @@ impl SwcDecorator {
         let mut type_env = HashMap::new();
 
         // Register built-in types
-        // CodeBuilder is a built-in type that maps to String in SWC
+        // CodeBuilder is a built-in type - we generate a CodeBuilder struct
         type_env.insert("CodeBuilder".to_string(), TypeContext {
             reluxscript_type: "CodeBuilder".to_string(),
-            swc_type: "String".to_string(),
-            kind: SwcTypeKind::Primitive,
+            swc_type: "CodeBuilder".to_string(),
+            kind: SwcTypeKind::Struct,
             known_variant: None,
             needs_deref: false,
         });
@@ -66,6 +71,7 @@ impl SwcDecorator {
             type_env,
             current_params: HashMap::new(),
             semantic_type_env: None,
+            narrowed_enum_vars: HashMap::new(),
             is_writer: false,
             in_traverse: false,
             custom_props: HashMap::new(),
@@ -77,11 +83,11 @@ impl SwcDecorator {
         let mut type_env = HashMap::new();
 
         // Register built-in types
-        // CodeBuilder is a built-in type that maps to String in SWC
+        // CodeBuilder is a built-in type - we generate a CodeBuilder struct
         type_env.insert("CodeBuilder".to_string(), TypeContext {
             reluxscript_type: "CodeBuilder".to_string(),
-            swc_type: "String".to_string(),
-            kind: SwcTypeKind::Primitive,
+            swc_type: "CodeBuilder".to_string(),
+            kind: SwcTypeKind::Struct,
             known_variant: None,
             needs_deref: false,
         });
@@ -90,6 +96,7 @@ impl SwcDecorator {
             type_env,
             current_params: HashMap::new(),
             semantic_type_env: Some(semantic_type_env),
+            narrowed_enum_vars: HashMap::new(),
             is_writer: false,
             in_traverse: false,
             custom_props: HashMap::new(),
@@ -120,8 +127,14 @@ impl SwcDecorator {
     fn lookup_semantic_type(&self, var_name: &str) -> Option<String> {
         if let Some(ref type_env) = self.semantic_type_env {
             if let Some(type_info) = type_env.lookup(var_name) {
-                return Some(Self::type_info_to_swc_type(type_info));
+                let swc_type = Self::type_info_to_swc_type(type_info);
+                eprintln!("[DEBUG SEMANTIC LOOKUP] '{}' found in semantic TypeEnv: {:?} -> {}", var_name, type_info, swc_type);
+                return Some(swc_type);
+            } else {
+                eprintln!("[DEBUG SEMANTIC LOOKUP] '{}' NOT found in semantic TypeEnv", var_name);
             }
+        } else {
+            eprintln!("[DEBUG SEMANTIC LOOKUP] No semantic TypeEnv available");
         }
         None
     }
@@ -260,9 +273,28 @@ impl SwcDecorator {
     fn decorate_fn_decl(&mut self, func: &FnDecl) -> DecoratedFnDecl {
         // Clear and register parameter types
         self.current_params.clear();
-        for param in &func.params {
-            // First try semantic type env, fallback to annotation parsing
-            let type_ctx = if let Some(swc_type) = self.lookup_semantic_type(&param.name) {
+
+        // For visitor methods, get the correct parameter type from the mapping
+        let visitor_param_type = if func.name.starts_with("visit_") && !func.params.is_empty() {
+            use crate::mapping::get_node_mapping_by_visitor;
+            get_node_mapping_by_visitor(&func.name).map(|m| m.swc.to_string())
+        } else {
+            None
+        };
+
+        for (i, param) in func.params.iter().enumerate() {
+            // For first parameter of visitor methods, use the mapped type
+            let type_ctx = if i == 0 && visitor_param_type.is_some() {
+                let swc_type = visitor_param_type.as_ref().unwrap().clone();
+                TypeContext {
+                    reluxscript_type: param.name.clone(),
+                    swc_type,
+                    kind: SwcTypeKind::Struct, // Visitor params are usually structs
+                    known_variant: None,
+                    needs_deref: false,
+                }
+            } else if let Some(swc_type) = self.lookup_semantic_type(&param.name) {
+                // Try semantic type env
                 TypeContext {
                     reluxscript_type: param.name.clone(),
                     swc_type,
@@ -271,6 +303,7 @@ impl SwcDecorator {
                     needs_deref: false,
                 }
             } else {
+                // Fallback to annotation parsing
                 self.type_annotation_to_context(&param.ty)
             };
             self.current_params.insert(param.name.clone(), type_ctx.clone());
@@ -326,10 +359,13 @@ impl SwcDecorator {
             Stmt::Let(let_stmt) => {
                 // First decorate the initializer to get its type
                 let init = self.decorate_expr(&let_stmt.init);
-                let init_type = &init.metadata.swc_type;
+                let init_type = init.metadata.swc_type.clone();
 
                 // Use that type for pattern decoration
-                let pattern = self.decorate_pattern_with_context(&let_stmt.pattern, init_type);
+                let pattern = self.decorate_pattern_with_context(&let_stmt.pattern, &init_type);
+
+                // Register the pattern bindings with the inferred type
+                self.register_pattern_bindings(&let_stmt.pattern, &init_type);
 
                 DecoratedStmt::Let(DecoratedLetStmt {
                     mutable: let_stmt.mutable,
@@ -358,20 +394,31 @@ impl SwcDecorator {
             }
 
             Stmt::Match(match_stmt) => {
+                eprintln!("[DECORATOR MATCH] Decorating match statement with {} arms", match_stmt.arms.len());
                 // Decorate scrutinee first to get its type
                 let expr = self.decorate_expr(&match_stmt.scrutinee);
                 let scrutinee_type = expr.metadata.swc_type.clone();
 
                 // Use scrutinee type for all arm patterns
                 let arms = match_stmt.arms.iter().map(|arm| {
+                    // Decorate pattern first to get its metadata
+                    let decorated_pattern = self.decorate_pattern_with_context(&arm.pattern, &scrutinee_type);
+
+                    // Extract pattern bindings and add them to type_env before decorating body
+                    self.add_pattern_bindings_to_env(&arm.pattern, &decorated_pattern);
+
                     let decorated_body_expr = self.decorate_expr(&arm.body);
+
+                    // Remove pattern bindings after decorating body
+                    self.remove_pattern_bindings_from_env(&arm.pattern);
+
                     // Convert body expr to a block with single expression
                     let body_block = DecoratedBlock {
                         stmts: vec![DecoratedStmt::Expr(decorated_body_expr)],
                     };
 
                     DecoratedMatchArm {
-                        pattern: self.decorate_pattern_with_context(&arm.pattern, &scrutinee_type),
+                        pattern: decorated_pattern,
                         guard: None, // MatchArm doesn't have guard in this AST
                         body: body_block,
                     }
@@ -382,6 +429,8 @@ impl SwcDecorator {
 
             Stmt::For(for_stmt) => {
                 // Decorate iterator first
+                eprintln!("[DEBUG FOR] Decorating for loop iterator: {:?}",
+                    format!("{:?}", for_stmt.iter).chars().take(50).collect::<String>());
                 let iter = self.decorate_expr(&for_stmt.iter);
 
                 // Infer element type from iterator
@@ -435,7 +484,54 @@ impl SwcDecorator {
 
             Stmt::Continue(_) => DecoratedStmt::Continue,
 
-            Stmt::Traverse(traverse) => DecoratedStmt::Traverse(traverse.clone()),
+            Stmt::Traverse(traverse) => {
+                let decorated_target = self.decorate_expr(&traverse.target);
+                let decorated_kind = match &traverse.kind {
+                    crate::parser::TraverseKind::Inline(inline_visitor) => {
+                        let decorated_methods = inline_visitor.methods.iter().map(|method| {
+                            // Register parameter types for field mapping
+                            for param in &method.params {
+                                if let crate::parser::Type::Reference { inner, .. } = &param.ty {
+                                    if let crate::parser::Type::Named(type_name) = inner.as_ref() {
+                                        let swc_type = crate::mapping::get_node_mapping(type_name)
+                                            .map(|m| m.swc.to_string())
+                                            .unwrap_or_else(|| type_name.clone());
+                                        self.register_param_type(&param.name, &swc_type);
+                                    }
+                                }
+                            }
+
+                            let decorated_body = self.decorate_block(&method.body);
+
+                            // Clean up param types after decorating this method
+                            for param in &method.params {
+                                self.type_env.remove(&param.name);
+                            }
+
+                            DecoratedVisitorMethod {
+                                name: method.name.clone(),
+                                params: method.params.clone(),
+                                body: decorated_body,
+                            }
+                        }).collect();
+
+                        DecoratedTraverseKind::Inline(DecoratedInlineVisitor {
+                            state: inline_visitor.state.clone(),
+                            methods: decorated_methods,
+                        })
+                    }
+                    crate::parser::TraverseKind::Delegated(name) => {
+                        DecoratedTraverseKind::Delegated(name.clone())
+                    }
+                };
+
+                DecoratedStmt::Traverse(Box::new(DecoratedTraverseStmt {
+                    target: decorated_target,
+                    captures: traverse.captures.clone(),
+                    kind: decorated_kind,
+                    span: traverse.span,
+                }))
+            }
 
             Stmt::Function(func_decl) => DecoratedStmt::Function(func_decl.clone()),
 
@@ -449,28 +545,157 @@ impl SwcDecorator {
 
     /// 🔥 THE CRITICAL FUNCTION: Decorate if-let statements with context-aware patterns
     fn decorate_if_stmt(&mut self, if_stmt: &IfStmt) -> DecoratedIfStmt {
+        eprintln!("[DECORATOR IF-LET] if_stmt.condition = {:?}", if_stmt.condition);
+        eprintln!("[DECORATOR IF-LET] if_stmt.pattern = {:?}", if_stmt.pattern);
+
         // First, decorate the condition expression to get its type
         let decorated_condition = self.decorate_expr(&if_stmt.condition);
 
         // Get the SWC type of the condition
-        let condition_type = &decorated_condition.metadata.swc_type;
+        // Special case: if condition is matches!(expr, Pattern), extract the scrutinee type
+        // Special case: if condition is &expr (Ref), add & prefix to the type
+        let condition_type_base = if let DecoratedExprKind::Matches { ref expr, .. } = decorated_condition.kind {
+            eprintln!("[DECORATOR IF-LET] Condition is Matches, using scrutinee type: '{}'", expr.metadata.swc_type);
+            expr.metadata.swc_type.clone()
+        } else {
+            eprintln!("[DECORATOR IF-LET] Condition is not Matches, using condition type: '{}'", decorated_condition.metadata.swc_type);
+            decorated_condition.metadata.swc_type.clone()
+        };
+
+        // If the condition is a Ref/RefMut expression, add the & prefix
+        let condition_type_string = if let DecoratedExprKind::Unary { op, ref operand, .. } = &decorated_condition.kind {
+            match op {
+                crate::parser::UnaryOp::Ref => {
+                    let with_ref = format!("&{}", condition_type_base);
+                    eprintln!("[DECORATOR IF-LET] Condition is &expr, adjusting type: '{}' -> '{}'", condition_type_base, with_ref);
+                    with_ref
+                }
+                crate::parser::UnaryOp::RefMut => {
+                    format!("&mut {}", condition_type_base)
+                }
+                _ => condition_type_base
+            }
+        } else {
+            condition_type_base
+        };
+        let condition_type = &condition_type_string;
 
         // If this is an if-let, decorate the pattern with CONTEXT
         let decorated_pattern = if let Some(ref pattern) = if_stmt.pattern {
             // THIS IS THE KEY: We know what type is being matched!
+            eprintln!("[DECORATOR IF-LET] Decorating pattern {:?} with condition_type: '{}'", pattern, condition_type);
             let decorated_pat = self.decorate_pattern_with_context(pattern, condition_type);
 
             // Register pattern bindings in type environment for the then branch
-            self.register_pattern_bindings(pattern, condition_type);
+            // Use the decorated pattern's metadata to get the correct narrowed types
+            // Pass the condition type so Option<T> patterns can extract the T
+            self.add_pattern_bindings_to_env_with_type(pattern, &decorated_pat, Some(condition_type.clone()));
+
+            // CRITICAL: Also narrow the scrutinee variable in decorator's type_env
+            // This mirrors what semantic type checker does, but decorator needs its own
+            // narrowing because semantic's is scoped and gets popped
+            if let Pattern::Variant { name, .. } = pattern {
+                let narrowed_type = if name.contains("::") {
+                    let parts: Vec<&str> = name.split("::").collect();
+                    if parts.len() == 2 {
+                        let (swc_type, _) = map_reluxscript_to_swc(parts[1]);
+                        swc_type
+                    } else {
+                        condition_type.to_string()
+                    }
+                } else {
+                    let (swc_type, _) = map_reluxscript_to_swc(name);
+                    swc_type
+                };
+
+                let scrutinee_key = match &if_stmt.condition {
+                    Expr::Ident(ident) => Some(ident.name.clone()),
+                    Expr::Member(mem) => {
+                        if let Expr::Ident(ident) = mem.object.as_ref() {
+                            Some(format!("{}.{}", ident.name, mem.property))
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+
+                if let Some(key) = scrutinee_key.clone() {
+                    // Check if field is boxed from original mapping
+                    let is_boxed = if let Expr::Member(mem) = &if_stmt.condition {
+                        if let Expr::Ident(ident) = mem.object.as_ref() {
+                            // Try local type_env first (returns TypeContext)
+                            let obj_type_str = if let Some(obj_ctx) = self.type_env.get(&ident.name) {
+                                Some(obj_ctx.swc_type.clone())
+                            } else if let Some(semantic_type) = self.semantic_type_env.as_ref()
+                                .and_then(|env| env.lookup(&ident.name)) {
+                                // semantic_type_env returns TypeInfo, extract the type name
+                                Some(semantic_type.display_name())
+                            } else {
+                                None
+                            };
+
+                            if let Some(obj_type) = obj_type_str {
+                                get_typed_field_mapping(&obj_type, &mem.property)
+                                    .map(|m| m.needs_deref)
+                                    .unwrap_or(false)
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    };
+
+                    eprintln!("[DECORATOR NARROWING] Shadowing '{}' to {} (is_boxed: {}) in then-branch",
+                        key, narrowed_type, is_boxed);
+
+                    // Save old value to restore later
+                    let old_value = self.type_env.get(&key).cloned();
+
+                    self.type_env.insert(key.clone(), TypeContext {
+                        reluxscript_type: narrowed_type.clone(),
+                        swc_type: narrowed_type.clone(),
+                        kind: SwcTypeKind::Struct,
+                        known_variant: None,
+                        needs_deref: is_boxed,
+                    });
+
+                    // Decorate then branch with narrowing active
+                    let then_branch = self.decorate_block(&if_stmt.then_branch);
+
+                    // Restore old value (pop scope)
+                    if let Some(old) = old_value {
+                        self.type_env.insert(key, old);
+                    } else {
+                        self.type_env.remove(&key);
+                    }
+
+                    let else_branch = if_stmt.else_branch.as_ref().map(|b| self.decorate_block(b));
+
+                    return DecoratedIfStmt {
+                        condition: decorated_condition,
+                        pattern: Some(decorated_pat),
+                        then_branch,
+                        else_branch,
+                        if_let_metadata: None,
+                    };
+                }
+            }
 
             Some(decorated_pat)
         } else {
             None
         };
 
-        // Decorate branches
+        // Decorate branches (no narrowing case)
         let then_branch = self.decorate_block(&if_stmt.then_branch);
         let else_branch = if_stmt.else_branch.as_ref().map(|b| self.decorate_block(b));
+
+        // TODO: Restore the original type after the if-block (for proper scoping)
+        // For now, the narrowed type persists which is acceptable
 
         DecoratedIfStmt {
             condition: decorated_condition,
@@ -497,10 +722,17 @@ impl SwcDecorator {
                         return;
                     }
                 }
-                eprintln!("[DEBUG] Registering pattern binding: {} -> {}", name, bound_type);
+                // Prefer semantic type over decorator type for more accuracy
+                let actual_type = if let Some(semantic_type) = self.lookup_semantic_type(name) {
+                    eprintln!("[DEBUG] Using semantic type for '{}': {} (instead of {})", name, semantic_type, bound_type);
+                    semantic_type
+                } else {
+                    bound_type.to_string()
+                };
+                eprintln!("[DEBUG] Registering pattern binding: {} -> {}", name, actual_type);
                 self.type_env.insert(name.clone(), TypeContext {
-                    reluxscript_type: bound_type.to_string(),
-                    swc_type: bound_type.to_string(),
+                    reluxscript_type: actual_type.clone(),
+                    swc_type: actual_type,
                     kind: SwcTypeKind::Unknown,
                     known_variant: None,
                     needs_deref: false,
@@ -610,9 +842,27 @@ impl SwcDecorator {
                     // Also handles struct-like patterns like CallExpression(_)
                     // Also handles literals like StringLiteral, NumericLiteral
 
+                    // Strip reference prefix from expected_type to get base type
+                    let base_expected_type = if expected_type.starts_with("&mut ") {
+                        &expected_type[5..]
+                    } else if expected_type.starts_with("&") {
+                        &expected_type[1..]
+                    } else {
+                        expected_type
+                    };
+                    eprintln!("[DEBUG PATTERN] Stripped ref prefix: '{}' -> '{}'", expected_type, base_expected_type);
+
                     // First try context-aware mapping for literals
-                    let (enum_name, variant, _struct_name) = get_swc_variant_in_context(name, expected_type);
-                    eprintln!("[DEBUG PATTERN] get_swc_variant_in_context('{}', '{}') = ('{}', '{}', ...)", name, expected_type, enum_name, variant);
+                    // If expected_type is a struct (like ObjectPat), find its parent enum first
+                    let context = if let Some((parent_enum, _)) = crate::mapping::get_parent_enum_for_swc_type(base_expected_type) {
+                        eprintln!("[DEBUG PATTERN] expected_type '{}' belongs to enum '{}'", base_expected_type, parent_enum);
+                        parent_enum
+                    } else {
+                        base_expected_type.to_string()
+                    };
+
+                    let (enum_name, variant, _struct_name) = get_swc_variant_in_context(name, &context);
+                    eprintln!("[DEBUG PATTERN] get_swc_variant_in_context('{}', '{}') = ('{}', '{}', ...)", name, context, enum_name, variant);
 
                     // Check if this is a nested pattern (variant contains '(' indicating nested enum)
                     // Example: variant = "Lit(Lit::Str" means we need Expr::Lit(Lit::Str(binding))
@@ -629,8 +879,18 @@ impl SwcDecorator {
                         format!("{}::{}({}))", enum_name, variant, inner_binding)
                     } else if enum_name != expected_type {
                         // Context-aware mapping found a different enum (e.g., Lit vs Expr)
-                        eprintln!("[DEBUG PATTERN] Using simple pattern: {}::{}", enum_name, variant);
-                        format!("{}::{}", enum_name, variant)
+
+                        // Special case: Option<ExprOrSpread> with Expr variant
+                        // Don't use box pattern syntax (experimental), use guard pattern instead
+                        if expected_type.contains("ExprOrSpread") && enum_name == "Expr" {
+                            eprintln!("[DEBUG PATTERN] Option<ExprOrSpread> + Expr variant -> using guard pattern");
+                            // Generate: Some(ref s) if s.spread.is_none()
+                            // The inner Expr match will be handled by narrowing/rewriter
+                            format!("Some(ref s) if s.spread.is_none()")
+                        } else {
+                            eprintln!("[DEBUG PATTERN] Using simple pattern: {}::{}", enum_name, variant);
+                            format!("{}::{}", enum_name, variant)
+                        }
                     } else if let Some(mapping) = get_node_mapping(name) {
                         // Use node mapping for struct types like CallExpression
                         let full_pattern = mapping.swc_pattern.to_string();
@@ -745,14 +1005,28 @@ impl SwcDecorator {
             }
 
             Pattern::Ident(name) => {
-                // Register this binding in type environment
-                // Type is the expected_type we're matching against
-                let type_ctx = TypeContext::from_reluxscript(expected_type);
-                self.type_env.insert(name.clone(), type_ctx);
+                // Check if this is a variant name (Some, None, Ok, Err) rather than a binding
+                let is_variant = matches!(name.as_str(), "Some" | "None" | "Ok" | "Err");
 
-                DecoratedPattern {
-                    kind: DecoratedPatternKind::Ident(name.clone()),
-                    metadata: SwcPatternMetadata::direct(name.clone()),
+                if is_variant {
+                    // Treat as a variant pattern, not a binding
+                    DecoratedPattern {
+                        kind: DecoratedPatternKind::Variant {
+                            name: name.clone(),
+                            inner: None,
+                        },
+                        metadata: SwcPatternMetadata::direct(name.clone()),
+                    }
+                } else {
+                    // Register this binding in type environment
+                    // Type is the expected_type we're matching against
+                    let type_ctx = TypeContext::from_reluxscript(expected_type);
+                    self.type_env.insert(name.clone(), type_ctx);
+
+                    DecoratedPattern {
+                        kind: DecoratedPatternKind::Ident(name.clone()),
+                        metadata: SwcPatternMetadata::direct(name.clone()),
+                    }
                 }
             }
 
@@ -854,14 +1128,137 @@ impl SwcDecorator {
         }
     }
 
+    /// Add pattern bindings to type environment based on decorated pattern metadata
+    fn add_pattern_bindings_to_env(&mut self, pattern: &Pattern, decorated: &DecoratedPattern) {
+        self.add_pattern_bindings_to_env_with_type(pattern, decorated, None);
+    }
+
+    /// Internal helper that tracks the expected type from parent patterns
+    fn add_pattern_bindings_to_env_with_type(&mut self, pattern: &Pattern, decorated: &DecoratedPattern, expected_type: Option<String>) {
+        eprintln!("[ADD PATTERN BINDING] pattern={:?}, decorated.kind={:?}, swc_pattern={}", pattern, decorated.kind, decorated.metadata.swc_pattern);
+        match (pattern, &decorated.kind) {
+            (Pattern::Ident(name), _) => {
+                // Simple identifier - use the expected type from parent, or fall back to swc_pattern
+                let swc_type = expected_type.unwrap_or_else(|| decorated.metadata.swc_pattern.clone());
+                eprintln!("[MATCH BINDING] Adding {} -> {}", name, swc_type);
+                self.type_env.insert(name.clone(), TypeContext {
+                    reluxscript_type: swc_type.clone(),
+                    swc_type: swc_type.clone(),
+                    kind: SwcTypeKind::Struct,
+                    known_variant: None,
+                    needs_deref: false,
+                });
+            }
+            (Pattern::Variant { inner: Some(inner_pat), ..  }, DecoratedPatternKind::Variant { inner: Some(inner_dec), .. }) => {
+                // Variant with inner binding - extract the inner type from the variant
+                // E.g., for Pat::Object(param), the inner type should be ObjectPat
+                // Use the swc_pattern from metadata, not the name from kind
+                let swc_pattern = &decorated.metadata.swc_pattern;
+                let (inner_type, parent_enum_info) = if swc_pattern.contains("::") {
+                    // Extract parts: "Pat::Object" -> enum="Pat", variant="Object"
+                    let parts: Vec<&str> = swc_pattern.split("::").collect();
+                    if parts.len() == 2 {
+                        let enum_name = parts[0];  // "Pat"
+                        let variant_name = parts[1]; // "Object"
+                        // For SWC patterns, the inner type is the struct wrapped by the enum
+                        // Pat::Object wraps ObjectPat, Pat::Array wraps ArrayPat, etc.
+                        let inner_struct = if enum_name == "Pat" {
+                            // Pat::Object -> ObjectPat, Pat::Array -> ArrayPat
+                            format!("{}Pat", variant_name)
+                        } else if enum_name == "Expr" {
+                            // Expr::Call -> CallExpr, Expr::Member -> MemberExpr
+                            format!("{}Expr", variant_name)
+                        } else if enum_name == "ObjectPatProp" {
+                            // ObjectPatProp::KeyValue -> KeyValuePatProp
+                            format!("{}PatProp", variant_name)
+                        } else if enum_name == "Option" {
+                            // Option::Some wraps the inner type from Option<T> or &Option<T>
+                            // Need to extract T from the expected_type and preserve & prefix
+                            if let Some(ref outer_type) = expected_type {
+                                eprintln!("[STEP 3] Option::Some - outer_type: '{}'", outer_type);
+                                // Check if outer_type is a reference
+                                let (ref_prefix, base_type) = if outer_type.starts_with("&mut ") {
+                                    ("&mut ", &outer_type[5..])
+                                } else if outer_type.starts_with("&") {
+                                    ("&", &outer_type[1..])
+                                } else {
+                                    ("", outer_type.as_str())
+                                };
+                                let extracted = Self::extract_generic_param(base_type).unwrap_or_else(|| variant_name.to_string());
+                                let full_type = format!("{}{}", ref_prefix, extracted);
+                                eprintln!("[STEP 3] Extracted: '{}' (with ref_prefix: '{}')", full_type, ref_prefix);
+                                full_type
+                            } else {
+                                eprintln!("[STEP 3] Option::Some - NO expected_type");
+                                variant_name.to_string()
+                            }
+                        } else {
+                            variant_name.to_string()
+                        };
+                        eprintln!("[MATCH BINDING] Extracted inner type from {}: {}", swc_pattern, inner_struct);
+                        // Return both the inner type and the parent enum info
+                        (Some(inner_struct), Some((enum_name.to_string(), variant_name.to_string())))
+                    } else {
+                        (None, None)
+                    }
+                } else {
+                    (None, None)
+                };
+
+                // Recursively add inner bindings with the extracted type
+                self.add_pattern_bindings_to_env_with_type(inner_pat, inner_dec, inner_type);
+
+                // If the inner pattern is an identifier, track that it was narrowed from the parent enum
+                if let (Pattern::Ident(binding_name), Some((parent_enum, variant))) = (inner_pat.as_ref(), parent_enum_info) {
+                    eprintln!("[MATCH BINDING] Tracking '{}' as narrowed from {}::{}", binding_name, parent_enum, variant);
+                    self.narrowed_enum_vars.insert(binding_name.clone(), (parent_enum, variant));
+                }
+            }
+            _ => {
+                // Other patterns don't create bindings we need to track
+            }
+        }
+    }
+
+    /// Extract the type parameter from a generic type like "Option<Box<Expr>>" -> "Box<Expr>"
+    fn extract_generic_param(type_str: &str) -> Option<String> {
+        if let Some(start) = type_str.find('<') {
+            if let Some(end) = type_str.rfind('>') {
+                if end > start {
+                    return Some(type_str[start + 1..end].to_string());
+                }
+            }
+        }
+        None
+    }
+
+    /// Remove pattern bindings from type environment
+    fn remove_pattern_bindings_from_env(&mut self, pattern: &Pattern) {
+        match pattern {
+            Pattern::Ident(name) => {
+                eprintln!("[MATCH BINDING] Removing {}", name);
+                self.type_env.remove(name);
+            }
+            Pattern::Variant { inner: Some(inner_pat), .. } => {
+                // Recursively remove inner bindings
+                self.remove_pattern_bindings_from_env(inner_pat);
+            }
+            _ => {}
+        }
+    }
+
     /// Decorate expression with .as_ref() suppressed for Option<Box<T>> fields
     /// Used when decorating operands of & reference operator
     fn decorate_expr_suppress_asref(&mut self, expr: &Expr) -> DecoratedExpr {
         match expr {
             Expr::Member(mem) => {
                 // Decorate member expression but suppress .as_ref()
+                eprintln!("[DEBUG SUPPRESS MEMBER] Decorating {}.{}",
+                    format!("{:?}", mem.object).chars().take(30).collect::<String>(),
+                    mem.property);
                 let object = Box::new(self.decorate_expr(&mem.object));
                 let object_type = &object.metadata.swc_type;
+                eprintln!("[DEBUG SUPPRESS MEMBER] Object type: {}", object_type);
 
                 let field_metadata = if mem.property == "builder" && self.is_writer {
                     SwcFieldMetadata {
@@ -876,10 +1273,14 @@ impl SwcDecorator {
                     }
                 } else if let Some(mapping) = get_typed_field_mapping(object_type, &mem.property) {
                     // We have precise mapping - use BoxedRefDeref for Box fields
+                    eprintln!("[DEBUG SUPPRESS] Field mapping found: {}.{} → {}.{}", object_type, mem.property, object_type, mapping.swc_field);
                     let is_boxed = mapping.result_type_swc.starts_with("Box<");
                     SwcFieldMetadata {
                         swc_field_name: mapping.swc_field.to_string(),
-                        accessor: if is_boxed {
+                        accessor: if mapping.read_conversion == ".as_bytes()" {
+                            eprintln!("[DEBUG SUPPRESS ATOM] Using Utf8Lossy accessor for Atom field");
+                            FieldAccessor::Utf8Lossy
+                        } else if is_boxed {
                             FieldAccessor::BoxedRefDeref  // For Box<T> fields like member.obj
                         } else {
                             FieldAccessor::Direct
@@ -890,14 +1291,56 @@ impl SwcDecorator {
                         read_conversion: mapping.read_conversion.to_string(),
                     }
                 } else {
-                    // Fallback - also use Direct
+                    // Fallback - apply common AST field name mappings
+                    eprintln!("[DEBUG SUPPRESS] NO field mapping for: {}.{} - using fallback", object_type, mem.property);
+
+                    // Check if this is likely a known SWC AST type
+                    // Don't apply to "Unknown" - if we don't know the type, don't map fields
+                    let is_likely_ast_type = object_type.ends_with("Expr")
+                        || object_type.ends_with("Stmt")
+                        || object_type.ends_with("Decl")
+                        || object_type.ends_with("Pat")
+                        || object_type.ends_with("Lit")
+                        || object_type == "Ident"
+                        || object_type == "Callee"
+                        || object_type == "Param";
+
+                    // Apply common SWC field name mappings only for AST types
+                    let swc_field = if !is_likely_ast_type {
+                        &mem.property
+                    } else {
+                        match mem.property.as_str() {
+                            // Identifier.name -> Ident.sym
+                            "name" => "sym",
+                            // MemberExpression.property -> MemberExpr.prop
+                            "property" => "prop",
+                            // MemberExpression.object -> MemberExpr.obj
+                            "object" => "obj",
+                            // CallExpression.arguments -> CallExpr.args
+                            "arguments" => "args",
+                            // CallExpression.callee -> CallExpr.callee (no change)
+                            "callee" => "callee",
+                            // ArrayPattern.elements / ArrayExpression.elements -> elems
+                            "elements" => "elems",
+                            // No mapping found
+                            _ => &mem.property,
+                        }
+                    };
+
+                    // Add .to_string() conversion for sym field (Atom -> String)
+                    let read_conversion = if swc_field == "sym" && is_likely_ast_type {
+                        ".to_string()"
+                    } else {
+                        ""
+                    };
+
                     SwcFieldMetadata {
-                        swc_field_name: mem.property.clone(),
+                        swc_field_name: swc_field.to_string(),
                         accessor: FieldAccessor::Direct,
                         field_type: "Unknown".to_string(),
                         source_field: Some(mem.property.clone()),
                         span: Some(mem.span),
-                        read_conversion: String::new(),
+                        read_conversion: read_conversion.to_string(),
                     }
                 };
 
@@ -912,7 +1355,7 @@ impl SwcDecorator {
                         is_path: mem.is_path,
                         field_metadata,
                     },
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: member_type,
                         is_boxed: false,
                         is_optional: false,
@@ -932,30 +1375,109 @@ impl SwcDecorator {
             Expr::Ident(ident_expr) => {
                 let name = &ident_expr.name;
 
-                // Look up type in environment (local first, then semantic)
-                let type_ctx = self.type_env.get(name)
-                    .cloned()
-                    .map(|ctx| {
-                        eprintln!("[DEBUG] Ident '{}' found in type_env: {}", name, ctx.swc_type);
-                        ctx
-                    })
-                    .unwrap_or_else(|| {
-                        eprintln!("[DEBUG] Ident '{}' not found in type_env", name);
-                        // Try semantic type environment
-                        if let Some(swc_type_str) = self.lookup_semantic_type(name) {
-                            eprintln!("[DEBUG] Found '{}' in semantic: {}", name, swc_type_str);
-                            TypeContext {
-                                reluxscript_type: name.clone(),
-                                swc_type: swc_type_str.clone(),
-                                kind: SwcTypeKind::Unknown, // Will be refined later
-                                known_variant: None,
-                                needs_deref: false,
+                // Look up type in environment (local FIRST for pattern-narrowed types, then semantic)
+                let (type_ctx, needs_enum_unwrap) = if let Some(ctx) = self.type_env.get(name).cloned() {
+                    if name == "init" {
+                        eprintln!("[DECORATOR IDENT 'init'] found in type_env: {} (needs_deref={})", ctx.swc_type, ctx.needs_deref);
+                    }
+                    eprintln!("[DECORATOR IDENT] '{}' found in type_env: {} (needs_deref={})", name, ctx.swc_type, ctx.needs_deref);
+                    // Local type_env has pattern-narrowed types from match/if-let
+                    eprintln!("[DEBUG] Ident '{}' found in local type_env: {} (needs_deref: {})", name, ctx.swc_type, ctx.needs_deref);
+
+                    // Check if this was narrowed from Option<T> to T
+                    let needs_option_unwrap = if let Some(semantic_type) = self.semantic_type_env.as_ref().and_then(|env| env.lookup(name)) {
+                        eprintln!("[DEBUG NARROWING CHECK] '{}': semantic_type = {:?}, local_type = {}", name, semantic_type, ctx.swc_type);
+                        // Check if semantic type is Option but local type is not
+                        let is_option_semantic = matches!(semantic_type, crate::semantic::TypeInfo::Ref { inner, .. } if matches!(**inner, crate::semantic::TypeInfo::Option(_)));
+                        let is_not_option_local = !ctx.swc_type.starts_with("Option<");
+                        eprintln!("[DEBUG NARROWING CHECK] is_option_semantic={}, is_not_option_local={}", is_option_semantic, is_not_option_local);
+                        is_option_semantic && is_not_option_local
+                    } else {
+                        eprintln!("[DEBUG NARROWING CHECK] '{}': no semantic type found", name);
+                        false
+                    };
+
+                    if needs_option_unwrap {
+                        eprintln!("[OPTION NARROWING] '{}' narrowed from Option to {}, needs unwrap", name, ctx.swc_type);
+                    }
+
+                    // Check if this was narrowed from a parent enum (e.g., Expr -> JSXElement)
+                    // First check the local narrowed_enum_vars map (populated from match patterns)
+                    let needs_enum_wrap = if let Some((parent_enum, variant)) = self.narrowed_enum_vars.get(name) {
+                        eprintln!("[ENUM NARROWING LOCAL] '{}' tracked as narrowed from {}::{}", name, parent_enum, variant);
+                        Some((parent_enum.clone(), variant.clone()))
+                    } else if let Some(semantic_type) = self.semantic_type_env.as_ref().and_then(|env| env.lookup(name)) {
+                        eprintln!("[DECORATOR CHECK NARROWING] '{}' semantic_type = {:?}", name, semantic_type);
+                        // Check if semantic type is NarrowedAstNode
+                        if let crate::semantic::TypeInfo::NarrowedAstNode { current_type, parent_enum, variant } = semantic_type {
+                            eprintln!("[ENUM NARROWING] '{}' is NarrowedAstNode {{ current: {}, parent: {}, variant: {} }}",
+                                      name, current_type, parent_enum, variant);
+                            Some((parent_enum.clone(), variant.clone()))
+                        } else if let crate::semantic::TypeInfo::Ref { inner, .. } = semantic_type {
+                            // Handle &NarrowedAstNode
+                            if let crate::semantic::TypeInfo::NarrowedAstNode { current_type, parent_enum, variant } = inner.as_ref() {
+                                eprintln!("[ENUM NARROWING] '{}' is &NarrowedAstNode {{ current: {}, parent: {}, variant: {} }}",
+                                          name, current_type, parent_enum, variant);
+                                Some((parent_enum.clone(), variant.clone()))
+                            } else {
+                                None
                             }
                         } else {
-                            eprintln!("[DEBUG] '{}' -> UserDefined (not found)", name);
-                            TypeContext::unknown()
+                            None
                         }
-                    });
+                    } else {
+                        None
+                    };
+
+                    // If local has Unknown/UserDefined, check semantic TypeEnv for better type
+                    if (ctx.swc_type == "Unknown" || ctx.swc_type == "UserDefined") {
+                        if let Some(swc_type_str) = self.lookup_semantic_type(name) {
+                            eprintln!("[DEBUG] Local type is generic, using semantic TypeEnv: {}", swc_type_str);
+                            (TypeContext {
+                                reluxscript_type: name.clone(),
+                                swc_type: swc_type_str.clone(),
+                                kind: SwcTypeKind::Unknown,
+                                known_variant: None,
+                                needs_deref: false,
+                            }, None)
+                        } else {
+                            (ctx, None)
+                        }
+                    } else if needs_option_unwrap {
+                        // Return special unwrap marker
+                        (ctx, Some(("Option".to_string(), "unwrap".to_string())))
+                    } else if needs_enum_wrap.is_some() {
+                        // Return enum wrap marker
+                        (ctx, needs_enum_wrap)
+                    } else {
+                        (ctx, None)
+                    }
+                } else if let Some(swc_type_str) = self.lookup_semantic_type(name) {
+                    // Semantic TypeEnv has original types from semantic analysis
+                    eprintln!("[DEBUG] Ident '{}' found in semantic TypeEnv: {}", name, swc_type_str);
+
+                    // Check if this is a narrowed type by looking up parent enum in mappings
+                    let unwrap_info = if let Some((parent_enum, variant_name)) = crate::mapping::get_parent_enum_for_swc_type(&swc_type_str) {
+                        eprintln!("[NARROWING DATA-DRIVEN] '{}' has type {} → parent enum {}::{}",
+                            name, swc_type_str, parent_enum, variant_name);
+                        Some((parent_enum, variant_name))
+                    } else {
+                        None
+                    };
+
+                    (TypeContext {
+                        reluxscript_type: name.clone(),
+                        swc_type: swc_type_str.clone(),
+                        kind: SwcTypeKind::Unknown, // Will be refined later
+                        known_variant: None,
+                        needs_deref: false,
+                    }, unwrap_info)
+                } else {
+                    eprintln!("[DEBUG] Ident '{}' not found, using UserDefined", name);
+                    (TypeContext::unknown(), None)
+                };
+
+                eprintln!("[DECORATOR IDENT FINAL] '{}' → swc_type: '{}'", name, type_ctx.swc_type);
 
                 DecoratedExpr {
                     kind: DecoratedExprKind::Ident {
@@ -963,6 +1485,7 @@ impl SwcDecorator {
                         ident_metadata: SwcIdentifierMetadata::name(),
                     },
                     metadata: SwcExprMetadata {
+                        needs_enum_unwrap,
                         swc_type: type_ctx.swc_type.clone(),
                         is_boxed: type_ctx.is_boxed(),
                         is_optional: false,
@@ -973,12 +1496,57 @@ impl SwcDecorator {
             }
 
             Expr::Member(mem) => {
+                // Check if this member path is narrowed (e.g., node.expr narrowed to CallExpr)
+                if let Expr::Ident(ident) = mem.object.as_ref() {
+                    let member_path = format!("{}.{}", ident.name, mem.property);
+
+                    // Check local type_env first, then semantic type_env
+                    let narrowed_type = self.type_env.get(&member_path).map(|ctx| {
+                        eprintln!("[DECORATOR MEMBER LOOKUP] Found '{}' in local type_env: {}", member_path, ctx.swc_type);
+                        ctx.swc_type.clone()
+                    })
+                        .or_else(|| {
+                            let result = self.semantic_type_env.as_ref()
+                                .and_then(|env| env.lookup(&member_path))
+                                .map(|t| {
+                                    let name = t.display_name();
+                                    eprintln!("[DECORATOR MEMBER LOOKUP] Found '{}' in semantic type_env: {}", member_path, name);
+                                    // Extract the inner type from AstNode("CallExpr") -> "CallExpr"
+                                    if name.starts_with("AstNode(\"") && name.ends_with("\")") {
+                                        name[9..name.len()-2].to_string()
+                                    } else {
+                                        name
+                                    }
+                                });
+                            if result.is_none() {
+                                eprintln!("[DECORATOR MEMBER LOOKUP] '{}' NOT found in either type_env", member_path);
+                            }
+                            result
+                        });
+
+                    if let Some(_swc_type) = narrowed_type {
+                        eprintln!("[DECORATOR MEMBER] Narrowed type for '{}': {} - will apply narrowing after field access", member_path, _swc_type);
+                        // Don't return early! Let the normal member access logic handle it.
+                        // The narrowing will be applied when this member is accessed.
+                        // Fall through to normal member processing...
+                    }
+                }
+
                 // First, decorate the object to get its type
                 let decorated_object = Box::new(self.decorate_expr(&mem.object));
                 let object_type = &decorated_object.metadata.swc_type;
-                eprintln!("[DEBUG] Member access: {}.{} (object type: {})",
+                eprintln!("[DEBUG MEMBER] {}.{} (object type: {})",
                     format!("{:?}", mem.object).chars().take(30).collect::<String>(),
                     mem.property, object_type);
+
+                // Debug: check if object is in type_env
+                if let Expr::Ident(ident) = mem.object.as_ref() {
+                    if let Some(ctx) = self.type_env.get(&ident.name) {
+                        eprintln!("[DEBUG MEMBER] '{}' in type_env: {}", ident.name, ctx.swc_type);
+                    } else {
+                        eprintln!("[DEBUG MEMBER] '{}' NOT in type_env", ident.name);
+                    }
+                }
 
                 // Check for writer-specific field replacements (self.builder → self)
                 // This handles both direct access: self.builder, self.state
@@ -997,6 +1565,7 @@ impl SwcDecorator {
                     );
 
                 // Look up the field in SWC schema
+                eprintln!("[DEBUG MEMBER LOOKUP] is_self_builder={}, is_method_on_builder={}", is_self_builder, is_method_on_builder);
                 let field_metadata = if is_self_builder || is_method_on_builder {
                     // In writers, self.builder and self.state should be replaced with just "self"
                     SwcFieldMetadata {
@@ -1015,10 +1584,17 @@ impl SwcDecorator {
                         object_type, mem.property, object_type, mapping.swc_field, mapping.needs_deref);
                     SwcFieldMetadata {
                         swc_field_name: mapping.swc_field.to_string(),
-                        accessor: if mapping.needs_deref {
-                            FieldAccessor::BoxedAsRef
-                        } else {
-                            FieldAccessor::Direct
+                        accessor: {
+                            eprintln!("[DEBUG ACCESSOR] read_conversion='{}', checking for .as_bytes()", mapping.read_conversion);
+                            if mapping.read_conversion == ".as_bytes()" {
+                                // Atom/JsWord needs String::from_utf8_lossy wrapping
+                                eprintln!("[DEBUG ATOM] Using Utf8Lossy accessor for Atom field");
+                                FieldAccessor::Utf8Lossy
+                            } else if mapping.needs_deref {
+                                FieldAccessor::BoxedAsRef
+                            } else {
+                                FieldAccessor::Direct
+                            }
                         },
                         field_type: mapping.result_type_swc.to_string(),
                         source_field: Some(mem.property.clone()),
@@ -1028,19 +1604,52 @@ impl SwcDecorator {
                 } else {
                     eprintln!("[DEBUG] NO field mapping for: {}.{} - using fallback",
                         object_type, mem.property);
+
+                    // Check if this is likely a known SWC AST type
+                    // SWC types typically end with specific suffixes or are common AST node names
+                    // Don't apply to "Unknown" - if we don't know the type, don't map fields
+                    // Special case: Expr/Stmt/Pat are top-level enums, but accessing .name assumes Ident variant
+                    let is_likely_ast_type = object_type.ends_with("Expr")
+                        || object_type.ends_with("Stmt")
+                        || object_type.ends_with("Decl")
+                        || object_type.ends_with("Pat")
+                        || object_type.ends_with("Lit")
+                        || object_type == "Ident"
+                        || object_type == "Callee"
+                        || object_type == "PropName"  // Wrapper enum
+                        || object_type == "MemberProp"  // Wrapper enum
+                        || object_type == "Param"
+                        || object_type == "Expr"  // Top-level enum, but .name assumes Ident
+                        || object_type == "Pat";   // Top-level enum, but .name assumes Ident
+
                     // Fallback field mapping - only apply for SWC types, not user-defined types
-                    let swc_field = if object_type == "UserDefined" {
+                    let swc_field = if !is_likely_ast_type {
                         // Don't apply field mappings to user-defined structs
                         &mem.property
                     } else {
-                        // Apply field mappings for SWC types
+                        // Apply common SWC field name mappings
                         match mem.property.as_str() {
+                            // Identifier.name -> Ident.sym
+                            "name" => "sym",
+                            // MemberExpression.object -> MemberExpr.obj
                             "object" => "obj",
+                            // MemberExpression.property -> MemberExpr.prop
                             "property" => "prop",
+                            // CallExpression.callee -> CallExpr.callee (no change)
                             "callee" => "callee",
+                            // CallExpression.arguments -> CallExpr.args
                             "arguments" => "args",
+                            // ArrayPattern.elements / ArrayExpression.elements -> elems
+                            "elements" => "elems",
                             _ => &mem.property,
                         }
+                    };
+
+                    // Add .to_string() conversion for sym field (Atom -> String)
+                    let read_conversion = if swc_field == "sym" && is_likely_ast_type {
+                        ".to_string()"
+                    } else {
+                        ""
                     };
 
                     SwcFieldMetadata {
@@ -1049,12 +1658,36 @@ impl SwcDecorator {
                         field_type: "UserDefined".to_string(),
                         source_field: Some(mem.property.clone()),
                         span: Some(mem.span),
-                        read_conversion: String::new(),
+                        read_conversion: read_conversion.to_string(),
                     }
                 };
 
                 // Infer the type of this member expression
-                let member_type = field_metadata.field_type.clone();
+                // If there's a read_conversion that changes the type, use the converted type
+                let base_member_type = if field_metadata.read_conversion == ".as_expr().unwrap()" {
+                    // Callee -> &Expr after unwrapping
+                    "Expr".to_string()
+                } else if field_metadata.read_conversion == ".as_callee().unwrap()" {
+                    "Callee".to_string()
+                } else if field_metadata.read_conversion == ".as_prop().unwrap()" {
+                    "MemberProp".to_string()
+                } else {
+                    field_metadata.field_type.clone()
+                };
+
+                // Check if this member expression has a narrowed type in the local type_env
+                // e.g., after `if matches!(node.expr, CallExpression)`, `node.expr` is narrowed to `CallExpr`
+                let member_type = if let Expr::Ident(ident) = mem.object.as_ref() {
+                    let member_path = format!("{}.{}", ident.name, mem.property);
+                    if let Some(ctx) = self.type_env.get(&member_path) {
+                        eprintln!("[DECORATOR MEMBER] Member '{}' has narrowed type in local env: {}", member_path, ctx.swc_type);
+                        ctx.swc_type.clone()
+                    } else {
+                        base_member_type
+                    }
+                } else {
+                    base_member_type
+                };
 
                 DecoratedExpr {
                     kind: DecoratedExprKind::Member {
@@ -1065,7 +1698,7 @@ impl SwcDecorator {
                         is_path: mem.is_path,
                         field_metadata: field_metadata.clone(),
                     },
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None,
                         swc_type: member_type,
                         is_boxed: matches!(field_metadata.accessor, FieldAccessor::BoxedAsRef | FieldAccessor::BoxedRefDeref),
                         is_optional: false,
@@ -1112,7 +1745,7 @@ impl SwcDecorator {
                             span: Some(unary.span),
                         },
                     },
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: result_type,
                         is_boxed: false,
                         is_optional: false,
@@ -1125,7 +1758,7 @@ impl SwcDecorator {
             Expr::Literal(lit) => {
                 DecoratedExpr {
                     kind: DecoratedExprKind::Literal(lit.clone()),
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "Literal".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1155,7 +1788,7 @@ impl SwcDecorator {
                             span: Some(bin.span),
                         },
                     },
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "bool".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1168,19 +1801,31 @@ impl SwcDecorator {
             Expr::Call(call) => {
                 let callee = self.decorate_expr(&call.callee);
 
-                // Check for CodeBuilder::new() -> returns String type
-                let return_type = if let Expr::Member(ref mem) = *call.callee {
-                    if let Expr::Ident(ref obj_ident) = *mem.object {
-                        if obj_ident.name == "CodeBuilder" && mem.property == "new" {
-                            Some("String")
+                // Infer return type for known methods
+                let return_type = match &callee.kind {
+                    DecoratedExprKind::Member { object, property, .. } => {
+                        // Check for .clone() -> returns the same type as the object
+                        if property == "clone" {
+                            let obj_type = &object.metadata.swc_type;
+                            eprintln!("[CLONE INFERENCE] {}.clone() -> {}", obj_type, obj_type);
+                            Some(obj_type.clone())
+                        }
+                        // Check for CodeBuilder::new() -> returns String type
+                        else if property == "new" {
+                            if let DecoratedExprKind::Ident { name, .. } = &object.kind {
+                                if name == "CodeBuilder" {
+                                    Some("String".to_string())
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
                         } else {
                             None
                         }
-                    } else {
-                        None
                     }
-                } else {
-                    None
+                    _ => None,
                 };
 
                 // Check if this is a Result/Option constructor (Err, Ok, Some, None)
@@ -1216,8 +1861,8 @@ impl SwcDecorator {
                         is_macro: call.is_macro,
                         span: call.span,
                     })),
-                    metadata: SwcExprMetadata {
-                        swc_type: return_type.unwrap_or("UserDefined").to_string(),
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None,
+                        swc_type: return_type.unwrap_or_else(|| "UserDefined".to_string()),
                         is_boxed: false,
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
@@ -1241,7 +1886,7 @@ impl SwcDecorator {
 
                 DecoratedExpr {
                     kind: DecoratedExprKind::Block(decorated_block),
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "UserDefined".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1258,28 +1903,103 @@ impl SwcDecorator {
                 // Infer element type from array/vector type
                 // For Vec<T>, element type is T
                 let object_type = &object.metadata.swc_type;
-                let element_type = if object_type.starts_with("Vec<") {
-                    // Extract T from Vec<T>
-                    object_type.trim_start_matches("Vec<")
-                        .trim_end_matches('>')
-                        .to_string()
+                let element_type = if object_type.starts_with("Vec<") && object_type.ends_with('>') {
+                    // Extract T from Vec<T> - need to handle nested generics like Vec<Option<Pat>>
+                    // Remove "Vec<" from start and the matching ">" from end
+                    let inner = &object_type[4..object_type.len()-1];
+                    inner.to_string()
                 } else {
                     // Unknown array type, use Unknown
                     "UserDefined".to_string()
                 };
 
-                DecoratedExpr {
-                    kind: DecoratedExprKind::Index {
-                        object,
-                        index: index_expr,
-                    },
-                    metadata: SwcExprMetadata {
-                        swc_type: element_type,
-                        is_boxed: false,
-                        is_optional: false,
-                        type_kind: SwcTypeKind::Unknown,
-                        span: Some(index.span),
-                    },
+                // Check if element_type is a wrapper type that needs automatic unwrapping
+                // Wrapper types: ExprOrSpread -> expr, Param -> pat, etc.
+                let (needs_unwrap, unwrap_field, unwrapped_type) = match element_type.as_str() {
+                    "ExprOrSpread" => (true, "expr", "Expr"),
+                    "Param" => (true, "pat", "Pat"),
+                    "Option<ExprOrSpread>" => (false, "", ""), // Handle separately if needed
+                    _ => (false, "", ""),
+                };
+
+                if needs_unwrap {
+                    // Transform arr[i] into arr[i].field automatically
+                    // Create the index expression first
+                    let index_decorated = DecoratedExpr {
+                        kind: DecoratedExprKind::Index {
+                            object: object.clone(),
+                            index: index_expr.clone(),
+                        },
+                        metadata: SwcExprMetadata {
+                            needs_enum_unwrap: None,
+                            swc_type: element_type.clone(),
+                            is_boxed: false,
+                            is_optional: false,
+                            type_kind: SwcTypeKind::Unknown,
+                            span: Some(index.span),
+                        },
+                    };
+
+                    // Look up the field mapping to get proper metadata
+                    let field_metadata = if let Some(mapping) = get_typed_field_mapping(&element_type, unwrap_field) {
+                        SwcFieldMetadata {
+                            swc_field_name: mapping.swc_field.to_string(),
+                            accessor: if mapping.needs_deref {
+                                FieldAccessor::BoxedAsRef
+                            } else {
+                                FieldAccessor::Direct
+                            },
+                            field_type: mapping.result_type_swc.to_string(),
+                            source_field: Some(unwrap_field.to_string()),
+                            span: Some(index.span),
+                            read_conversion: mapping.read_conversion.to_string(),
+                        }
+                    } else {
+                        // Fallback if no mapping found
+                        SwcFieldMetadata {
+                            swc_field_name: unwrap_field.to_string(),
+                            accessor: FieldAccessor::Direct,
+                            field_type: unwrapped_type.to_string(),
+                            source_field: Some(unwrap_field.to_string()),
+                            span: Some(index.span),
+                            read_conversion: String::new(),
+                        }
+                    };
+
+                    // Wrap in a member access: (arr[i]).field
+                    DecoratedExpr {
+                        kind: DecoratedExprKind::Member {
+                            object: Box::new(index_decorated),
+                            property: unwrap_field.to_string(),
+                            optional: false,
+                            computed: false,
+                            is_path: false,
+                            field_metadata,
+                        },
+                        metadata: SwcExprMetadata {
+                            needs_enum_unwrap: None,
+                            swc_type: unwrapped_type.to_string(),
+                            is_boxed: false, // Will be set by field_metadata.accessor
+                            is_optional: false,
+                            type_kind: SwcTypeKind::Unknown,
+                            span: Some(index.span),
+                        },
+                    }
+                } else {
+                    // Normal index access, no unwrapping needed
+                    DecoratedExpr {
+                        kind: DecoratedExprKind::Index {
+                            object,
+                            index: index_expr,
+                        },
+                        metadata: SwcExprMetadata { needs_enum_unwrap: None,
+                            swc_type: element_type,
+                            is_boxed: false,
+                            is_optional: false,
+                            type_kind: SwcTypeKind::Unknown,
+                            span: Some(index.span),
+                        },
+                    }
                 }
             }
 
@@ -1300,7 +2020,7 @@ impl SwcDecorator {
                         fields: decorated_fields,
                         span: struct_init.span,
                     }),
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type,
                         is_boxed: false,
                         is_optional: false,
@@ -1315,7 +2035,7 @@ impl SwcDecorator {
 
                 DecoratedExpr {
                     kind: DecoratedExprKind::VecInit(elements),
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "Vec".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1336,7 +2056,7 @@ impl SwcDecorator {
                         then_branch,
                         else_branch,
                     })),
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "UserDefined".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1370,7 +2090,7 @@ impl SwcDecorator {
                         expr,
                         arms,
                     })),
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "UserDefined".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1383,7 +2103,7 @@ impl SwcDecorator {
             Expr::Closure(closure) => {
                 DecoratedExpr {
                     kind: DecoratedExprKind::Closure(closure.clone()),
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "Closure".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1412,7 +2132,7 @@ impl SwcDecorator {
                         mutable: ref_expr.mutable,
                         expr,
                     },
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "Reference".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1431,7 +2151,7 @@ impl SwcDecorator {
 
                 DecoratedExpr {
                     kind: DecoratedExprKind::Deref(expr),
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type,
                         is_boxed: false,
                         is_optional: false,
@@ -1447,7 +2167,7 @@ impl SwcDecorator {
 
                 DecoratedExpr {
                     kind: DecoratedExprKind::Assign { left, right },
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "()".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1467,7 +2187,7 @@ impl SwcDecorator {
                         op: compound.op,
                         right,
                     },
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "()".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1487,7 +2207,7 @@ impl SwcDecorator {
                         end,
                         inclusive: range.inclusive,
                     },
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "Range".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1502,7 +2222,7 @@ impl SwcDecorator {
 
                 DecoratedExpr {
                     kind: DecoratedExprKind::Try(expr),
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "UserDefined".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1517,7 +2237,7 @@ impl SwcDecorator {
 
                 DecoratedExpr {
                     kind: DecoratedExprKind::Tuple(elements),
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "Tuple".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1528,9 +2248,21 @@ impl SwcDecorator {
             }
 
             Expr::Matches(matches) => {
+                eprintln!("[DECORATOR] Processing Matches expression");
                 // Decorate scrutinee first to get its type
                 let expr = Box::new(self.decorate_expr(&matches.scrutinee));
                 let scrutinee_type = expr.metadata.swc_type.clone();
+
+                let scrutinee_desc = match matches.scrutinee.as_ref() {
+                    Expr::Ident(id) => format!("Ident({})", id.name),
+                    Expr::Member(m) => {
+                        let obj = if let Expr::Ident(id) = m.object.as_ref() { id.name.as_str() } else { "?" };
+                        format!("Member({}.{})", obj, m.property)
+                    },
+                    Expr::Deref(_) => "Deref".to_string(),
+                    _ => "Other".to_string(),
+                };
+                eprintln!("[DECORATOR MATCHES] Scrutinee {} decorated, type: '{}'", scrutinee_desc, scrutinee_type);
 
                 // Use scrutinee type for pattern
                 let pattern = self.decorate_pattern_with_context(&matches.pattern, &scrutinee_type);
@@ -1540,7 +2272,7 @@ impl SwcDecorator {
                         expr,
                         pattern,
                     },
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "bool".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1555,7 +2287,7 @@ impl SwcDecorator {
 
                 DecoratedExpr {
                     kind: DecoratedExprKind::Return(value),
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "!".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1568,7 +2300,7 @@ impl SwcDecorator {
             Expr::Break => {
                 DecoratedExpr {
                     kind: DecoratedExprKind::Break,
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "!".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1581,7 +2313,7 @@ impl SwcDecorator {
             Expr::Continue => {
                 DecoratedExpr {
                     kind: DecoratedExprKind::Continue,
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "!".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1658,10 +2390,13 @@ impl SwcDecorator {
 
     /// Determine unwrap strategy based on type being matched
     fn determine_unwrap_strategy(&self, expected_type: &str) -> UnwrapStrategy {
-        // If matching against a Box<T>, need unwrapping
-        if expected_type.starts_with("Box<") {
-            UnwrapStrategy::RefDeref
+        eprintln!("[UNWRAP STRATEGY] expected_type: '{}'", expected_type);
+        // If matching against a Box<T> or &Box<T>, need unwrapping
+        if expected_type.starts_with("Box<") || expected_type.starts_with("&Box<") {
+            eprintln!("[UNWRAP STRATEGY] Detected Box, using AsRef");
+            UnwrapStrategy::AsRef
         } else {
+            eprintln!("[UNWRAP STRATEGY] Not a Box, using None");
             UnwrapStrategy::None
         }
     }
@@ -1879,7 +2614,7 @@ impl SwcDecorator {
                     span: Some(access.span),
                 },
             })),
-            metadata: SwcExprMetadata {
+            metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                 swc_type,
                 is_boxed: false,
                 is_optional: true,
@@ -2011,7 +2746,7 @@ impl SwcDecorator {
                 },
                 span: regex_call.span,
             })),
-            metadata: SwcExprMetadata {
+            metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                 swc_type,
                 is_boxed: false,
                 is_optional,

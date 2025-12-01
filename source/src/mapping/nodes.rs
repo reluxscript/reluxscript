@@ -752,6 +752,16 @@ pub static NODE_MAPPINGS: Lazy<Vec<NodeMapping>> = Lazy::new(|| vec![
         swc_visitor: "visit_mut_object_pat",
     },
     NodeMapping {
+        reluxscript: "ObjectPatternProperty",
+        babel: "ObjectProperty",  // Babel uses ObjectProperty in patterns
+        swc: "KeyValuePatProp",    // SWC uses KeyValuePatProp for key-value pairs in object patterns
+        swc_enum: Some("ObjectPatProp::KeyValue"),
+        babel_checker: "isObjectProperty",
+        swc_pattern: "ObjectPatProp::KeyValue",
+        visitor_method: "visit_object_pattern_property",
+        swc_visitor: "visit_mut_key_value_pat_prop",
+    },
+    NodeMapping {
         reluxscript: "RestElement",
         babel: "RestElement",
         swc: "RestPat",
@@ -808,6 +818,26 @@ pub fn reluxscript_to_swc(reluxscript_name: &str) -> String {
     get_node_mapping(reluxscript_name)
         .map(|m| m.swc.to_string())
         .unwrap_or_else(|| reluxscript_name.to_string())
+}
+
+/// Get parent enum and variant name for a concrete SWC type
+/// Returns (parent_enum_name, variant_name) if the type is wrapped in an enum
+/// Example: "ArrayPat" → Some(("Pat", "Array"))
+pub fn get_parent_enum_for_swc_type(swc_type: &str) -> Option<(String, String)> {
+    // Find mapping by SWC type
+    for mapping in NODE_MAPPINGS.iter() {
+        if mapping.swc == swc_type {
+            // Check if it has a parent enum
+            if let Some(enum_path) = mapping.swc_enum {
+                // Parse "Pat::Array" into ("Pat", "Array")
+                if let Some((parent, variant)) = enum_path.split_once("::") {
+                    return Some((parent.to_string(), variant.to_string()));
+                }
+            }
+            break;
+        }
+    }
+    None
 }
 
 /// Get Babel type from ReluxScript type

@@ -1,0 +1,29 @@
+plugin TestNarrowing {
+    fn test_positive_narrow(binding: &Pat) {
+        // Positive narrowing: if matches!(x, Type)
+        if matches!(binding, ArrayPattern) {
+            // binding should be narrowed to ArrayPat here
+            swc! {
+                let arr = binding.clone();
+                if let Pat::Array(array_pat) = arr {
+                    let _ = array_pat.elems;
+                }
+            }
+        }
+    }
+
+    fn test_negative_narrow(binding: &Pat) {
+        // Negative narrowing: if !matches!(x, Type) { return; }
+        if !matches!(binding, ArrayPattern) {
+            return;
+        }
+
+        // After early return, binding should be narrowed to ArrayPat
+        swc! {
+            let arr = binding.clone();
+            if let Pat::Array(array_pat) = arr {
+                let _ = array_pat.elems;
+            }
+        }
+    }
+}

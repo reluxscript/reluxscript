@@ -118,7 +118,7 @@ struct TranspilerOutput {
     hooks: Str,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 struct ComponentInfo {
     name: Str,
     props: Vec<PropInfo>,
@@ -145,14 +145,14 @@ impl ComponentInfo {
     }
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 struct PropInfo {
     name: Str,
     prop_type: Str,
     optional: bool,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 struct StateInfo {
     name: Str,
     setter: Option<Str>,
@@ -160,33 +160,33 @@ struct StateInfo {
     state_type: Str,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 struct EffectInfo {
     dependencies: Vec<Str>,
     is_client_side: bool,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 struct RefInfo {
     name: Str,
     initial_value: Str,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 struct EventHandlerInfo {
     name: Str,
     params: Vec<Str>,
     is_async: bool,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 struct Template {
     path: Str,
     template: Str,
     bindings: Vec<Str>,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 struct HookSignature {
     name: Str,
     hook_type: Str,
@@ -341,7 +341,7 @@ fn expr_to_csharp(expr: &Expr) -> Str {
     } else if matches!(expr, NullLiteral) {
         return "null".to_string();
     } else if matches!(expr, Identifier) {
-        return expr.name.clone();
+        return expr.name.to_string();
     } else if matches!(expr, ArrayExpression) {
         return "new List<dynamic>()".to_string();
     } else if matches!(expr, ObjectExpression) {

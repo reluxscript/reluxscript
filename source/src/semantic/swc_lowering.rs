@@ -13,7 +13,7 @@
 
 use crate::parser::{
     Program, TopLevelDecl, PluginDecl, WriterDecl, ModuleDecl, InterfaceDecl,
-    PluginItem, FnDecl, Block, Stmt, Expr, IfStmt, Pattern,
+    PluginItem, FnDecl, Block, Stmt, Expr, IfStmt, Pattern, UnaryExpr, UnaryOp,
 };
 use crate::lexer::Span;
 
@@ -127,7 +127,15 @@ impl SwcLowering {
                 self.lower_expr(&mut expr_stmt.expr);
             }
             Stmt::Break(_) | Stmt::Continue(_) => {}
-            Stmt::Const(_) | Stmt::Loop(_) | Stmt::Traverse(_) | Stmt::Function(_) | Stmt::Verbatim(_) | Stmt::CustomPropAssignment(_) => {
+            Stmt::Traverse(traverse_stmt) => {
+                // Lower the visitor methods inside traverse blocks
+                if let crate::parser::TraverseKind::Inline(ref mut inline_visitor) = traverse_stmt.kind {
+                    for method in &mut inline_visitor.methods {
+                        self.lower_block(&mut method.body);
+                    }
+                }
+            }
+            Stmt::Const(_) | Stmt::Loop(_) | Stmt::Function(_) | Stmt::Verbatim(_) | Stmt::CustomPropAssignment(_) => {
                 // These statements don't need lowering or aren't supported yet
             }
         }
@@ -149,6 +157,10 @@ impl SwcLowering {
         }
 
         // Transform: if matches!(expr, Pattern) → if let Pattern = expr
+        // NOTE: We do NOT transform negated !matches!() because:
+        // 1. Rust doesn't support `if !let Pattern = expr` syntax
+        // 2. Type narrowing for negated matches is handled in the type checker
+        // 3. The codegen will emit it as matches!() macro call
         if if_stmt.pattern.is_none() {
             if let Expr::Matches(matches_expr) = &if_stmt.condition {
                 eprintln!("[LOWERING] Transforming matches! to if-let");
@@ -157,23 +169,32 @@ impl SwcLowering {
                 let scrutinee = matches_expr.scrutinee.clone();
                 let mut pattern = matches_expr.pattern.clone();
 
+                // Determine the binding name based on the scrutinee
+                // If scrutinee is a simple identifier, use that name (for shadowing/narrowing)
+                // Otherwise use __inner as a fallback
+                let binding_name = if let Expr::Ident(ident) = &*scrutinee {
+                    ident.name.clone()
+                } else {
+                    "__inner".to_string()
+                };
+
                 // If the pattern is an identifier (like StringLiteral), wrap it as a variant with a binding
                 // This allows field access on the matched value
-                // Example: StringLiteral → StringLiteral(__inner)
-                eprintln!("[LOWERING] Pattern: {:?}", pattern);
+                // Example: StringLiteral → StringLiteral(param)  [shadows param with narrowed type]
+                eprintln!("[LOWERING] Pattern: {:?}, binding as '{}'", pattern, binding_name);
                 match &pattern {
                     Pattern::Ident(name) => {
-                        eprintln!("[LOWERING] Pattern is Ident({}), wrapping with __inner binding", name);
+                        eprintln!("[LOWERING] Pattern is Ident({}), wrapping with binding '{}'", name, binding_name);
                         pattern = Pattern::Variant {
                             name: name.clone(),
-                            inner: Some(Box::new(Pattern::Ident("__inner".to_string()))),
+                            inner: Some(Box::new(Pattern::Ident(binding_name.clone()))),
                         };
                     }
                     Pattern::Variant { name, inner } if inner.is_none() => {
-                        eprintln!("[LOWERING] Pattern is Variant without binding, adding __inner");
+                        eprintln!("[LOWERING] Pattern is Variant without binding, adding binding '{}'", binding_name);
                         pattern = Pattern::Variant {
                             name: name.clone(),
-                            inner: Some(Box::new(Pattern::Ident("__inner".to_string()))),
+                            inner: Some(Box::new(Pattern::Ident(binding_name.clone()))),
                         };
                     }
                     _ => {

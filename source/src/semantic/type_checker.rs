@@ -42,39 +42,30 @@ impl TypeChecker {
     }
 
     fn check_plugin(&mut self, plugin: &PluginDecl) {
-        self.env.push_scope();
-
+        // Don't push/pop scope - we want to retain all types for codegen
         for item in &plugin.body {
             if let PluginItem::Function(f) = item {
                 self.check_function(f);
             }
         }
-
-        self.env.pop_scope();
     }
 
     fn check_writer(&mut self, writer: &WriterDecl) {
-        self.env.push_scope();
-
+        // Don't push/pop scope - we want to retain all types for codegen
         for item in &writer.body {
             if let PluginItem::Function(f) = item {
                 self.check_function(f);
             }
         }
-
-        self.env.pop_scope();
     }
 
     fn check_module(&mut self, module: &ModuleDecl) {
-        self.env.push_scope();
-
+        // Don't push/pop scope - we want to retain all types for codegen
         for item in &module.items {
             if let PluginItem::Function(f) = item {
                 self.check_function(f);
             }
         }
-
-        self.env.pop_scope();
     }
 
     fn check_function(&mut self, f: &FnDecl) {
@@ -85,7 +76,9 @@ impl TypeChecker {
             .unwrap_or(TypeInfo::Unit);
 
         self.current_return_type = Some(return_type);
-        self.env.push_scope();
+        // NOTE: We don't push/pop scope for functions because we want the TypeEnv
+        // to retain all variable types (including parameters and narrowed types)
+        // so they're available to the decorator during codegen.
 
         // Define parameters
         for param in &f.params {
@@ -96,7 +89,7 @@ impl TypeChecker {
         // Check body
         self.check_block(&f.body);
 
-        self.env.pop_scope();
+        // Don't pop scope - keep all types for decorator
         self.current_return_type = None;
     }
 
@@ -219,9 +212,113 @@ impl TypeChecker {
                     ));
                 }
 
-                self.env.push_scope();
+                // Type narrowing for if-let patterns (positive matches)
+                // NOTE: Don't push/pop scope here - we want the narrowing to persist
+                // in semantic_type_env so the decorator can see it
+
+                // If there's a pattern, try to narrow the scrutinee type
+                if let Some(ref pattern) = if_stmt.pattern {
+                    eprintln!("DEBUG narrowing: found if-let pattern, attempting type narrowing");
+
+                    // Extract the scrutinee variable name (only works for simple identifiers)
+                    if let Some(var_name) = self.extract_simple_scrutinee(&if_stmt.condition) {
+                        // Get the original type before narrowing
+                        let original_type = self.env.lookup(&var_name).cloned();
+
+                        // Get the narrowed type from the pattern
+                        if let Some(narrowed_type) = self.pattern_to_concrete_type(pattern) {
+                            // Unwrap Ref if the original type is a reference
+                            let unwrapped_original = original_type.as_ref().and_then(|t| {
+                                if let TypeInfo::Ref { inner, .. } = t {
+                                    Some(inner.as_ref().clone())
+                                } else {
+                                    Some(t.clone())
+                                }
+                            });
+
+                            // If narrowing from a parent enum, create NarrowedAstNode
+                            let final_type = if let (Some(TypeInfo::AstNode(parent_enum)), TypeInfo::AstNode(variant_type)) = (&unwrapped_original, &narrowed_type) {
+                                // Extract variant name from pattern
+                                let variant_name = match pattern {
+                                    Pattern::Variant { name, .. } => name.clone(),
+                                    _ => variant_type.clone(),
+                                };
+                                eprintln!("DEBUG narrowing: creating NarrowedAstNode {{ current: {}, parent: {}, variant: {} }}", variant_type, parent_enum, variant_name);
+                                TypeInfo::NarrowedAstNode {
+                                    current_type: variant_type.clone(),
+                                    parent_enum: parent_enum.clone(),
+                                    variant: variant_name,
+                                }
+                            } else {
+                                narrowed_type
+                            };
+
+                            eprintln!("DEBUG narrowing: shadowing '{}' with type {:?} in then-branch", var_name, final_type);
+                            // Shadow the variable with the narrowed type - this will persist!
+                            self.env.define(var_name, final_type);
+                        }
+                    }
+
+                    // Also register bindings INSIDE the pattern (e.g., `arg` in `Some(arg)`)
+                    // Get the type of the scrutinee to know what type the bindings should have
+                    let scrutinee_type = self.infer_expr(&if_stmt.condition);
+                    self.register_pattern_bindings(pattern, &scrutinee_type);
+                }
+
                 self.check_block(&if_stmt.then_branch);
-                self.env.pop_scope();
+
+                // Type narrowing for negated matches with early return
+                // Pattern: if !matches!(x, Type) { return; }
+                // After this pattern, we know x IS Type in the continuation
+                if let Expr::Unary(unary) = &if_stmt.condition {
+                    // Check if it's a NOT operation
+                    if unary.op == UnaryOp::Not {
+                        // Check if the operand is a Matches expression
+                        if let Expr::Matches(matches_expr) = unary.operand.as_ref() {
+                            // Check if the then-branch has an early return
+                            if self.has_early_return(&if_stmt.then_branch) {
+                                eprintln!("DEBUG narrowing: detected !matches!() with early return pattern");
+
+                                // Extract scrutinee variable name
+                                if let Some(var_name) = self.extract_simple_scrutinee(&matches_expr.scrutinee) {
+                                    // Get the narrowed type from the pattern
+                                    let narrowed_type = if let Pattern::Variant { name, .. } | Pattern::Ident(name) = &matches_expr.pattern {
+                                        if name == "Some" {
+                                            // Special case: Some pattern narrows Option<T> to T
+                                            eprintln!("DEBUG narrowing: pattern 'Some' detected, extracting inner type from Option");
+                                            let scrutinee_type = self.infer_expr(&matches_expr.scrutinee);
+
+                                            // Unwrap Ref if present
+                                            let scrutinee_type = match scrutinee_type {
+                                                TypeInfo::Ref { inner, .. } => *inner,
+                                                other => other,
+                                            };
+
+                                            if let TypeInfo::Option(inner) = scrutinee_type {
+                                                eprintln!("DEBUG narrowing: extracted inner type from Option: {:?}", inner);
+                                                Some(*inner)
+                                            } else {
+                                                eprintln!("DEBUG narrowing: scrutinee is not Option type, got: {:?}", scrutinee_type);
+                                                None
+                                            }
+                                        } else {
+                                            self.pattern_to_concrete_type(&matches_expr.pattern)
+                                        }
+                                    } else {
+                                        self.pattern_to_concrete_type(&matches_expr.pattern)
+                                    };
+
+                                    if let Some(narrowed_type) = narrowed_type {
+                                        eprintln!("DEBUG narrowing: negated matches with early return - narrowing '{}' to {:?} after if-statement", var_name, narrowed_type);
+                                        // Narrow in the CURRENT scope (not a new scope)
+                                        // After the early return, we know the variable has the narrowed type
+                                        self.env.define(var_name, narrowed_type);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
 
                 for (cond, block) in &if_stmt.else_if_branches {
                     let cond_type = self.infer_expr(cond);
@@ -431,6 +528,7 @@ impl TypeChecker {
     fn define_pattern_in_env(&mut self, pattern: &Pattern, type_info: TypeInfo) {
         match pattern {
             Pattern::Ident(name) => {
+                eprintln!("[TYPE ENV DEFINE] Defining '{}' with type {:?}", name, type_info);
                 self.env.define(name.clone(), type_info);
             }
             Pattern::Tuple(patterns) => {
@@ -505,10 +603,12 @@ impl TypeChecker {
             },
 
             Expr::Ident(ident) => {
-                self.env
+                let ty = self.env
                     .lookup(&ident.name)
                     .cloned()
-                    .unwrap_or(TypeInfo::Unknown)
+                    .unwrap_or(TypeInfo::Unknown);
+                eprintln!("[TYPE INFER] Ident '{}' has type: {:?}", ident.name, ty);
+                ty
             }
 
             Expr::Binary(binary) => {
@@ -588,6 +688,16 @@ impl TypeChecker {
             }
 
             Expr::Member(member) => {
+                // Check if this member expression has a narrowed type
+                // e.g., after `if matches!(node.expr, CallExpression)`, `node.expr` is narrowed
+                if let Expr::Ident(ident) = member.object.as_ref() {
+                    let member_path = format!("{}.{}", ident.name, member.property);
+                    if let Some(narrowed) = self.env.lookup(&member_path) {
+                        eprintln!("[TYPE INFER] Member '{}' has narrowed type: {}", member_path, narrowed.display_name());
+                        return narrowed.clone();
+                    }
+                }
+
                 let obj_type = self.infer_expr(&member.object);
                 self.get_field_type(&obj_type, &member.property)
             }
@@ -850,8 +960,43 @@ impl TypeChecker {
                 fields.get(field).cloned().unwrap_or(TypeInfo::Unknown)
             }
             TypeInfo::Ref { inner, .. } => self.get_field_type(inner, field),
-            TypeInfo::AstNode(_) => {
-                // AST nodes have various fields
+            TypeInfo::NarrowedAstNode { current_type, .. } => {
+                // Use the current narrowed type for field lookup
+                self.get_field_type(&TypeInfo::AstNode(current_type.clone()), field)
+            }
+            TypeInfo::AstNode(node_type) => {
+                // Try to get field type from AST schema
+                use crate::codegen::type_context::{get_typed_field_mapping, map_reluxscript_to_swc};
+                eprintln!("[GET FIELD TYPE] node_type='{}', field='{}'", node_type, field);
+
+                // Map Babel/ReluxScript type name to SWC type name
+                let (swc_type, _) = map_reluxscript_to_swc(node_type);
+                eprintln!("[GET FIELD TYPE] Mapped '{}' -> '{}'", node_type, swc_type);
+
+                if let Some(mapping) = get_typed_field_mapping(&swc_type, field) {
+                    eprintln!("[GET FIELD TYPE] Found mapping: result_type_swc='{}'", mapping.result_type_swc);
+                    // Parse the result_type_swc to create proper TypeInfo
+                    let type_str = mapping.result_type_swc;
+                    if type_str.starts_with("Option<") && type_str.ends_with(">") {
+                        // Extract inner type from Option<T>
+                        let inner_str = &type_str[7..type_str.len()-1]; // Remove "Option<" and ">"
+                        let inner_type = if inner_str.starts_with("Box<") && inner_str.ends_with(">") {
+                            // Option<Box<T>>
+                            let inner_inner = &inner_str[4..inner_str.len()-1]; // Remove "Box<" and ">"
+                            Box::new(TypeInfo::AstNode(inner_inner.to_string()))
+                        } else {
+                            Box::new(TypeInfo::AstNode(inner_str.to_string()))
+                        };
+                        return TypeInfo::Option(inner_type);
+                    } else if type_str.starts_with("Vec<") && type_str.ends_with(">") {
+                        let inner_str = &type_str[4..type_str.len()-1];
+                        return TypeInfo::Vec(Box::new(TypeInfo::AstNode(inner_str.to_string())));
+                    } else {
+                        return TypeInfo::AstNode(type_str.to_string());
+                    }
+                }
+
+                // Fallback for unmapped fields
                 match field {
                     "name" | "value" | "operator" | "kind" => TypeInfo::Str,
                     "body" | "params" | "arguments" | "elements" | "properties" => {
@@ -868,7 +1013,7 @@ impl TypeChecker {
 
     /// Infer return type of a method call
     fn infer_method_call(&self, obj_type: &TypeInfo, method: &str, _args: &[Expr]) -> TypeInfo {
-        match (obj_type, method) {
+        let result = match (obj_type, method) {
             // String methods
             (TypeInfo::Str, "clone") => TypeInfo::Str,
             (TypeInfo::Str, "len") => TypeInfo::I32,
@@ -915,6 +1060,184 @@ impl TypeChecker {
             (TypeInfo::AstNode(_), "visit_children") => TypeInfo::Unit,
 
             _ => TypeInfo::Unknown,
+        };
+        eprintln!("[METHOD CALL] {}.{}() -> {:?}", obj_type.display_name(), method, result);
+        result
+    }
+
+    // ========================================================================
+    // Type Narrowing Support
+    // ========================================================================
+
+    /// Check if a block ends with an early return statement
+    fn has_early_return(&self, block: &Block) -> bool {
+        if let Some(last_stmt) = block.stmts.last() {
+            matches!(last_stmt, Stmt::Return(_))
+        } else {
+            false
+        }
+    }
+
+    /// Register bindings from a pattern with their appropriate types
+    /// For example, in `if let Some(x) = opt`, register `x` with the inner type of Option
+    fn register_pattern_bindings(&mut self, pattern: &Pattern, scrutinee_type: &TypeInfo) {
+        eprintln!("[PATTERN BINDING DEBUG] pattern={:?}, scrutinee_type={:?}", pattern, scrutinee_type);
+        match pattern {
+            Pattern::Ident(name) => {
+                // Simple binding - use the scrutinee type
+                eprintln!("[PATTERN BINDING] Registering '{}' with type {:?}", name, scrutinee_type);
+                self.env.define(name.clone(), scrutinee_type.clone());
+            }
+            Pattern::Variant { name, inner } => {
+                // Variant pattern like Some(x) or JSXElement
+                if name == "Some" {
+                    // Option unwrapping - extract inner type
+                    if let TypeInfo::Option(inner_type) = scrutinee_type {
+                        if let Some(inner_pattern) = inner {
+                            eprintln!("[PATTERN BINDING] Option::Some pattern, inner type: {:?}", inner_type);
+                            self.register_pattern_bindings(inner_pattern, inner_type);
+                        }
+                    } else if let TypeInfo::Ref { inner: ref_inner, .. } = scrutinee_type {
+                        // Handle &Option<T> case
+                        if let TypeInfo::Option(inner_type) = ref_inner.as_ref() {
+                            if let Some(inner_pattern) = inner {
+                                eprintln!("[PATTERN BINDING] &Option::Some pattern, inner type: {:?}", inner_type);
+                                // Create a reference to the inner type
+                                let inner_ref_type = TypeInfo::Ref {
+                                    mutable: false,
+                                    inner: inner_type.clone(),
+                                };
+                                self.register_pattern_bindings(inner_pattern, &inner_ref_type);
+                            }
+                        }
+                    }
+                } else if let Some(inner_pattern) = inner {
+                    // Other variant patterns - the binding gets the narrowed type
+                    if let Some(narrowed_type) = self.pattern_to_concrete_type(pattern) {
+                        self.register_pattern_bindings(inner_pattern, &narrowed_type);
+                    }
+                }
+            }
+            _ => {
+                // Other patterns - skip for now
+            }
+        }
+    }
+
+    /// Extract a simple scrutinee variable name from an expression
+    /// Returns Some(name) for identifiers, references, or member accesses
+    fn extract_simple_scrutinee(&self, expr: &Expr) -> Option<String> {
+        match expr {
+            Expr::Ident(ident) => {
+                eprintln!("DEBUG narrowing: extracted scrutinee '{}'", ident.name);
+                Some(ident.name.clone())
+            }
+            Expr::Ref(ref_expr) => {
+                // Handle &x and &mut x
+                if let Expr::Ident(ident) = ref_expr.expr.as_ref() {
+                    eprintln!("DEBUG narrowing: extracted scrutinee '{}' from reference", ident.name);
+                    Some(ident.name.clone())
+                } else {
+                    eprintln!("DEBUG narrowing: reference to non-identifier ({:?}), cannot narrow", ref_expr.expr);
+                    None
+                }
+            }
+            Expr::Member(mem) => {
+                // Handle member access like node.expr
+                // Build the full path: object.property
+                if let Expr::Ident(ident) = mem.object.as_ref() {
+                    let path = format!("{}.{}", ident.name, mem.property);
+                    eprintln!("DEBUG narrowing: extracted scrutinee '{}' from member access", path);
+                    Some(path)
+                } else {
+                    eprintln!("DEBUG narrowing: member access with non-ident object, cannot narrow");
+                    None
+                }
+            }
+            _ => {
+                eprintln!("DEBUG narrowing: complex expression (variant {:?}), cannot narrow", std::mem::discriminant(expr));
+                None
+            }
+        }
+    }
+
+    /// Map a pattern variant name to its concrete AST type
+    /// E.g., "ArrayPattern" -> TypeInfo::AstNode("ArrayPat")
+    fn pattern_to_concrete_type(&self, pattern: &Pattern) -> Option<TypeInfo> {
+        // Helper function to map pattern names to SWC types
+        let map_pattern_name = |name: &str| -> Option<String> {
+            let concrete_type = match name {
+                // Expression patterns
+                "ArrayExpression" => "ArrayLit",
+                "ArrowFunctionExpression" => "ArrowExpr",
+                "AssignmentExpression" => "AssignExpr",
+                "BinaryExpression" => "BinExpr",
+                "CallExpression" => "CallExpr",
+                "ConditionalExpression" => "CondExpr",
+                "FunctionExpression" => "FnExpr",
+                "Identifier" => "Ident",
+                "MemberExpression" => "MemberExpr",
+                "NewExpression" => "NewExpr",
+                "ObjectExpression" => "ObjectLit",
+                "SequenceExpression" => "SeqExpr",
+                "StringLiteral" => "Str",
+                "NumericLiteral" => "Number",
+                "BooleanLiteral" => "Bool",
+                "NullLiteral" => "Null",
+                "RegExpLiteral" => "Regex",
+                "TemplateLiteral" => "Tpl",
+                "UnaryExpression" => "UnaryExpr",
+                "UpdateExpression" => "UpdateExpr",
+
+                // Pattern patterns
+                "ArrayPattern" => "ArrayPat",
+                "ObjectPattern" => "ObjectPat",
+                "ObjectPatternProperty" => "KeyValuePatProp",
+                "RestElement" => "RestPat",
+                "AssignmentPattern" => "AssignPat",
+
+                // Statement patterns
+                "BlockStatement" => "BlockStmt",
+                "ExpressionStatement" => "ExprStmt",
+                "ReturnStatement" => "ReturnStmt",
+                "IfStatement" => "IfStmt",
+                "ForStatement" => "ForStmt",
+                "WhileStatement" => "WhileStmt",
+                "BreakStatement" => "BreakStmt",
+                "ContinueStatement" => "ContinueStmt",
+
+                // Other common types
+                "VariableDeclaration" => "VarDecl",
+                "FunctionDeclaration" => "FnDecl",
+                "ClassDeclaration" => "ClassDecl",
+
+                // Not a known pattern - check if it's a user-defined type
+                _ => return None,
+            };
+            Some(concrete_type.to_string())
+        };
+
+        match pattern {
+            Pattern::Variant { name, .. } | Pattern::Ident(name) => {
+                // Both Variant and Ident patterns can be AST pattern names
+                if let Some(concrete_type) = map_pattern_name(name) {
+                    eprintln!("DEBUG narrowing: pattern '{}' narrows to AstNode('{}')", name, concrete_type);
+                    Some(TypeInfo::AstNode(concrete_type))
+                } else {
+                    // Check if it's a user-defined type in the environment
+                    if let Some(ty) = self.env.lookup(name) {
+                        eprintln!("DEBUG narrowing: pattern '{}' found as user type {:?}", name, ty);
+                        Some(ty.clone())
+                    } else {
+                        eprintln!("DEBUG narrowing: pattern '{}' not recognized", name);
+                        None
+                    }
+                }
+            }
+            _ => {
+                eprintln!("DEBUG narrowing: pattern type not supported for narrowing");
+                None
+            }
         }
     }
 }

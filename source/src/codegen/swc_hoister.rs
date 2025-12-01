@@ -14,7 +14,8 @@ use crate::codegen::swc_decorator::{
 use crate::codegen::decorated_ast::{
     DecoratedStmt, DecoratedExpr, DecoratedExprKind,
     DecoratedBlock, DecoratedIfStmt, DecoratedWhileStmt,
-    DecoratedForStmt,
+    DecoratedForStmt, DecoratedTraverseStmt, DecoratedTraverseKind,
+    DecoratedInlineVisitor, DecoratedVisitorMethod,
 };
 use crate::codegen::swc_metadata::SwcExprMetadata;
 use crate::parser::{
@@ -37,15 +38,54 @@ pub struct SwcHoister {
 
     /// Current writer type name for qualifying function calls
     current_writer: Option<String>,
+
+    /// Semantic type environment for looking up captured variable types
+    type_env: crate::semantic::TypeEnv,
+
+    /// Pending statements to be inserted before the next statement
+    pending_stmts: Vec<DecoratedStmt>,
 }
 
 impl SwcHoister {
-    pub fn new() -> Self {
+    pub fn new(type_env: crate::semantic::TypeEnv) -> Self {
         Self {
             visitor_counter: 0,
             hoisted_structs: Vec::new(),
             hoisted_impls: Vec::new(),
             current_writer: None,
+            type_env,
+            pending_stmts: Vec::new(),
+        }
+    }
+
+    /// Convert TypeInfo to SWC type string
+    fn typeinfo_to_swc_string(&self, type_info: &crate::semantic::TypeInfo) -> String {
+        use crate::semantic::TypeInfo;
+        match type_info {
+            TypeInfo::Str => "String".to_string(),
+            TypeInfo::I32 => "i32".to_string(),
+            TypeInfo::U32 => "u32".to_string(),
+            TypeInfo::F64 => "f64".to_string(),
+            TypeInfo::Bool => "bool".to_string(),
+            TypeInfo::Unit => "()".to_string(),
+            TypeInfo::Null => "()".to_string(),
+            TypeInfo::Ref { mutable, inner } => {
+                // Recursively convert inner type
+                // But don't add & here, that's handled by the caller
+                self.typeinfo_to_swc_string(inner)
+            }
+            TypeInfo::Vec(inner) => {
+                format!("Vec<{}>", self.typeinfo_to_swc_string(inner))
+            }
+            TypeInfo::Option(inner) => {
+                format!("Option<{}>", self.typeinfo_to_swc_string(inner))
+            }
+            TypeInfo::AstNode(name) => {
+                // Convert AST node names to SWC types
+                get_node_mapping(name).map(|m| m.swc.to_string()).unwrap_or_else(|| name.clone())
+            }
+            TypeInfo::Struct { name, .. } => name.clone(),
+            _ => "UserDefined".to_string(),
         }
     }
 
@@ -172,6 +212,12 @@ impl SwcHoister {
 
         for stmt in block.stmts {
             let new_stmt = self.hoist_stmt(stmt);
+
+            // Insert any pending statements before this one
+            if !self.pending_stmts.is_empty() {
+                new_stmts.append(&mut self.pending_stmts);
+            }
+
             new_stmts.push(new_stmt);
         }
 
@@ -222,9 +268,9 @@ impl SwcHoister {
     }
 
     /// Transform a traverse statement into visitor instantiation + call
-    fn hoist_traverse(&mut self, traverse: TraverseStmt) -> DecoratedStmt {
+    fn hoist_traverse(&mut self, traverse: Box<DecoratedTraverseStmt>) -> DecoratedStmt {
         match &traverse.kind {
-            TraverseKind::Inline(inline) => {
+            DecoratedTraverseKind::Inline(inline) => {
                 // Generate unique struct name
                 let struct_name = format!("__InlineVisitor_{}", self.visitor_counter);
                 self.visitor_counter += 1;
@@ -237,16 +283,25 @@ impl SwcHoister {
 
                 // Add captured variables as fields
                 for capture in &traverse.captures {
+                    // Look up the type of the captured variable
+                    let inner_type_name = if let Some(var_type) = self.type_env.lookup(&capture.name) {
+                        // Convert TypeInfo to SWC type string
+                        self.typeinfo_to_swc_string(var_type)
+                    } else {
+                        eprintln!("[HOISTER] Warning: Could not find type for captured variable '{}', using UserDefined", capture.name);
+                        "UserDefined".to_string()
+                    };
+
                     let field_type = if capture.mutable {
                         // &mut T
                         Type::Reference {
-                            inner: Box::new(Type::Primitive("i32".to_string())), // TODO: proper type inference
+                            inner: Box::new(Type::Primitive(inner_type_name)),
                             mutable: true,
                         }
                     } else {
                         // &T
                         Type::Reference {
-                            inner: Box::new(Type::Primitive("i32".to_string())),
+                            inner: Box::new(Type::Primitive(inner_type_name)),
                             mutable: false,
                         }
                     };
@@ -382,14 +437,14 @@ impl SwcHoister {
                 self.generate_visitor_instantiation(&struct_name, &traverse, &inline.state)
             }
 
-            TraverseKind::Delegated(visitor_name) => {
+            DecoratedTraverseKind::Delegated(visitor_name) => {
                 // For delegated visitors, just generate the instantiation + call
                 // TODO: Generate proper delegation code
                 DecoratedStmt::Expr(DecoratedExpr {
                     kind: DecoratedExprKind::Literal(crate::parser::Literal::String(
                         format!("/* TODO: Delegate to {} */", visitor_name)
                     )),
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "()".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -403,12 +458,12 @@ impl SwcHoister {
 
     /// Generate visitor instantiation and visit_mut_with call
     fn generate_visitor_instantiation(
-        &self,
+        &mut self,
         struct_name: &str,
-        traverse: &TraverseStmt,
+        traverse: &DecoratedTraverseStmt,
         state: &[crate::parser::LetStmt],
     ) -> DecoratedStmt {
-        use crate::codegen::decorated_ast::{DecoratedCallExpr, DecoratedStructInit};
+        use crate::codegen::decorated_ast::{DecoratedCallExpr, DecoratedStructInit, DecoratedLetStmt, DecoratedPattern};
         use crate::parser::Literal;
 
         // Build struct initialization: __InlineVisitor_0 { capture1: &mut var1, state1: init1, ... }
@@ -430,7 +485,7 @@ impl SwcHoister {
                                     span: Some(capture.span),
                                 },
                             },
-                            metadata: SwcExprMetadata {
+                            metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                                 swc_type: "i32".to_string(), // TODO: proper type
                                 is_boxed: false,
                                 is_optional: false,
@@ -443,7 +498,7 @@ impl SwcHoister {
                             span: Some(capture.span),
                         },
                     },
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "&mut i32".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -465,7 +520,7 @@ impl SwcHoister {
                                     span: Some(capture.span),
                                 },
                             },
-                            metadata: SwcExprMetadata {
+                            metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                                 swc_type: "i32".to_string(),
                                 is_boxed: false,
                                 is_optional: false,
@@ -478,7 +533,7 @@ impl SwcHoister {
                             span: Some(capture.span),
                         },
                     },
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "&i32".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -509,7 +564,7 @@ impl SwcHoister {
                 fields,
                 span: traverse.span,
             }),
-            metadata: SwcExprMetadata {
+            metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                 swc_type: struct_name.to_string(),
                 is_boxed: false,
                 is_optional: false,
@@ -519,15 +574,127 @@ impl SwcHoister {
         };
 
         // Generate: target.visit_mut_with(&mut visitor)
-        // Need to decorate the target expression first
-        let mut decorator = crate::codegen::swc_decorator::SwcDecorator::new();
-        let decorated_target = decorator.decorate_expr(&traverse.target);
+        // target is already decorated
+        let decorated_target = traverse.target.clone();
+
+        // STEP 1: Check if target is an immutable reference
+        let target_type = &traverse.target.metadata.swc_type;
+        eprintln!("[HOISTER STEP 1] Target type: '{}', starts with &: {}", target_type, target_type.starts_with("&"));
+        let needs_clone = target_type.starts_with("&") && !target_type.starts_with("&mut");
+        eprintln!("[HOISTER STEP 1] needs_clone: {}", needs_clone);
+
+        // STEP 2: Get target variable name for clone
+        let target_var_name = if let DecoratedExprKind::Ident { name, .. } = &decorated_target.kind {
+            name.clone()
+        } else {
+            // For complex expressions, we can't easily clone - just use the expression directly
+            // This shouldn't happen in our case since we're matching on a simple binding
+            eprintln!("[HOISTER WARNING] Target is not a simple identifier, can't generate clone");
+            "".to_string()
+        };
+
+        // STEP 3: Determine which target to use in visit_mut_with call
+        let (visit_target, clone_stmt) = if needs_clone && !target_var_name.is_empty() {
+            // Generate a clone variable
+            let clone_var_name = format!("{}_clone", target_var_name);
+            eprintln!("[HOISTER STEP 2] Generating clone: let mut {} = {}.clone()", clone_var_name, target_var_name);
+
+            // Create ident expr for the clone variable
+            let clone_ident = DecoratedExpr {
+                kind: DecoratedExprKind::Ident {
+                    name: clone_var_name.clone(),
+                    ident_metadata: crate::codegen::swc_metadata::SwcIdentifierMetadata {
+                        use_sym: false,
+                        deref_pattern: None,
+                        span: traverse.target.metadata.span,
+                    },
+                },
+                metadata: SwcExprMetadata {
+                    needs_enum_unwrap: None,
+                    swc_type: target_type.trim_start_matches("&").to_string(), // Remove & from type
+                    is_boxed: false,
+                    is_optional: false,
+                    type_kind: crate::type_system::SwcTypeKind::Unknown,
+                    span: traverse.target.metadata.span,
+                },
+            };
+
+            // Create clone() call
+            // Clear needs_enum_unwrap from target to avoid wrapping clone in enum constructor
+            let mut clone_object = decorated_target.clone();
+            clone_object.metadata.needs_enum_unwrap = None;
+
+            let clone_call = DecoratedExpr {
+                kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                    callee: DecoratedExpr {
+                        kind: DecoratedExprKind::Member {
+                            object: Box::new(clone_object),
+                            property: "clone".to_string(),
+                            optional: false,
+                            computed: false,
+                            is_path: false,
+                            field_metadata: crate::codegen::swc_metadata::SwcFieldMetadata {
+                                swc_field_name: "clone".to_string(),
+                                accessor: crate::codegen::swc_metadata::FieldAccessor::Direct,
+                                field_type: target_type.trim_start_matches("&").to_string(),
+                                source_field: Some("clone".to_string()),
+                                span: traverse.target.metadata.span,
+                                read_conversion: String::new(),
+                            },
+                        },
+                        metadata: SwcExprMetadata {
+                            needs_enum_unwrap: None,
+                            swc_type: target_type.trim_start_matches("&").to_string(),
+                            is_boxed: false,
+                            is_optional: false,
+                            type_kind: crate::type_system::SwcTypeKind::Unknown,
+                            span: traverse.target.metadata.span,
+                        },
+                    },
+                    args: vec![],
+                    type_args: vec![],
+                    optional: false,
+                    is_macro: false,
+                    span: traverse.span,
+                })),
+                metadata: SwcExprMetadata {
+                    needs_enum_unwrap: None,
+                    swc_type: target_type.trim_start_matches("&").to_string(),
+                    is_boxed: false,
+                    is_optional: false,
+                    type_kind: crate::type_system::SwcTypeKind::Unknown,
+                    span: traverse.target.metadata.span,
+                },
+            };
+
+            // Create let mut clone_var = target.clone()
+            let let_stmt = DecoratedStmt::Let(DecoratedLetStmt {
+                mutable: true,
+                pattern: DecoratedPattern {
+                    kind: crate::codegen::decorated_ast::DecoratedPatternKind::Ident(clone_var_name.clone()),
+                    metadata: crate::codegen::swc_metadata::SwcPatternMetadata {
+                        swc_pattern: "".to_string(),
+                        unwrap_strategy: crate::codegen::swc_metadata::UnwrapStrategy::None,
+                        inner: None,
+                        span: traverse.target.metadata.span,
+                        source_pattern: None,
+                        desugar_strategy: None,
+                    },
+                },
+                ty: None,
+                init: clone_call,
+            });
+
+            (clone_ident, Some(let_stmt))
+        } else {
+            (decorated_target, None)
+        };
 
         let visit_call = DecoratedExpr {
             kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
                 callee: DecoratedExpr {
                     kind: DecoratedExprKind::Member {
-                        object: Box::new(decorated_target),
+                        object: Box::new(visit_target),
                         property: "visit_mut_with".to_string(),
                         optional: false,
                         computed: false,
@@ -541,7 +708,7 @@ impl SwcHoister {
                             read_conversion: String::new(),
                         },
                     },
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "fn(&mut Self)".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -559,7 +726,7 @@ impl SwcHoister {
                                 span: Some(traverse.span),
                             },
                         },
-                        metadata: SwcExprMetadata {
+                        metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                             swc_type: format!("&mut {}", struct_name),
                             is_boxed: false,
                             is_optional: false,
@@ -573,7 +740,7 @@ impl SwcHoister {
                 is_macro: false,
                 span: traverse.span,
             })),
-            metadata: SwcExprMetadata {
+            metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                 swc_type: "()".to_string(),
                 is_boxed: false,
                 is_optional: false,
@@ -582,13 +749,19 @@ impl SwcHoister {
             },
         };
 
+        // STEP 4: Add clone statement to pending_stmts if needed
+        if let Some(clone_stmt) = clone_stmt {
+            eprintln!("[HOISTER STEP 3] Adding clone statement to pending_stmts");
+            self.pending_stmts.push(clone_stmt);
+        }
+
         DecoratedStmt::Expr(visit_call)
     }
 
     /// Transform method body to use self.var for captured variables
     fn transform_method_body_with_captures(
         &self,
-        body: &Block,
+        body: &DecoratedBlock,
         captures: &[crate::parser::Capture],
         state: &[crate::parser::LetStmt],
         params: &[crate::parser::Param],
@@ -617,14 +790,8 @@ impl SwcHoister {
             writer_type: self.current_writer.clone(),
         };
 
-        // Transform each statement in the body
-        let transformed_stmts = body.stmts.iter()
-            .map(|stmt| transformer.transform_stmt(stmt))
-            .collect();
-
-        DecoratedBlock {
-            stmts: transformed_stmts,
-        }
+        // Transform the block to replace captured variables with self.var
+        transformer.transform_block(body.clone())
     }
 
 }
@@ -720,7 +887,7 @@ impl CaptureTransformer {
                                         span: expr.metadata.span,
                                     },
                                 },
-                                metadata: SwcExprMetadata {
+                                metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                                     swc_type: "Self".to_string(),
                                     is_boxed: false,
                                     is_optional: false,
@@ -869,7 +1036,7 @@ impl CaptureTransformer {
                                             span: call.callee.metadata.span,
                                         },
                                     },
-                                    metadata: crate::codegen::swc_metadata::SwcExprMetadata {
+                                    metadata: crate::codegen::swc_metadata::SwcExprMetadata { needs_enum_unwrap: None, 
                                         swc_type: writer_type.clone(),
                                         is_boxed: false,
                                         is_optional: false,

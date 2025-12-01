@@ -44,4 +44,4 @@ wasm = ["wasm-bindgen", "serde-wasm-bindgen", "console_error_panic_hook"]
 lsp = ["tower-lsp", "tokio"]
 
 [profile.release]
-lto = false
+lto = true
