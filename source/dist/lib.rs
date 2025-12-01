@@ -104,7 +104,7 @@ impl<'a> VisitMut for __InlineVisitor_0<'a> {
             Option::Some(arg) => {
                 match &*arg.as_ref() {
                     Expr::JSXElement(arg) => {
-                        self.component.render_body = Some(arg.clone())
+                        self.component.render_body = Some(Box::new(Expr::JSXElement(arg.clone())))
                     }
                     _ => {}
                 }
@@ -182,13 +182,11 @@ impl MinimactTranspiler {
         }
         let mut component = ComponentInfo::new(name.clone());
         if (node.function.params.len() > 0) {
-            Self::extract_props(&node.function.params[0], &mut component)
+            Self::extract_props(&node.function.params[0].pat, &mut component)
         }
-        match &node.function.body {
-            Option::Some(body) => {
-                body.visit_mut_with(&mut __InlineVisitor_0 { component: &mut component })
-            }
-            _ => {}
+        if let Some(body) = &node.function.body {
+            let mut body_clone = body.clone();
+            body_clone.visit_mut_with(&mut __InlineVisitor_0 { component: &mut component })
         }
         self.components.push(component);
     }
@@ -205,7 +203,7 @@ impl MinimactTranspiler {
         for component in &self.components {
             for (key, template) in &component.templates {
                 let full_key = format!("{}.{}", component.name, key);
-                all_templates.insert(full_key, template.clone())
+                all_templates.insert(full_key, template.clone());
             }
         }
         TranspilerOutput { csharp: csharp_code, templates: serde_json::to_string_pretty(&all_templates).unwrap(), hooks: serde_json::to_string_pretty(&self.hooks).unwrap() }
@@ -225,7 +223,10 @@ impl MinimactTranspiler {
                 for prop in &param.props {
                     match prop {
                         ObjectPatProp::KeyValue(prop) => {
-                            let prop_name = prop.key.sym.to_string().clone();
+                            let prop_name = match &prop.key {
+                                PropName::Ident(ident) => ident.sym.to_string(),
+                                _ => String::new()
+                            };
                             component.props.push(PropInfo { name: prop_name, prop_type: "dynamic".to_string(), optional: false })
                         }
                         _ => {}
@@ -281,24 +282,29 @@ impl MinimactTranspiler {
         } {
             return;
         }
-        let binding = binding.as_ref().unwrap();
-        let arr = binding.clone();
+        let binding = binding;
+        let Pat::Array(arr) = binding else { return; };
         if (arr.elems.len() < 1) {
             return;
         }
-        let state_var = arr.elems[0].name.to_string();
+        let Pat::Ident(state_ident) = &arr.elems[0].clone().unwrap() else { return; };
+        let state_var = state_ident.id.sym.to_string();
         let setter_var = if (arr.elems.len() > 1) {
-            Some(arr.elems[1].name.to_string())
+            if let Some(Pat::Ident(setter_ident)) = &arr.elems[1] {
+                Some(setter_ident.id.sym.to_string())
+            } else {
+                None
+            }
         } else {
             None
         };
         let initial_value = if (call.args.len() > 0) {
-            Self::expr_to_csharp(&call.args[0])
+            Self::expr_to_csharp(&call.args[0].expr)
         } else {
             "null".to_string()
         };
         let state_type = if (call.args.len() > 0) {
-            Self::infer_csharp_type(&call.args[0])
+            Self::infer_csharp_type(&call.args[0].expr)
         } else {
             "dynamic".to_string()
         };
@@ -308,13 +314,15 @@ impl MinimactTranspiler {
     fn extract_use_effect(call: &CallExpr, component: &mut ComponentInfo) {
         let mut deps = vec![];
         if (call.args.len() > 1) {
-            let deps_arg = &call.args[1];
-            match deps_arg {
+            let deps_arg = &call.args[1].expr;
+            match deps_arg.as_ref() {
                 Expr::Array(deps_arg) => {
                     for elem in &deps_arg.elems {
                         match elem {
-                            Some(ExprOrSpread { expr: box Expr::Ident(ref elem), spread: None }) => {
-                                deps.push(elem.sym.to_string().clone())
+                            Some(ref s) if s.spread.is_none() => {
+                                if let Expr::Ident(elem) = s.expr.as_ref() {
+                                    deps.push(elem.sym.to_string().clone())
+                                }
                             }
                             _ => {}
                         }
@@ -337,10 +345,11 @@ impl MinimactTranspiler {
         } {
             return;
         }
-        let binding = binding.as_ref().unwrap();
-        let ref_name = binding.sym.to_string();
+        let binding = binding;
+        let Pat::Ident(ident) = binding else { return; };
+        let ref_name = ident.id.sym.to_string();
         let initial_value = if (call.args.len() > 0) {
-            Self::expr_to_csharp(&call.args[0])
+            Self::expr_to_csharp(&call.args[0].expr)
         } else {
             "null".to_string()
         };
@@ -350,7 +359,7 @@ impl MinimactTranspiler {
     fn expr_to_csharp(expr: &Expr) -> String {
         match expr {
             Expr::Lit(Lit::Str(expr)) => {
-                return format!("\"{}\"", &*expr.value);
+                return format!("\"{}\"", String::from_utf8_lossy(expr.value.as_bytes()));
             }
             _ => {
                 match expr {

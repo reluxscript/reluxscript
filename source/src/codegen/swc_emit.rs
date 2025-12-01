@@ -1397,12 +1397,6 @@ impl SwcEmitter {
                     return;
                 }
 
-                // Special case: DerefDisplay accessor needs &* prefix
-                if matches!(field_metadata.accessor, FieldAccessor::DerefDisplay) {
-                    eprintln!("[EMIT DEREF DISPLAY] Emitting &* prefix");
-                    self.output.push_str("&*");
-                }
-
                 self.emit_expr(object);
 
                 if *optional {
@@ -1431,7 +1425,8 @@ impl SwcEmitter {
                         // Handled by unary deref
                     }
                     FieldAccessor::DerefDisplay => {
-                        // Already handled by &* prefix above
+                        // Emit .as_ref() for Atom types to get &str for Display
+                        self.output.push_str(".as_ref()");
                     }
                     FieldAccessor::EnumField { .. } => {
                         // No special handling needed
