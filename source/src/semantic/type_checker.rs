@@ -1077,6 +1077,7 @@ impl TypeChecker {
                 // Pattern patterns
                 "ArrayPattern" => "ArrayPat",
                 "ObjectPattern" => "ObjectPat",
+                "ObjectPatternProperty" => "KeyValuePatProp",
                 "RestElement" => "RestPat",
                 "AssignmentPattern" => "AssignPat",
 

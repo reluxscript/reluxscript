@@ -1125,6 +1125,9 @@ impl SwcDecorator {
                         } else if enum_name == "Expr" {
                             // Expr::Call -> CallExpr, Expr::Member -> MemberExpr
                             format!("{}Expr", variant_name)
+                        } else if enum_name == "ObjectPatProp" {
+                            // ObjectPatProp::KeyValue -> KeyValuePatProp
+                            format!("{}PatProp", variant_name)
                         } else if enum_name == "Option" {
                             // Option::Some wraps the inner type from Option<T>
                             // Need to extract T from the expected_type which should be "Option<T>"

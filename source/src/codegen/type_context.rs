@@ -321,6 +321,7 @@ pub fn map_reluxscript_to_swc(rs_type: &str) -> (String, SwcTypeKind) {
         // Pattern types (Struct after unwrapping from Pat)
         "ArrayPattern" => ("ArrayPat".into(), SwcTypeKind::Struct),
         "ObjectPattern" => ("ObjectPat".into(), SwcTypeKind::Struct),
+        "ObjectPatternProperty" => ("KeyValuePatProp".into(), SwcTypeKind::Struct),
         "RestElement" => ("RestPat".into(), SwcTypeKind::Struct),
         "AssignmentPattern" => ("AssignPat".into(), SwcTypeKind::Struct),
         "BindingIdentifier" => ("BindingIdent".into(), SwcTypeKind::Struct),
@@ -695,6 +696,17 @@ pub fn get_typed_field_mapping(parent_swc_type: &str, field: &str) -> Option<Typ
             needs_deref: true, // Box<Expr>
             result_type_rs: "Expr",
             result_type_swc: "Expr",
+            read_conversion: "",
+            write_conversion: "",
+        }),
+
+        // KeyValuePatProp fields (ObjectPatternProperty in ReluxScript)
+        ("KeyValuePatProp", "key") => Some(TypedFieldMapping {
+            reluxscript_field: "key",
+            swc_field: "key",
+            needs_deref: false,
+            result_type_rs: "PropName",
+            result_type_swc: "PropName",
             read_conversion: "",
             write_conversion: "",
         }),
