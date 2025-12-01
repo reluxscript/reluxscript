@@ -1,7 +1,0 @@
-plugin TestSome {
-    fn test(opt: &Option<String>) {
-        if let Some(value) = opt {
-            let x = value.clone();
-        }
-    }
-}

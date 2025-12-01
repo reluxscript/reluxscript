@@ -1,8 +1,0 @@
-// Test: Writer should not implement VisitMut trait
-writer WriterTraitTest {
-
-fn generate_code(node: &Expr) -> String {
-    "test".to_string()
-}
-
-}

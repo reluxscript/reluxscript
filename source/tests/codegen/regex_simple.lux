@@ -1,5 +1,0 @@
-plugin RegexSimple {
-    fn test(name: &Str) -> bool {
-        Regex::matches(name, r"^test$")
-    }
-}
