@@ -287,9 +287,9 @@ impl MinimactTranspiler {
         if (arr.elems.len() < 1) {
             return;
         }
-        let state_var = arr.elems[0].sym.to_string();
+        let state_var = ({ let Pat::Ident(__pat_ident) = &arr.elems[0].clone().unwrap() else { return; }; __pat_ident.id.sym.to_string() });
         let setter_var = if (arr.elems.len() > 1) {
-            Some(arr.elems[1].sym.to_string())
+            Some(({ let Pat::Ident(__pat_ident) = &arr.elems[1].clone().unwrap() else { return; }; __pat_ident.id.sym.to_string() }))
         } else {
             None
         };

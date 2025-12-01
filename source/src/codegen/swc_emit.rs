@@ -1436,6 +1436,8 @@ impl SwcEmitter {
 
                 // Special case: Option<Pat> accessing .sym (from .name field in ReluxScript)
                 // This needs unwrap + Pat::Ident destructure + .id.sym access
+                eprintln!("[EMIT MEMBER CHECK] object_type='{}', swc_field_name='{}', contains Option<Pat>={}",
+                          object.metadata.swc_type, field_metadata.swc_field_name, object.metadata.swc_type.contains("Option<Pat>"));
                 if object.metadata.swc_type.contains("Option<Pat>") && field_metadata.swc_field_name == "sym" {
                     eprintln!("[EMIT MEMBER] Generating Option<Pat> unwrap + destructure for .sym access");
                     // Check if this is an indexed access (arr.elems[0])

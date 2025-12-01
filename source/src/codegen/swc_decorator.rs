@@ -1903,11 +1903,11 @@ impl SwcDecorator {
                 // Infer element type from array/vector type
                 // For Vec<T>, element type is T
                 let object_type = &object.metadata.swc_type;
-                let element_type = if object_type.starts_with("Vec<") {
-                    // Extract T from Vec<T>
-                    object_type.trim_start_matches("Vec<")
-                        .trim_end_matches('>')
-                        .to_string()
+                let element_type = if object_type.starts_with("Vec<") && object_type.ends_with('>') {
+                    // Extract T from Vec<T> - need to handle nested generics like Vec<Option<Pat>>
+                    // Remove "Vec<" from start and the matching ">" from end
+                    let inner = &object_type[4..object_type.len()-1];
+                    inner.to_string()
                 } else {
                     // Unknown array type, use Unknown
                     "UserDefined".to_string()

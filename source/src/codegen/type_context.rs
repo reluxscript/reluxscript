@@ -699,6 +699,17 @@ pub fn get_typed_field_mapping(parent_swc_type: &str, field: &str) -> Option<Typ
             write_conversion: ".into()",
         }),
 
+        // Option<Pat> fields - accessing .name requires unwrap + destructure
+        ("Option<Pat>", "name") => Some(TypedFieldMapping {
+            reluxscript_field: "name",
+            swc_field: "sym",
+            needs_deref: false,
+            result_type_rs: "Str",
+            result_type_swc: "JsWord",
+            read_conversion: ".to_string()",
+            write_conversion: ".into()",
+        }),
+
         // ExprStmt fields
         ("ExprStmt", "expr") | ("ExprStmt", "expression") => Some(TypedFieldMapping {
             reluxscript_field: "expr",
