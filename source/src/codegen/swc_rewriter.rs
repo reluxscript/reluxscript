@@ -275,8 +275,38 @@ impl SwcRewriter {
             DecoratedStmt::Continue => DecoratedStmt::Continue,
 
             DecoratedStmt::Traverse(traverse) => {
-                // Traverse statements don't need rewriting
-                DecoratedStmt::Traverse(traverse)
+                // Rewrite traverse block methods to expand matches! etc.
+                let rewritten_traverse = match traverse.kind {
+                    crate::codegen::decorated_ast::DecoratedTraverseKind::Inline(inline) => {
+                        let mut rewritten_methods = Vec::new();
+                        for method in &inline.methods {
+                            let rewritten_body = self.rewrite_block(method.body.clone());
+                            rewritten_methods.push(crate::codegen::decorated_ast::DecoratedVisitorMethod {
+                                name: method.name.clone(),
+                                params: method.params.clone(),
+                                body: rewritten_body,
+                            });
+                        }
+                        crate::codegen::decorated_ast::DecoratedTraverseStmt {
+                            kind: crate::codegen::decorated_ast::DecoratedTraverseKind::Inline(
+                                crate::codegen::decorated_ast::DecoratedInlineVisitor {
+                                    state: inline.state.clone(),
+                                    methods: rewritten_methods,
+                                }
+                            ),
+                            target: traverse.target.clone(),
+                            captures: traverse.captures.clone(),
+                            span: traverse.span,
+                        }
+                    }
+                    other => crate::codegen::decorated_ast::DecoratedTraverseStmt {
+                        kind: other,
+                        target: traverse.target.clone(),
+                        captures: traverse.captures.clone(),
+                        span: traverse.span,
+                    },
+                };
+                DecoratedStmt::Traverse(Box::new(rewritten_traverse))
             }
 
             DecoratedStmt::Function(func_decl) => {
@@ -325,8 +355,25 @@ impl SwcRewriter {
                     eprintln!("[DEBUG SHADOWING] Pattern after wrapping: {:?}", shadowing_pattern.metadata.swc_pattern);
 
                     // Convert to if-let
+                    // Wrap scrutinee in & to match by reference
+                    let scrutinee_type = scrutinee.metadata.swc_type.clone();
+                    let scrutinee_span = scrutinee.metadata.span;
+                    let ref_condition = DecoratedExpr {
+                        kind: DecoratedExprKind::Ref {
+                            expr: scrutinee,
+                            mutable: false,
+                        },
+                        metadata: SwcExprMetadata { needs_enum_unwrap: None,
+                            swc_type: format!("&{}", scrutinee_type),
+                            is_boxed: false,
+                            is_optional: false,
+                            type_kind: crate::type_system::SwcTypeKind::Unknown,
+                            span: scrutinee_span,
+                        },
+                    };
+
                     if_stmt.pattern = Some(shadowing_pattern);
-                    if_stmt.condition = *scrutinee;
+                    if_stmt.condition = ref_condition;
 
                     eprintln!("[DEBUG SHADOWING] Transformation applied! Pattern set.");
                 }
@@ -2410,10 +2457,26 @@ impl SwcRewriter {
                     },
                 };
 
-                // Create match expression
+                // Create match expression - wrap scrutinee in & to match by reference
+                let scrutinee_type = scrutinee.metadata.swc_type.clone();
+                let scrutinee_span = scrutinee.metadata.span;
+                let ref_scrutinee = DecoratedExpr {
+                    kind: DecoratedExprKind::Ref {
+                        expr: scrutinee,
+                        mutable: false,
+                    },
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None,
+                        swc_type: format!("&{}", scrutinee_type),
+                        is_boxed: false,
+                        is_optional: false,
+                        type_kind: crate::type_system::SwcTypeKind::Unknown,
+                        span: scrutinee_span,
+                    },
+                };
+
                 DecoratedExpr {
                     kind: DecoratedExprKind::Match(Box::new(DecoratedMatchExpr {
-                        expr: *scrutinee,
+                        expr: ref_scrutinee,
                         arms: vec![match_arm, wildcard_arm],
                     })),
                     metadata: SwcExprMetadata { needs_enum_unwrap: None, 
