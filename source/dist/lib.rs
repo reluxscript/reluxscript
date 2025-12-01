@@ -282,7 +282,7 @@ impl MinimactTranspiler {
         } {
             return;
         }
-        let Pat::Array(binding) = binding else { return; }
+        let Pat::Array(binding) = binding else { return; };
         let arr = binding.clone();
         if (arr.elems.len() < 1) {
             return;
@@ -340,7 +340,7 @@ impl MinimactTranspiler {
         } {
             return;
         }
-        let Pat::Ident(binding) = binding else { return; }
+        let Pat::Ident(binding) = binding else { return; };
         let ref_name = binding.sym.to_string();
         let initial_value = if (call.args.len() > 0) {
             Self::expr_to_csharp(&*call.args[0].expr.as_ref())

@@ -3663,7 +3663,7 @@ impl SwcRewriter {
         // all subsequent uses of the variable
         // For now, emit a verbatim statement since let-else is complex to construct
         // The emitter will need to handle this specially
-        let code = format!("let Pat::{}({}) = {} else {{ return; }}", swc_variant, var_name, var_name);
+        let code = format!("let Pat::{}({}) = {} else {{ return; }};", swc_variant, var_name, var_name);
 
         DecoratedStmt::Verbatim(crate::parser::VerbatimStmt {
             target: VerbatimTarget::Rust,
