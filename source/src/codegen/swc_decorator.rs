@@ -1507,6 +1507,8 @@ impl SwcDecorator {
                         || object_type.ends_with("Lit")
                         || object_type == "Ident"
                         || object_type == "Callee"
+                        || object_type == "PropName"  // Wrapper enum
+                        || object_type == "MemberProp"  // Wrapper enum
                         || object_type == "Param"
                         || object_type == "Expr"  // Top-level enum, but .name assumes Ident
                         || object_type == "Pat";   // Top-level enum, but .name assumes Ident
@@ -1553,7 +1555,7 @@ impl SwcDecorator {
 
                 // Infer the type of this member expression
                 // If there's a read_conversion that changes the type, use the converted type
-                let member_type = if field_metadata.read_conversion == ".as_expr().unwrap()" {
+                let base_member_type = if field_metadata.read_conversion == ".as_expr().unwrap()" {
                     // Callee -> &Expr after unwrapping
                     "Expr".to_string()
                 } else if field_metadata.read_conversion == ".as_callee().unwrap()" {
@@ -1562,6 +1564,20 @@ impl SwcDecorator {
                     "MemberProp".to_string()
                 } else {
                     field_metadata.field_type.clone()
+                };
+
+                // Check if this member expression has a narrowed type in the local type_env
+                // e.g., after `if matches!(node.expr, CallExpression)`, `node.expr` is narrowed to `CallExpr`
+                let member_type = if let Expr::Ident(ident) = mem.object.as_ref() {
+                    let member_path = format!("{}.{}", ident.name, mem.property);
+                    if let Some(ctx) = self.type_env.get(&member_path) {
+                        eprintln!("[DECORATOR MEMBER] Member '{}' has narrowed type in local env: {}", member_path, ctx.swc_type);
+                        ctx.swc_type.clone()
+                    } else {
+                        base_member_type
+                    }
+                } else {
+                    base_member_type
                 };
 
                 DecoratedExpr {
@@ -1573,7 +1589,7 @@ impl SwcDecorator {
                         is_path: mem.is_path,
                         field_metadata: field_metadata.clone(),
                     },
-                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None,
                         swc_type: member_type,
                         is_boxed: matches!(field_metadata.accessor, FieldAccessor::BoxedAsRef | FieldAccessor::BoxedRefDeref),
                         is_optional: false,
