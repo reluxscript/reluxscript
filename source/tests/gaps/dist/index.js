@@ -127,11 +127,11 @@ module.exports = function({ types: t }) {
   function extract_props(param, component) {
     const __iflet_0 = param;
     if (__iflet_0 !== null) {
-      const __inner = __iflet_0;
+      const param = __iflet_0;
       for (const prop of param.properties) {
         const __iflet_1 = prop;
         if (__iflet_1 !== null) {
-          const __inner = __iflet_1;
+          const prop = __iflet_1;
           const prop_name = prop.key.name;
           component.props.push({ name: prop_name, prop_type: "dynamic".toString(), optional: false });
         }
@@ -139,7 +139,7 @@ module.exports = function({ types: t }) {
     } else {
       const __iflet_2 = param;
       if (__iflet_2 !== null) {
-        const __inner = __iflet_2;
+        const param = __iflet_2;
       }
     }
   }
@@ -189,11 +189,11 @@ module.exports = function({ types: t }) {
       const deps_arg = call.arguments[1];
       const __iflet_3 = deps_arg;
       if (__iflet_3 !== null) {
-        const __inner = __iflet_3;
+        const deps_arg = __iflet_3;
         for (const elem of deps_arg.elements) {
           const __iflet_4 = elem;
           if (__iflet_4 !== null) {
-            const __inner = __iflet_4;
+            const elem = __iflet_4;
             deps.push(elem.name);
           }
         }
@@ -216,37 +216,37 @@ module.exports = function({ types: t }) {
   function expr_to_csharp(expr) {
     const __iflet_5 = expr;
     if (__iflet_5 !== null) {
-      const __inner = __iflet_5;
+      const expr = __iflet_5;
       return `"${expr.value}"`;
     } else {
       const __iflet_6 = expr;
       if (__iflet_6 !== null) {
-        const __inner = __iflet_6;
+        const expr = __iflet_6;
         return expr.value.toString();
       } else {
         const __iflet_7 = expr;
         if (__iflet_7 !== null) {
-          const __inner = __iflet_7;
+          const expr = __iflet_7;
           return (expr.value ? "true" : "false").toString();
         } else {
           const __iflet_8 = expr;
           if (__iflet_8 !== null) {
-            const __inner = __iflet_8;
+            const expr = __iflet_8;
             return "null".toString();
           } else {
             const __iflet_9 = expr;
             if (__iflet_9 !== null) {
-              const __inner = __iflet_9;
+              const expr = __iflet_9;
               return expr.name;
             } else {
               const __iflet_10 = expr;
               if (__iflet_10 !== null) {
-                const __inner = __iflet_10;
+                const expr = __iflet_10;
                 return "new List<dynamic>()".toString();
               } else {
                 const __iflet_11 = expr;
                 if (__iflet_11 !== null) {
-                  const __inner = __iflet_11;
+                  const expr = __iflet_11;
                   return "new Dictionary<string, dynamic>()".toString();
                 }
               }
@@ -262,12 +262,12 @@ module.exports = function({ types: t }) {
   function infer_csharp_type(expr) {
     const __iflet_12 = expr;
     if (__iflet_12 !== null) {
-      const __inner = __iflet_12;
+      const expr = __iflet_12;
       return "string".toString();
     } else {
       const __iflet_13 = expr;
       if (__iflet_13 !== null) {
-        const __inner = __iflet_13;
+        const expr = __iflet_13;
         const val = expr.value;
         if ((val === val.floor())) {
           return "int".toString();
@@ -277,17 +277,17 @@ module.exports = function({ types: t }) {
       } else {
         const __iflet_14 = expr;
         if (__iflet_14 !== null) {
-          const __inner = __iflet_14;
+          const expr = __iflet_14;
           return "bool".toString();
         } else {
           const __iflet_15 = expr;
           if (__iflet_15 !== null) {
-            const __inner = __iflet_15;
+            const expr = __iflet_15;
             return "List<dynamic>".toString();
           } else {
             const __iflet_16 = expr;
             if (__iflet_16 !== null) {
-              const __inner = __iflet_16;
+              const expr = __iflet_16;
               return "Dictionary<string, dynamic>".toString();
             }
           }

@@ -982,12 +982,12 @@ impl TypeChecker {
                     eprintln!("DEBUG narrowing: extracted scrutinee '{}' from reference", ident.name);
                     Some(ident.name.clone())
                 } else {
-                    eprintln!("DEBUG narrowing: reference to non-identifier, cannot narrow");
+                    eprintln!("DEBUG narrowing: reference to non-identifier ({:?}), cannot narrow", ref_expr.expr);
                     None
                 }
             }
             _ => {
-                eprintln!("DEBUG narrowing: complex expression, cannot narrow");
+                eprintln!("DEBUG narrowing: complex expression (variant {:?}), cannot narrow", std::mem::discriminant(expr));
                 None
             }
         }

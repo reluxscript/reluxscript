@@ -1011,10 +1011,22 @@ impl SwcEmitter {
     }
 
     fn emit_if_stmt(&mut self, if_stmt: &DecoratedIfStmt) {
+        if let Some(ref pattern) = if_stmt.pattern {
+            // Check if pattern is path-qualified (contains ::)
+            // If so, emit as match statement instead of if-let
+            let is_path_qualified = self.is_path_qualified_pattern(pattern);
+            eprintln!("[EMIT] if-let pattern: {:?}, is_path_qualified: {}", pattern.kind, is_path_qualified);
+            if is_path_qualified {
+                eprintln!("[EMIT] Converting path-qualified if-let to match");
+                self.emit_if_let_as_match(if_stmt, pattern);
+                return;
+            }
+        }
+
         self.emit_indent();
 
         if let Some(ref pattern) = if_stmt.pattern {
-            // if-let statement
+            // if-let statement (non-path-qualified)
             self.output.push_str("if let ");
             self.emit_pattern(pattern);
             self.output.push_str(" = ");
@@ -1042,6 +1054,51 @@ impl SwcEmitter {
         } else {
             self.emit_line("}");
         }
+    }
+
+    /// Check if a pattern contains :: (path qualifier)
+    fn is_path_qualified_pattern(&self, pattern: &DecoratedPattern) -> bool {
+        // Check the swc_pattern in metadata, not the name in kind
+        // The kind name is the original ReluxScript name ("ObjectPattern")
+        // The metadata swc_pattern is the mapped SWC name ("Pat::Object")
+        pattern.metadata.swc_pattern.contains("::")
+    }
+
+    /// Emit if-let with path-qualified pattern as match statement
+    /// if let Pat::Object(x) = expr { body } else { else_body }
+    /// becomes:
+    /// match expr { Pat::Object(x) => { body }, _ => { else_body } }
+    fn emit_if_let_as_match(&mut self, if_stmt: &DecoratedIfStmt, pattern: &DecoratedPattern) {
+        self.emit_indent();
+        self.output.push_str("match ");
+        self.emit_expr(&if_stmt.condition);
+        self.output.push_str(" {\n");
+        self.indent += 1;
+
+        // Match arm for the pattern
+        self.emit_indent();
+        self.emit_pattern(pattern);
+        self.output.push_str(" => {\n");
+        self.indent += 1;
+        self.emit_block(&if_stmt.then_branch);
+        self.indent -= 1;
+        self.emit_line("}");
+
+        // Wildcard arm for else branch (or empty block if no else)
+        self.emit_indent();
+        self.output.push_str("_ => ");
+        if let Some(ref else_branch) = if_stmt.else_branch {
+            self.output.push_str("{\n");
+            self.indent += 1;
+            self.emit_block(else_branch);
+            self.indent -= 1;
+            self.emit_line("}");
+        } else {
+            self.output.push_str("{}\n");
+        }
+
+        self.indent -= 1;
+        self.emit_line("}");
     }
 
     fn emit_match_stmt(&mut self, match_stmt: &DecoratedMatchStmt) {

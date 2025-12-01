@@ -370,14 +370,24 @@ impl SwcDecorator {
 
                 // Use scrutinee type for all arm patterns
                 let arms = match_stmt.arms.iter().map(|arm| {
+                    // Decorate pattern first to get its metadata
+                    let decorated_pattern = self.decorate_pattern_with_context(&arm.pattern, &scrutinee_type);
+
+                    // Extract pattern bindings and add them to type_env before decorating body
+                    self.add_pattern_bindings_to_env(&arm.pattern, &decorated_pattern);
+
                     let decorated_body_expr = self.decorate_expr(&arm.body);
+
+                    // Remove pattern bindings after decorating body
+                    self.remove_pattern_bindings_from_env(&arm.pattern);
+
                     // Convert body expr to a block with single expression
                     let body_block = DecoratedBlock {
                         stmts: vec![DecoratedStmt::Expr(decorated_body_expr)],
                     };
 
                     DecoratedMatchArm {
-                        pattern: self.decorate_pattern_with_context(&arm.pattern, &scrutinee_type),
+                        pattern: decorated_pattern,
                         guard: None, // MatchArm doesn't have guard in this AST
                         body: body_block,
                     }
@@ -388,6 +398,8 @@ impl SwcDecorator {
 
             Stmt::For(for_stmt) => {
                 // Decorate iterator first
+                eprintln!("[DEBUG FOR] Decorating for loop iterator: {:?}",
+                    format!("{:?}", for_stmt.iter).chars().take(50).collect::<String>());
                 let iter = self.decorate_expr(&for_stmt.iter);
 
                 // Infer element type from iterator
@@ -467,7 +479,42 @@ impl SwcDecorator {
             let decorated_pat = self.decorate_pattern_with_context(pattern, condition_type);
 
             // Register pattern bindings in type environment for the then branch
-            self.register_pattern_bindings(pattern, condition_type);
+            // Use the decorated pattern's metadata to get the correct narrowed types
+            self.add_pattern_bindings_to_env(pattern, &decorated_pat);
+
+            // CRITICAL FIX: Also narrow the scrutinee variable if it's a simple identifier
+            // For: if let Pat::Object(__inner) = param
+            // We need to shadow 'param' with the narrowed type 'ObjectPat' for auto-unwrap
+            if let Expr::Ident(ident) = &if_stmt.condition {
+                if let Pattern::Variant { name, .. } = pattern {
+                    // Extract the narrowed type from the variant pattern
+                    // e.g., "Pat::Object" or "ObjectPattern" -> "ObjectPat"
+                    let narrowed_type = if name.contains("::") {
+                        let parts: Vec<&str> = name.split("::").collect();
+                        if parts.len() == 2 {
+                            let (swc_type, _) = map_reluxscript_to_swc(parts[1]);
+                            swc_type
+                        } else {
+                            condition_type.to_string()
+                        }
+                    } else {
+                        let (swc_type, _) = map_reluxscript_to_swc(name);
+                        swc_type
+                    };
+
+                    eprintln!("[NARROWING FIX] Shadowing scrutinee '{}' from {} to {} in if-let block",
+                        ident.name, condition_type, narrowed_type);
+
+                    // Shadow the scrutinee variable with narrowed type
+                    self.type_env.insert(ident.name.clone(), TypeContext {
+                        reluxscript_type: narrowed_type.clone(),
+                        swc_type: narrowed_type.clone(),
+                        kind: SwcTypeKind::Struct,  // After narrowing, it's a concrete struct
+                        known_variant: None,
+                        needs_deref: false,
+                    });
+                }
+            }
 
             Some(decorated_pat)
         } else {
@@ -477,6 +524,9 @@ impl SwcDecorator {
         // Decorate branches
         let then_branch = self.decorate_block(&if_stmt.then_branch);
         let else_branch = if_stmt.else_branch.as_ref().map(|b| self.decorate_block(b));
+
+        // TODO: Restore the original type after the if-block (for proper scoping)
+        // For now, the narrowed type persists which is acceptable
 
         DecoratedIfStmt {
             condition: decorated_condition,
@@ -860,14 +910,93 @@ impl SwcDecorator {
         }
     }
 
+    /// Add pattern bindings to type environment based on decorated pattern metadata
+    fn add_pattern_bindings_to_env(&mut self, pattern: &Pattern, decorated: &DecoratedPattern) {
+        self.add_pattern_bindings_to_env_with_type(pattern, decorated, None);
+    }
+
+    /// Internal helper that tracks the expected type from parent patterns
+    fn add_pattern_bindings_to_env_with_type(&mut self, pattern: &Pattern, decorated: &DecoratedPattern, expected_type: Option<String>) {
+        match (pattern, &decorated.kind) {
+            (Pattern::Ident(name), _) => {
+                // Simple identifier - use the expected type from parent, or fall back to swc_pattern
+                let swc_type = expected_type.unwrap_or_else(|| decorated.metadata.swc_pattern.clone());
+                eprintln!("[MATCH BINDING] Adding {} -> {}", name, swc_type);
+                self.type_env.insert(name.clone(), TypeContext {
+                    reluxscript_type: swc_type.clone(),
+                    swc_type: swc_type.clone(),
+                    kind: SwcTypeKind::Struct,
+                    known_variant: None,
+                    needs_deref: false,
+                });
+            }
+            (Pattern::Variant { inner: Some(inner_pat), ..  }, DecoratedPatternKind::Variant { inner: Some(inner_dec), .. }) => {
+                // Variant with inner binding - extract the inner type from the variant
+                // E.g., for Pat::Object(param), the inner type should be ObjectPat
+                // Use the swc_pattern from metadata, not the name from kind
+                let swc_pattern = &decorated.metadata.swc_pattern;
+                let inner_type = if swc_pattern.contains("::") {
+                    // Extract parts: "Pat::Object" -> enum="Pat", variant="Object"
+                    let parts: Vec<&str> = swc_pattern.split("::").collect();
+                    if parts.len() == 2 {
+                        let enum_name = parts[0];  // "Pat"
+                        let variant_name = parts[1]; // "Object"
+                        // For SWC patterns, the inner type is the struct wrapped by the enum
+                        // Pat::Object wraps ObjectPat, Pat::Array wraps ArrayPat, etc.
+                        let inner_struct = if enum_name == "Pat" {
+                            // Pat::Object -> ObjectPat, Pat::Array -> ArrayPat
+                            format!("{}Pat", variant_name)
+                        } else if enum_name == "Expr" {
+                            // Expr::Lit -> Lit, Expr::Ident -> Ident
+                            variant_name.to_string()
+                        } else {
+                            variant_name.to_string()
+                        };
+                        eprintln!("[MATCH BINDING] Extracted inner type from {}: {}", swc_pattern, inner_struct);
+                        Some(inner_struct)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                // Recursively add inner bindings with the extracted type
+                self.add_pattern_bindings_to_env_with_type(inner_pat, inner_dec, inner_type);
+            }
+            _ => {
+                // Other patterns don't create bindings we need to track
+            }
+        }
+    }
+
+    /// Remove pattern bindings from type environment
+    fn remove_pattern_bindings_from_env(&mut self, pattern: &Pattern) {
+        match pattern {
+            Pattern::Ident(name) => {
+                eprintln!("[MATCH BINDING] Removing {}", name);
+                self.type_env.remove(name);
+            }
+            Pattern::Variant { inner: Some(inner_pat), .. } => {
+                // Recursively remove inner bindings
+                self.remove_pattern_bindings_from_env(inner_pat);
+            }
+            _ => {}
+        }
+    }
+
     /// Decorate expression with .as_ref() suppressed for Option<Box<T>> fields
     /// Used when decorating operands of & reference operator
     fn decorate_expr_suppress_asref(&mut self, expr: &Expr) -> DecoratedExpr {
         match expr {
             Expr::Member(mem) => {
                 // Decorate member expression but suppress .as_ref()
+                eprintln!("[DEBUG SUPPRESS MEMBER] Decorating {}.{}",
+                    format!("{:?}", mem.object).chars().take(30).collect::<String>(),
+                    mem.property);
                 let object = Box::new(self.decorate_expr(&mem.object));
                 let object_type = &object.metadata.swc_type;
+                eprintln!("[DEBUG SUPPRESS MEMBER] Object type: {}", object_type);
 
                 let field_metadata = if mem.property == "builder" && self.is_writer {
                     SwcFieldMetadata {
@@ -882,6 +1011,7 @@ impl SwcDecorator {
                     }
                 } else if let Some(mapping) = get_typed_field_mapping(object_type, &mem.property) {
                     // We have precise mapping - use BoxedRefDeref for Box fields
+                    eprintln!("[DEBUG SUPPRESS] Field mapping found: {}.{} → {}.{}", object_type, mem.property, object_type, mapping.swc_field);
                     let is_boxed = mapping.result_type_swc.starts_with("Box<");
                     SwcFieldMetadata {
                         swc_field_name: mapping.swc_field.to_string(),
@@ -897,6 +1027,7 @@ impl SwcDecorator {
                     }
                 } else {
                     // Fallback - also use Direct
+                    eprintln!("[DEBUG SUPPRESS] NO field mapping for: {}.{} - using fallback", object_type, mem.property);
                     SwcFieldMetadata {
                         swc_field_name: mem.property.clone(),
                         accessor: FieldAccessor::Direct,
@@ -938,9 +1069,13 @@ impl SwcDecorator {
             Expr::Ident(ident_expr) => {
                 let name = &ident_expr.name;
 
-                // Look up type in environment (semantic FIRST for narrowed types, then local)
-                let (type_ctx, needs_enum_unwrap) = if let Some(swc_type_str) = self.lookup_semantic_type(name) {
-                    // Semantic TypeEnv has the most up-to-date narrowed types
+                // Look up type in environment (local FIRST for pattern-narrowed types, then semantic)
+                let (type_ctx, needs_enum_unwrap) = if let Some(ctx) = self.type_env.get(name).cloned() {
+                    // Local type_env has pattern-narrowed types from match/if-let
+                    eprintln!("[DEBUG] Ident '{}' found in local type_env: {}", name, ctx.swc_type);
+                    (ctx, None)
+                } else if let Some(swc_type_str) = self.lookup_semantic_type(name) {
+                    // Semantic TypeEnv has original types from semantic analysis
                     eprintln!("[DEBUG] Ident '{}' found in semantic TypeEnv: {}", name, swc_type_str);
 
                     // Check if this is a narrowed type by looking up parent enum in mappings
@@ -959,9 +1094,6 @@ impl SwcDecorator {
                         known_variant: None,
                         needs_deref: false,
                     }, unwrap_info)
-                } else if let Some(ctx) = self.type_env.get(name).cloned() {
-                    eprintln!("[DEBUG] Ident '{}' found in local type_env: {}", name, ctx.swc_type);
-                    (ctx, None)
                 } else {
                     eprintln!("[DEBUG] Ident '{}' not found, using UserDefined", name);
                     (TypeContext::unknown(), None)
@@ -987,9 +1119,18 @@ impl SwcDecorator {
                 // First, decorate the object to get its type
                 let decorated_object = Box::new(self.decorate_expr(&mem.object));
                 let object_type = &decorated_object.metadata.swc_type;
-                eprintln!("[DEBUG] Member access: {}.{} (object type: {})",
+                eprintln!("[DEBUG MEMBER] {}.{} (object type: {})",
                     format!("{:?}", mem.object).chars().take(30).collect::<String>(),
                     mem.property, object_type);
+
+                // Debug: check if object is in type_env
+                if let Expr::Ident(ident) = mem.object.as_ref() {
+                    if let Some(ctx) = self.type_env.get(&ident.name) {
+                        eprintln!("[DEBUG MEMBER] '{}' in type_env: {}", ident.name, ctx.swc_type);
+                    } else {
+                        eprintln!("[DEBUG MEMBER] '{}' NOT in type_env", ident.name);
+                    }
+                }
 
                 // Check for writer-specific field replacements (self.builder → self)
                 // This handles both direct access: self.builder, self.state

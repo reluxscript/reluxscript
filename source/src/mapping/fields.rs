@@ -451,6 +451,18 @@ pub static FIELD_MAPPINGS: Lazy<Vec<FieldMapping>> = Lazy::new(|| vec![
         read_conversion: None,
         write_conversion: None,
     },
+    // Also map using SWC type name for pattern bindings
+    FieldMapping {
+        node_type: "ObjectPat",
+        reluxscript: "properties",
+        babel: "properties",
+        swc: "props",
+        swc_type: "Vec<ObjectPatProp>",
+        needs_box_unwrap: false,
+        optional: false,
+        read_conversion: None,
+        write_conversion: None,
+    },
 
     // === ImportDeclaration ===
     FieldMapping {

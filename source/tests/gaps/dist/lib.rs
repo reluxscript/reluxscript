@@ -85,18 +85,24 @@ struct __InlineVisitor_0<'a> {
 
 impl<'a> VisitMut for __InlineVisitor_0<'a> {
     fn visit_mut_var_declarator(&mut self, decl: &mut VarDeclarator) {
-        if let Option::Some(init) = &decl.init {
-            if matches!(init, CallExpression) {
-                MinimactTranspiler::extract_hook_from_call(init, &decl.name, &mut self.component)
+        match &decl.init {
+            Option::Some(init) => {
+                if matches!(init, CallExpression) {
+                    MinimactTranspiler::extract_hook_from_call(init, &decl.name, &mut self.component)
+                }
             }
+            _ => {}
         }
     }
     
     fn visit_mut_return_stmt(&mut self, ret: &mut ReturnStmt) {
-        if let Option::Some(arg) = &ret.arg {
-            if matches!(arg, JSXElement) {
-                self.component.render_body = Some(arg.clone())
+        match &ret.arg {
+            Option::Some(arg) => {
+                if matches!(arg, JSXElement) {
+                    self.component.render_body = Some(arg.clone())
+                }
             }
+            _ => {}
         }
     }
     
@@ -171,8 +177,11 @@ impl MinimactTranspiler {
         if (node.function.params.len() > 0) {
             Self::extract_props(&node.function.params[0], &mut component)
         }
-        if let Option::Some(body) = &node.function.body {
-            body.visit_mut_with(&mut __InlineVisitor_0 { component: &mut component })
+        match &node.function.body {
+            Option::Some(body) => {
+                body.visit_mut_with(&mut __InlineVisitor_0 { component: &mut component })
+            }
+            _ => {}
         }
         self.components.push(component);
     }
@@ -204,15 +213,24 @@ impl MinimactTranspiler {
     }
     
     fn extract_props(param: &Pat, component: &mut ComponentInfo) {
-        if let Pat::Object(__inner) = param {
-            for prop in &param.properties {
-                if let UserDefined::ObjectPatternProperty(__inner) = prop {
-                    let prop_name = __inner.key.name.clone();
-                    component.props.push(PropInfo { name: prop_name, prop_type: "dynamic".to_string(), optional: false })
+        match param {
+            Pat::Object(param) => {
+                for prop in &param.props {
+                    match prop {
+                        UserDefined::ObjectPatternProperty(prop) => {
+                            let prop_name = prop.key.name.clone();
+                            component.props.push(PropInfo { name: prop_name, prop_type: "dynamic".to_string(), optional: false })
+                        }
+                        _ => {}
+                    }
                 }
             }
-        } else {
-            if let Expr::Ident(__inner) = param {
+            _ => {
+                match param {
+                    Expr::Ident(param) => {
+                    }
+                    _ => {}
+                }
             }
         }
     }
@@ -256,20 +274,13 @@ impl MinimactTranspiler {
         } {
             return;
         }
-        let arr = match binding {
-            Expr::Ident(inner) => {
-                inner
-            }
-            _ => {
-                unreachable!()
-            }
-        }.clone();
-        if (arr.elems.len() < 1) {
+        let arr = binding.clone();
+        if (arr.elements.len() < 1) {
             return;
         }
-        let state_var = arr.elems[0].name.to_string();
-        let setter_var = if (arr.elems.len() > 1) {
-            Some(arr.elems[1].name.to_string())
+        let state_var = arr.elements[0].name.to_string();
+        let setter_var = if (arr.elements.len() > 1) {
+            Some(arr.elements[1].name.to_string())
         } else {
             None
         };
@@ -290,12 +301,18 @@ impl MinimactTranspiler {
         let mut deps = vec![];
         if (call.args.len() > 1) {
             let deps_arg = &call.args[1];
-            if let Expr::Array(__inner) = deps_arg {
-                for elem in &deps_arg.elements {
-                    if let Expr::Ident(__inner) = elem {
-                        deps.push(__inner.sym.to_string().clone())
+            match deps_arg {
+                Expr::Array(deps_arg) => {
+                    for elem in &deps_arg.elems {
+                        match elem {
+                            Option::Identifier(elem) => {
+                                deps.push(elem.name.clone())
+                            }
+                            _ => {}
+                        }
                     }
                 }
+                _ => {}
             }
         }
         component.use_effect.push(EffectInfo { dependencies: deps, is_client_side: false });
@@ -312,14 +329,7 @@ impl MinimactTranspiler {
         } {
             return;
         }
-        let ref_name = match binding {
-            Expr::Ident(inner) => {
-                inner
-            }
-            _ => {
-                unreachable!()
-            }
-        }.sym.to_string();
+        let ref_name = binding.sym.to_string();
         let initial_value = if (call.args.len() > 0) {
             Self::expr_to_csharp(&call.args[0])
         } else {
@@ -329,30 +339,51 @@ impl MinimactTranspiler {
     }
     
     fn expr_to_csharp(expr: &Expr) -> String {
-        if let Expr::Lit(Lit::Str(__inner)) = expr {
-            return format!("\"{}\"", __inner.value.as_ref());
-        } else {
-            if let Expr::Lit(Lit::Num(__inner)) = expr {
-                return __inner.value.to_string();
-            } else {
-                if let Expr::Lit(Lit::Bool(__inner)) = expr {
-                    return if __inner.value {
-                        "true"
-                    } else {
-                        "false"
-                    }.to_string();
-                } else {
-                    if let Expr::Lit(Lit::Null(__inner)) = expr {
-                        return "null".to_string();
-                    } else {
-                        if let Expr::Ident(__inner) = expr {
-                            return __inner.sym.to_string().clone();
-                        } else {
-                            if let Expr::Array(__inner) = expr {
-                                return "new List<dynamic>()".to_string();
-                            } else {
-                                if let Expr::Object(__inner) = expr {
-                                    return "new Dictionary<string, dynamic>()".to_string();
+        match expr {
+            Expr::Lit(Lit::Str(expr)) => {
+                return format!("\"{}\"", expr.value.as_ref());
+            }
+            _ => {
+                match expr {
+                    Expr::Lit(Lit::Num(expr)) => {
+                        return expr.value.to_string();
+                    }
+                    _ => {
+                        match expr {
+                            Expr::Lit(Lit::Bool(expr)) => {
+                                return if expr.value {
+                                    "true"
+                                } else {
+                                    "false"
+                                }.to_string();
+                            }
+                            _ => {
+                                match expr {
+                                    Expr::Lit(Lit::Null(expr)) => {
+                                        return "null".to_string();
+                                    }
+                                    _ => {
+                                        match expr {
+                                            Expr::Ident(expr) => {
+                                                return expr.sym.to_string().clone();
+                                            }
+                                            _ => {
+                                                match expr {
+                                                    Expr::Array(expr) => {
+                                                        return "new List<dynamic>()".to_string();
+                                                    }
+                                                    _ => {
+                                                        match expr {
+                                                            Expr::Object(expr) => {
+                                                                return "new Dictionary<string, dynamic>()".to_string();
+                                                            }
+                                                            _ => {}
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -364,25 +395,40 @@ impl MinimactTranspiler {
     }
     
     fn infer_csharp_type(expr: &Expr) -> String {
-        if let Expr::Lit(Lit::Str(__inner)) = expr {
-            return "string".to_string();
-        } else {
-            if let Expr::Lit(Lit::Num(__inner)) = expr {
-                let val = __inner.value;
-                if (val == val.floor()) {
-                    return "int".to_string();
-                } else {
-                    return "double".to_string();
-                }
-            } else {
-                if let Expr::Lit(Lit::Bool(__inner)) = expr {
-                    return "bool".to_string();
-                } else {
-                    if let Expr::Array(__inner) = expr {
-                        return "List<dynamic>".to_string();
-                    } else {
-                        if let Expr::Object(__inner) = expr {
-                            return "Dictionary<string, dynamic>".to_string();
+        match expr {
+            Expr::Lit(Lit::Str(expr)) => {
+                return "string".to_string();
+            }
+            _ => {
+                match expr {
+                    Expr::Lit(Lit::Num(expr)) => {
+                        let val = expr.value;
+                        if (val == val.floor()) {
+                            return "int".to_string();
+                        } else {
+                            return "double".to_string();
+                        }
+                    }
+                    _ => {
+                        match expr {
+                            Expr::Lit(Lit::Bool(expr)) => {
+                                return "bool".to_string();
+                            }
+                            _ => {
+                                match expr {
+                                    Expr::Array(expr) => {
+                                        return "List<dynamic>".to_string();
+                                    }
+                                    _ => {
+                                        match expr {
+                                            Expr::Object(expr) => {
+                                                return "Dictionary<string, dynamic>".to_string();
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
