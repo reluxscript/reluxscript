@@ -1105,6 +1105,13 @@ impl SwcEmitter {
     fn emit_match_stmt(&mut self, match_stmt: &DecoratedMatchStmt) {
         self.emit_indent();
         self.output.push_str("match ");
+
+        // If the scrutinee is a Box<T>, we need to dereference it with &*
+        // This allows matching against the inner type
+        if match_stmt.expr.metadata.is_boxed {
+            self.output.push_str("&*");
+        }
+
         self.emit_expr(&match_stmt.expr);
         self.output.push_str(" {\n");
 
@@ -1360,6 +1367,27 @@ impl SwcEmitter {
             }
 
             DecoratedExprKind::Member { object, property: _, optional, computed: _, is_path, field_metadata } => {
+                // Special case: if object has read_conversion that unwraps to Expr enum,
+                // and we're accessing .sym, generate a match expression
+                let needs_enum_match = if let DecoratedExprKind::Member { field_metadata: obj_meta, .. } = &object.kind {
+                    obj_meta.read_conversion == ".as_expr().unwrap()" && field_metadata.swc_field_name == "sym"
+                } else {
+                    false
+                };
+
+                if needs_enum_match {
+                    // Generate: match obj.as_ref() { Expr::Ident(i) => i.sym, _ => todo!() }
+                    self.output.push_str("match ");
+                    self.emit_expr(object);
+                    self.output.push_str(".as_ref() { Expr::Ident(i) => i.sym");
+                    // Apply the read_conversion for sym (.to_string())
+                    if !field_metadata.read_conversion.is_empty() {
+                        self.output.push_str(&field_metadata.read_conversion);
+                    }
+                    self.output.push_str(", _ => \"\".into() }");
+                    return;
+                }
+
                 self.emit_expr(object);
 
                 if *optional {

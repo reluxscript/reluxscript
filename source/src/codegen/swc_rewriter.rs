@@ -403,10 +403,17 @@ impl SwcRewriter {
         let pattern = if_stmt.pattern.as_ref().map(|p| self.rewrite_pattern(p.clone()));
 
         // Extract scrutinee name BEFORE transforming condition
-        let scrutinee_name = if let DecoratedExprKind::Ident { ref name, .. } = condition.kind {
-            Some(name.clone())
-        } else {
-            None
+        let scrutinee_name = match &condition.kind {
+            DecoratedExprKind::Ident { ref name, .. } => Some(name.clone()),
+            DecoratedExprKind::Member { ref object, ref property, .. } => {
+                // Handle member expressions like node.expr
+                if let DecoratedExprKind::Ident { ref name, .. } = object.kind {
+                    Some(format!("{}.{}", name, property))
+                } else {
+                    None
+                }
+            }
+            _ => None,
         };
 
         // Add .as_ref() to scrutinee if matching against Box<T>
@@ -543,9 +550,10 @@ impl SwcRewriter {
     /// Add .as_ref() to scrutinee when matching &Box<T> against T pattern
     /// Example: if let Expr::Array(arr) = init  →  if let Expr::Array(arr) = init.as_ref()
     fn add_asref_for_box_match(&self, scrutinee: DecoratedExpr, pattern: &DecoratedPattern) -> DecoratedExpr {
-        // Check if scrutinee is an identifier with Box in its type
+        // Check if scrutinee is an identifier with Box (check is_boxed flag, not string)
+        // This handles both explicit Box<T> types and narrowed types that are still boxed
         let is_ident_with_box = matches!(&scrutinee.kind, DecoratedExprKind::Ident { .. })
-            && scrutinee.metadata.swc_type.contains("Box<");
+            && scrutinee.metadata.is_boxed;
 
         // Check if pattern is a variant pattern (like Expr::Array)
         let is_variant_pattern = matches!(&pattern.kind, DecoratedPatternKind::Variant { .. });
@@ -3162,20 +3170,44 @@ impl SwcRewriter {
             if let Some(last_colon) = before_paren.rfind("::") {
                 let type_name = &before_paren[last_colon + 2..];
                 eprintln!("[DEBUG] Extracted type (with binding): {}", type_name);
-                return type_name.to_string();
+
+                // Map variant names to SWC types: Call -> CallExpr, Member -> MemberExpr, etc.
+                let swc_type = if swc_pattern.starts_with("Expr::") {
+                    format!("{}Expr", type_name)
+                } else if swc_pattern.starts_with("Stmt::") {
+                    format!("{}Stmt", type_name)
+                } else if swc_pattern.starts_with("Pat::") {
+                    format!("{}Pat", type_name)
+                } else {
+                    type_name.to_string()
+                };
+
+                return swc_type;
             }
         }
 
         // No binding in pattern - extract the last part after ::
-        // E.g., "Expr::Ident" -> "Ident", "Pat::Object" -> "ObjectPat"
+        // E.g., "Expr::Call" -> "CallExpr", "Pat::Object" -> "ObjectPat"
         if let Some(last_colon) = swc_pattern.rfind("::") {
             let type_name = &swc_pattern[last_colon + 2..];
             eprintln!("[DEBUG] Extracted type (no binding): {}", type_name);
-            // For Pat::Ident, it's actually BindingIdent
-            if type_name == "Ident" && swc_pattern.starts_with("Pat::") {
-                return "BindingIdent".to_string();
-            }
-            return type_name.to_string();
+
+            // Map variant names to SWC types
+            let swc_type = if swc_pattern.starts_with("Expr::") {
+                format!("{}Expr", type_name)
+            } else if swc_pattern.starts_with("Stmt::") {
+                format!("{}Stmt", type_name)
+            } else if swc_pattern.starts_with("Pat::") {
+                if type_name == "Ident" {
+                    "BindingIdent".to_string()
+                } else {
+                    format!("{}Pat", type_name)
+                }
+            } else {
+                type_name.to_string()
+            };
+
+            return swc_type;
         }
 
         // Fallback: Unknown type
@@ -3227,6 +3259,31 @@ impl SwcRewriter {
         binding_name: &str,
         binding_type: &str,
     ) -> DecoratedExpr {
+        // Check if this expression IS the scrutinee (e.g., node.expr matches "node.expr")
+        if let DecoratedExprKind::Member { ref object, ref property, .. } = expr.kind {
+            if let DecoratedExprKind::Ident { ref name, .. } = object.kind {
+                let full_path = format!("{}.{}", name, property);
+                if full_path == scrutinee_name {
+                    // This IS the scrutinee - replace with binding
+                    eprintln!("[SCRUTINEE REPLACEMENT] Replacing {} with {} (type: {})", full_path, binding_name, binding_type);
+                    return DecoratedExpr {
+                        kind: DecoratedExprKind::Ident {
+                            name: binding_name.to_string(),
+                            ident_metadata: SwcIdentifierMetadata::name(),
+                        },
+                        metadata: SwcExprMetadata {
+                            swc_type: binding_type.to_string(),
+                            is_boxed: false,
+                            is_optional: false,
+                            type_kind: SwcTypeKind::Struct,
+                            span: expr.metadata.span,
+                            needs_enum_unwrap: None,
+                        },
+                    };
+                }
+            }
+        }
+
         // Check if this is member access on the scrutinee
         if let DecoratedExprKind::Member { object, property, .. } = &expr.kind {
             if let DecoratedExprKind::Ident { name, .. } = &object.kind {
@@ -3295,8 +3352,40 @@ impl SwcRewriter {
                 read_conversion: mapping.read_conversion.to_string(),
             }
         } else {
-            // Fallback: direct field access
-            SwcFieldMetadata::direct(field_name.to_string(), type_name.to_string())
+            // Fallback: Apply common AST field name mappings
+            // These handle cases where type information is not available (e.g., in traverse blocks)
+            let swc_field = match field_name {
+                // Identifier.name -> Ident.sym
+                "name" => "sym",
+                // MemberExpression.property -> MemberExpr.prop
+                "property" => "prop",
+                // MemberExpression.object -> MemberExpr.obj
+                "object" => "obj",
+                // CallExpression.arguments -> CallExpr.args
+                "arguments" => "args",
+                // CallExpression.callee -> CallExpr.callee (no change)
+                "callee" => "callee",
+                // ArrayPattern.elements / ArrayExpression.elements -> elems
+                "elements" => "elems",
+                // No mapping found
+                _ => field_name,
+            };
+
+            // Add .to_string() conversion for sym field (Atom -> String)
+            let read_conversion = if swc_field == "sym" {
+                ".to_string()"
+            } else {
+                ""
+            };
+
+            SwcFieldMetadata {
+                swc_field_name: swc_field.to_string(),
+                field_type: "Unknown".to_string(),
+                accessor: FieldAccessor::Direct,
+                source_field: Some(field_name.to_string()),
+                span: None,
+                read_conversion: read_conversion.to_string(),
+            }
         }
     }
 

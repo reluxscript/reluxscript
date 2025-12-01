@@ -213,7 +213,8 @@ impl TypeChecker {
                 }
 
                 // Type narrowing for if-let patterns (positive matches)
-                self.env.push_scope();
+                // NOTE: Don't push/pop scope here - we want the narrowing to persist
+                // in semantic_type_env so the decorator can see it
 
                 // If there's a pattern, try to narrow the scrutinee type
                 if let Some(ref pattern) = if_stmt.pattern {
@@ -224,14 +225,13 @@ impl TypeChecker {
                         // Get the narrowed type from the pattern
                         if let Some(narrowed_type) = self.pattern_to_concrete_type(pattern) {
                             eprintln!("DEBUG narrowing: shadowing '{}' with type {:?} in then-branch", var_name, narrowed_type);
-                            // Shadow the variable with the narrowed type in this scope
+                            // Shadow the variable with the narrowed type - this will persist!
                             self.env.define(var_name, narrowed_type);
                         }
                     }
                 }
 
                 self.check_block(&if_stmt.then_branch);
-                self.env.pop_scope();
 
                 // Type narrowing for negated matches with early return
                 // Pattern: if !matches!(x, Type) { return; }
@@ -654,6 +654,16 @@ impl TypeChecker {
             }
 
             Expr::Member(member) => {
+                // Check if this member expression has a narrowed type
+                // e.g., after `if matches!(node.expr, CallExpression)`, `node.expr` is narrowed
+                if let Expr::Ident(ident) = member.object.as_ref() {
+                    let member_path = format!("{}.{}", ident.name, member.property);
+                    if let Some(narrowed) = self.env.lookup(&member_path) {
+                        eprintln!("[TYPE INFER] Member '{}' has narrowed type: {}", member_path, narrowed.display_name());
+                        return narrowed.clone();
+                    }
+                }
+
                 let obj_type = self.infer_expr(&member.object);
                 self.get_field_type(&obj_type, &member.property)
             }
@@ -1000,7 +1010,7 @@ impl TypeChecker {
     }
 
     /// Extract a simple scrutinee variable name from an expression
-    /// Returns Some(name) only for simple identifiers or references to identifiers
+    /// Returns Some(name) for identifiers, references, or member accesses
     fn extract_simple_scrutinee(&self, expr: &Expr) -> Option<String> {
         match expr {
             Expr::Ident(ident) => {
@@ -1014,6 +1024,18 @@ impl TypeChecker {
                     Some(ident.name.clone())
                 } else {
                     eprintln!("DEBUG narrowing: reference to non-identifier ({:?}), cannot narrow", ref_expr.expr);
+                    None
+                }
+            }
+            Expr::Member(mem) => {
+                // Handle member access like node.expr
+                // Build the full path: object.property
+                if let Expr::Ident(ident) = mem.object.as_ref() {
+                    let path = format!("{}.{}", ident.name, mem.property);
+                    eprintln!("DEBUG narrowing: extracted scrutinee '{}' from member access", path);
+                    Some(path)
+                } else {
+                    eprintln!("DEBUG narrowing: member access with non-ident object, cannot narrow");
                     None
                 }
             }

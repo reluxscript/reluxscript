@@ -678,6 +678,17 @@ pub fn get_typed_field_mapping(parent_swc_type: &str, field: &str) -> Option<Typ
             write_conversion: ".into()",
         }),
 
+        // ExprStmt fields
+        ("ExprStmt", "expr") | ("ExprStmt", "expression") => Some(TypedFieldMapping {
+            reluxscript_field: "expr",
+            swc_field: "expr",
+            needs_deref: true, // Box<Expr>
+            result_type_rs: "Expr",
+            result_type_swc: "Expr",
+            read_conversion: "",
+            write_conversion: "",
+        }),
+
         // BlockStmt fields
         ("BlockStmt", "body") | ("BlockStmt", "stmts") => Some(TypedFieldMapping {
             reluxscript_field: "body",

@@ -88,7 +88,7 @@ impl<'a> VisitMut for __InlineVisitor_0<'a> {
     fn visit_mut_var_declarator(&mut self, decl: &mut VarDeclarator) {
         match &decl.init {
             Option::Some(init) => {
-                match init.as_ref() {
+                match init {
                     Expr::Call(init) => {
                         MinimactTranspiler::extract_hook_from_call(init, &decl.name, &mut self.component)
                     }
@@ -102,7 +102,7 @@ impl<'a> VisitMut for __InlineVisitor_0<'a> {
     fn visit_mut_return_stmt(&mut self, ret: &mut ReturnStmt) {
         match &ret.arg {
             Option::Some(arg) => {
-                match arg.as_ref() {
+                match arg {
                     Expr::JSXElement(arg) => {
                         self.component.render_body = Some(arg.clone())
                     }
@@ -221,7 +221,7 @@ impl MinimactTranspiler {
     
     fn extract_props(param: &Pat, component: &mut ComponentInfo) {
         match param {
-            Pat::Object(param) => {
+            ObjectPattern(param) => {
                 for prop in &param.props {
                     match prop {
                         ObjectPatternProperty(prop) => {
@@ -243,7 +243,7 @@ impl MinimactTranspiler {
     }
     
     fn extract_hook_from_call(call: &CallExpr, binding: &Pat, component: &mut ComponentInfo) {
-        if !match &call.callee.as_expr().unwrap() {
+        if !match &call.callee {
             Identifier => {
                 true
             }
@@ -253,14 +253,15 @@ impl MinimactTranspiler {
         } {
             return;
         }
-        let callee_name = call.callee.as_expr().unwrap().name.to_string();
-        if ((callee_name == "useState") || (callee_name == "useClientState")) {
+        let call.callee = call.callee.as_ref().unwrap();
+        let callee_name = call.callee.sym.to_string();
+        if ((&*callee_name == "useState") || (&*callee_name == "useClientState")) {
             Self::extract_use_state(call, binding, component)
         } else {
-            if (callee_name == "useEffect") {
+            if (&*callee_name == "useEffect") {
                 Self::extract_use_effect(call, component)
             } else {
-                if (callee_name == "useRef") {
+                if (&*callee_name == "useRef") {
                     Self::extract_use_ref(call, binding, component)
                 } else {
                     if callee_name.starts_with("use") {
@@ -283,12 +284,12 @@ impl MinimactTranspiler {
         }
         let binding = binding.as_ref().unwrap();
         let arr = binding.clone();
-        if (arr.elements.len() < 1) {
+        if (arr.elems.len() < 1) {
             return;
         }
-        let state_var = arr.elements[0].name.to_string();
-        let setter_var = if (arr.elements.len() > 1) {
-            Some(arr.elements[1].name.to_string())
+        let state_var = arr.elems[0].name.to_string();
+        let setter_var = if (arr.elems.len() > 1) {
+            Some(arr.elems[1].name.to_string())
         } else {
             None
         };
@@ -350,7 +351,7 @@ impl MinimactTranspiler {
     fn expr_to_csharp(expr: &Expr) -> String {
         match expr {
             Expr::Lit(Lit::Str(expr)) => {
-                return format!("\"{}\"", expr.value.as_ref());
+                return format!("\"{}\"", expr.value);
             }
             _ => {
                 match expr {

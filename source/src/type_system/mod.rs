@@ -3,10 +3,10 @@
 //! This module contains type representations and utilities that are used
 //! by both semantic analysis and code generation layers.
 
-mod type_context;
 mod type_environment;
 
-pub use type_context::{TypeContext, SwcTypeKind, classify_swc_type, map_reluxscript_to_swc};
+// Re-export from codegen to avoid duplication
+pub use crate::codegen::type_context::{TypeContext, SwcTypeKind, classify_swc_type, map_reluxscript_to_swc};
 pub use type_environment::TypeEnvironment;
 
 // Re-export field mapping functions that work with types
