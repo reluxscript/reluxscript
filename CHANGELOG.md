@@ -5,6 +5,31 @@ All notable changes to ReluxScript will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2025-12-01
+
+### Added
+- **Impl Blocks**: Full support for associated functions using `impl` blocks
+  - Methods can be defined on structs for better organization
+  - Automatic detection and code generation for both targets
+- **JSON Module**: Built-in `json` module with automatic SWC mapping to `serde_json`
+- **Traverse Blocks**: Enhanced support for inline visitor generation with proper captured variable transformation
+- **Matches! Macro**: Full expansion with proper reference pattern handling
+- **Debug Derives**: Automatic `Debug` trait derivation support
+
+### Fixed
+- **Type System**: Vec element type extraction now correctly handles nested generics like `Vec<Option<Pat>>`
+- **Semantic Types**: Decorator now prefers semantic type checker types over inferred types for better accuracy
+- **Type Mappings**: Added mappings for SWC type names (ArrayPat, ObjectPat, etc.) to map to themselves
+- **Field Access**: Added `Option<Pat>.name` field mapping for proper unwrap + destructure + sym access
+- **Let-Else Statements**: Fixed semicolon generation in `create_pat_destructuring()` for proper Rust syntax
+- **Pattern Matching**: Traverse block methods now properly rewritten before hoisting to expand matches! macros
+- **Helper Functions**: Fixed `&mut self` parameter detection to only add to visitor methods and explicit self functions
+
+### Changed
+- Enhanced type context with bidirectional SWC type mappings
+- Improved captured variable transformation in hoisted visitor structs
+- Better handling of reference patterns in match expressions
+
 ## [0.1.2] - 2025-11-30
 
 ### Added
