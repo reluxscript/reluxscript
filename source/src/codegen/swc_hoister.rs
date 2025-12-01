@@ -389,7 +389,7 @@ impl SwcHoister {
                     kind: DecoratedExprKind::Literal(crate::parser::Literal::String(
                         format!("/* TODO: Delegate to {} */", visitor_name)
                     )),
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "()".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -430,7 +430,7 @@ impl SwcHoister {
                                     span: Some(capture.span),
                                 },
                             },
-                            metadata: SwcExprMetadata {
+                            metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                                 swc_type: "i32".to_string(), // TODO: proper type
                                 is_boxed: false,
                                 is_optional: false,
@@ -443,7 +443,7 @@ impl SwcHoister {
                             span: Some(capture.span),
                         },
                     },
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "&mut i32".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -465,7 +465,7 @@ impl SwcHoister {
                                     span: Some(capture.span),
                                 },
                             },
-                            metadata: SwcExprMetadata {
+                            metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                                 swc_type: "i32".to_string(),
                                 is_boxed: false,
                                 is_optional: false,
@@ -478,7 +478,7 @@ impl SwcHoister {
                             span: Some(capture.span),
                         },
                     },
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "&i32".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -509,7 +509,7 @@ impl SwcHoister {
                 fields,
                 span: traverse.span,
             }),
-            metadata: SwcExprMetadata {
+            metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                 swc_type: struct_name.to_string(),
                 is_boxed: false,
                 is_optional: false,
@@ -541,7 +541,7 @@ impl SwcHoister {
                             read_conversion: String::new(),
                         },
                     },
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "fn(&mut Self)".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -559,7 +559,7 @@ impl SwcHoister {
                                 span: Some(traverse.span),
                             },
                         },
-                        metadata: SwcExprMetadata {
+                        metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                             swc_type: format!("&mut {}", struct_name),
                             is_boxed: false,
                             is_optional: false,
@@ -573,7 +573,7 @@ impl SwcHoister {
                 is_macro: false,
                 span: traverse.span,
             })),
-            metadata: SwcExprMetadata {
+            metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                 swc_type: "()".to_string(),
                 is_boxed: false,
                 is_optional: false,
@@ -720,7 +720,7 @@ impl CaptureTransformer {
                                         span: expr.metadata.span,
                                     },
                                 },
-                                metadata: SwcExprMetadata {
+                                metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                                     swc_type: "Self".to_string(),
                                     is_boxed: false,
                                     is_optional: false,
@@ -869,7 +869,7 @@ impl CaptureTransformer {
                                             span: call.callee.metadata.span,
                                         },
                                     },
-                                    metadata: crate::codegen::swc_metadata::SwcExprMetadata {
+                                    metadata: crate::codegen::swc_metadata::SwcExprMetadata { needs_enum_unwrap: None, 
                                         swc_type: writer_type.clone(),
                                         is_boxed: false,
                                         is_optional: false,

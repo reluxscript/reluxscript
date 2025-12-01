@@ -810,6 +810,26 @@ pub fn reluxscript_to_swc(reluxscript_name: &str) -> String {
         .unwrap_or_else(|| reluxscript_name.to_string())
 }
 
+/// Get parent enum and variant name for a concrete SWC type
+/// Returns (parent_enum_name, variant_name) if the type is wrapped in an enum
+/// Example: "ArrayPat" → Some(("Pat", "Array"))
+pub fn get_parent_enum_for_swc_type(swc_type: &str) -> Option<(String, String)> {
+    // Find mapping by SWC type
+    for mapping in NODE_MAPPINGS.iter() {
+        if mapping.swc == swc_type {
+            // Check if it has a parent enum
+            if let Some(enum_path) = mapping.swc_enum {
+                // Parse "Pat::Array" into ("Pat", "Array")
+                if let Some((parent, variant)) = enum_path.split_once("::") {
+                    return Some((parent.to_string(), variant.to_string()));
+                }
+            }
+            break;
+        }
+    }
+    None
+}
+
 /// Get Babel type from ReluxScript type
 pub fn reluxscript_to_babel(reluxscript_name: &str) -> String {
     get_node_mapping(reluxscript_name)

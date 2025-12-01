@@ -13,7 +13,7 @@ mod helpers;
 mod patterns;
 mod ts_helpers;
 
-pub use nodes::{NodeMapping, NODE_MAPPINGS, get_node_mapping, get_node_mapping_by_visitor};
+pub use nodes::{NodeMapping, NODE_MAPPINGS, get_node_mapping, get_node_mapping_by_visitor, get_parent_enum_for_swc_type};
 pub use fields::{FieldMapping, get_field_mapping};
 pub use helpers::{HelperMapping, get_helper_for_field};
 pub use patterns::{PatternMapping, get_pattern_check};

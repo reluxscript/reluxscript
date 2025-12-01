@@ -27,7 +27,14 @@ impl TestElementsOnPat {
         } {
             return;
         }
-        let arr = binding.clone();
+        let arr = match binding {
+            Pat::Array(inner) => {
+                inner
+            }
+            _ => {
+                unreachable!()
+            }
+        }.clone();
         if (arr.elems.len() < 1) {
             return;
         }

@@ -918,7 +918,7 @@ impl SwcDecorator {
                         is_path: mem.is_path,
                         field_metadata,
                     },
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: member_type,
                         is_boxed: false,
                         is_optional: false,
@@ -939,22 +939,32 @@ impl SwcDecorator {
                 let name = &ident_expr.name;
 
                 // Look up type in environment (semantic FIRST for narrowed types, then local)
-                let type_ctx = if let Some(swc_type_str) = self.lookup_semantic_type(name) {
+                let (type_ctx, needs_enum_unwrap) = if let Some(swc_type_str) = self.lookup_semantic_type(name) {
                     // Semantic TypeEnv has the most up-to-date narrowed types
                     eprintln!("[DEBUG] Ident '{}' found in semantic TypeEnv: {}", name, swc_type_str);
-                    TypeContext {
+
+                    // Check if this is a narrowed type by looking up parent enum in mappings
+                    let unwrap_info = if let Some((parent_enum, variant_name)) = crate::mapping::get_parent_enum_for_swc_type(&swc_type_str) {
+                        eprintln!("[NARROWING DATA-DRIVEN] '{}' has type {} → parent enum {}::{}",
+                            name, swc_type_str, parent_enum, variant_name);
+                        Some((parent_enum, variant_name))
+                    } else {
+                        None
+                    };
+
+                    (TypeContext {
                         reluxscript_type: name.clone(),
                         swc_type: swc_type_str.clone(),
                         kind: SwcTypeKind::Unknown, // Will be refined later
                         known_variant: None,
                         needs_deref: false,
-                    }
+                    }, unwrap_info)
                 } else if let Some(ctx) = self.type_env.get(name).cloned() {
                     eprintln!("[DEBUG] Ident '{}' found in local type_env: {}", name, ctx.swc_type);
-                    ctx
+                    (ctx, None)
                 } else {
                     eprintln!("[DEBUG] Ident '{}' not found, using UserDefined", name);
-                    TypeContext::unknown()
+                    (TypeContext::unknown(), None)
                 };
 
                 DecoratedExpr {
@@ -963,6 +973,7 @@ impl SwcDecorator {
                         ident_metadata: SwcIdentifierMetadata::name(),
                     },
                     metadata: SwcExprMetadata {
+                        needs_enum_unwrap,
                         swc_type: type_ctx.swc_type.clone(),
                         is_boxed: type_ctx.is_boxed(),
                         is_optional: false,
@@ -1065,7 +1076,7 @@ impl SwcDecorator {
                         is_path: mem.is_path,
                         field_metadata: field_metadata.clone(),
                     },
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: member_type,
                         is_boxed: matches!(field_metadata.accessor, FieldAccessor::BoxedAsRef | FieldAccessor::BoxedRefDeref),
                         is_optional: false,
@@ -1112,7 +1123,7 @@ impl SwcDecorator {
                             span: Some(unary.span),
                         },
                     },
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: result_type,
                         is_boxed: false,
                         is_optional: false,
@@ -1125,7 +1136,7 @@ impl SwcDecorator {
             Expr::Literal(lit) => {
                 DecoratedExpr {
                     kind: DecoratedExprKind::Literal(lit.clone()),
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "Literal".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1155,7 +1166,7 @@ impl SwcDecorator {
                             span: Some(bin.span),
                         },
                     },
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "bool".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1216,7 +1227,7 @@ impl SwcDecorator {
                         is_macro: call.is_macro,
                         span: call.span,
                     })),
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: return_type.unwrap_or("UserDefined").to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1241,7 +1252,7 @@ impl SwcDecorator {
 
                 DecoratedExpr {
                     kind: DecoratedExprKind::Block(decorated_block),
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "UserDefined".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1273,7 +1284,7 @@ impl SwcDecorator {
                         object,
                         index: index_expr,
                     },
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: element_type,
                         is_boxed: false,
                         is_optional: false,
@@ -1300,7 +1311,7 @@ impl SwcDecorator {
                         fields: decorated_fields,
                         span: struct_init.span,
                     }),
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type,
                         is_boxed: false,
                         is_optional: false,
@@ -1315,7 +1326,7 @@ impl SwcDecorator {
 
                 DecoratedExpr {
                     kind: DecoratedExprKind::VecInit(elements),
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "Vec".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1336,7 +1347,7 @@ impl SwcDecorator {
                         then_branch,
                         else_branch,
                     })),
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "UserDefined".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1370,7 +1381,7 @@ impl SwcDecorator {
                         expr,
                         arms,
                     })),
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "UserDefined".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1383,7 +1394,7 @@ impl SwcDecorator {
             Expr::Closure(closure) => {
                 DecoratedExpr {
                     kind: DecoratedExprKind::Closure(closure.clone()),
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "Closure".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1412,7 +1423,7 @@ impl SwcDecorator {
                         mutable: ref_expr.mutable,
                         expr,
                     },
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "Reference".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1431,7 +1442,7 @@ impl SwcDecorator {
 
                 DecoratedExpr {
                     kind: DecoratedExprKind::Deref(expr),
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type,
                         is_boxed: false,
                         is_optional: false,
@@ -1447,7 +1458,7 @@ impl SwcDecorator {
 
                 DecoratedExpr {
                     kind: DecoratedExprKind::Assign { left, right },
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "()".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1467,7 +1478,7 @@ impl SwcDecorator {
                         op: compound.op,
                         right,
                     },
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "()".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1487,7 +1498,7 @@ impl SwcDecorator {
                         end,
                         inclusive: range.inclusive,
                     },
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "Range".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1502,7 +1513,7 @@ impl SwcDecorator {
 
                 DecoratedExpr {
                     kind: DecoratedExprKind::Try(expr),
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "UserDefined".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1517,7 +1528,7 @@ impl SwcDecorator {
 
                 DecoratedExpr {
                     kind: DecoratedExprKind::Tuple(elements),
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "Tuple".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1540,7 +1551,7 @@ impl SwcDecorator {
                         expr,
                         pattern,
                     },
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "bool".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1555,7 +1566,7 @@ impl SwcDecorator {
 
                 DecoratedExpr {
                     kind: DecoratedExprKind::Return(value),
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "!".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1568,7 +1579,7 @@ impl SwcDecorator {
             Expr::Break => {
                 DecoratedExpr {
                     kind: DecoratedExprKind::Break,
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "!".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1581,7 +1592,7 @@ impl SwcDecorator {
             Expr::Continue => {
                 DecoratedExpr {
                     kind: DecoratedExprKind::Continue,
-                    metadata: SwcExprMetadata {
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                         swc_type: "!".to_string(),
                         is_boxed: false,
                         is_optional: false,
@@ -1879,7 +1890,7 @@ impl SwcDecorator {
                     span: Some(access.span),
                 },
             })),
-            metadata: SwcExprMetadata {
+            metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                 swc_type,
                 is_boxed: false,
                 is_optional: true,
@@ -2011,7 +2022,7 @@ impl SwcDecorator {
                 },
                 span: regex_call.span,
             })),
-            metadata: SwcExprMetadata {
+            metadata: SwcExprMetadata { needs_enum_unwrap: None, 
                 swc_type,
                 is_boxed: false,
                 is_optional,

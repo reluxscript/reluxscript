@@ -82,6 +82,10 @@ pub struct SwcExprMetadata {
     /// SWC type kind (Enum, Struct, WrapperEnum, etc.)
     pub type_kind: crate::type_system::SwcTypeKind,
 
+    /// If this is a narrowed type that needs enum unwrapping, contains (parent_enum, variant_name)
+    /// Example: swc_type="ArrayPat" but stored in Pat enum → Some(("Pat", "Array"))
+    pub needs_enum_unwrap: Option<(String, String)>,
+
     /// Source location for error reporting
     pub span: Option<Span>,
 }
