@@ -1397,6 +1397,12 @@ impl SwcEmitter {
                     return;
                 }
 
+                // Emit prefix for Utf8Lossy accessor
+                if let FieldAccessor::Utf8Lossy = field_metadata.accessor {
+                    eprintln!("[EMIT UTF8LOSSY] Emitting wrapper prefix");
+                    self.output.push_str("String::from_utf8_lossy(");
+                }
+
                 self.emit_expr(object);
 
                 if *optional {
@@ -1428,6 +1434,11 @@ impl SwcEmitter {
                         // Emit .as_ref() for Atom types to get &str for Display
                         self.output.push_str(".as_ref()");
                     }
+                    FieldAccessor::Utf8Lossy => {
+                        // String::from_utf8_lossy wrapper is emitted as prefix
+                        // Emit .as_bytes() here, then close the wrapper paren
+                        self.output.push_str(".as_bytes())");
+                    }
                     FieldAccessor::EnumField { .. } => {
                         // No special handling needed
                     }
@@ -1441,7 +1452,8 @@ impl SwcEmitter {
                 }
 
                 // Apply read conversion if present (e.g., .to_string() for Atom → String)
-                if !field_metadata.read_conversion.is_empty() {
+                // Skip for Utf8Lossy accessor - it's already included in the wrapper
+                if !field_metadata.read_conversion.is_empty() && !matches!(field_metadata.accessor, FieldAccessor::Utf8Lossy) {
                     self.output.push_str(&field_metadata.read_conversion);
                 }
             }

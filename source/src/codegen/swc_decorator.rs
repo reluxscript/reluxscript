@@ -1214,7 +1214,10 @@ impl SwcDecorator {
                     let is_boxed = mapping.result_type_swc.starts_with("Box<");
                     SwcFieldMetadata {
                         swc_field_name: mapping.swc_field.to_string(),
-                        accessor: if is_boxed {
+                        accessor: if mapping.read_conversion == ".as_bytes()" {
+                            eprintln!("[DEBUG SUPPRESS ATOM] Using Utf8Lossy accessor for Atom field");
+                            FieldAccessor::Utf8Lossy
+                        } else if is_boxed {
                             FieldAccessor::BoxedRefDeref  // For Box<T> fields like member.obj
                         } else {
                             FieldAccessor::Direct
@@ -1482,16 +1485,17 @@ impl SwcDecorator {
                         object_type, mem.property, object_type, mapping.swc_field, mapping.needs_deref);
                     SwcFieldMetadata {
                         swc_field_name: mapping.swc_field.to_string(),
-                        accessor: if mapping.needs_deref {
-                            // Check if this is Atom type which needs &* for Display
-                            if mapping.result_type_swc == "Atom" {
-                                eprintln!("[DEBUG ATOM] Using DerefDisplay accessor for Atom field");
-                                FieldAccessor::DerefDisplay
-                            } else {
+                        accessor: {
+                            eprintln!("[DEBUG ACCESSOR] read_conversion='{}', checking for .as_bytes()", mapping.read_conversion);
+                            if mapping.read_conversion == ".as_bytes()" {
+                                // Atom/JsWord needs String::from_utf8_lossy wrapping
+                                eprintln!("[DEBUG ATOM] Using Utf8Lossy accessor for Atom field");
+                                FieldAccessor::Utf8Lossy
+                            } else if mapping.needs_deref {
                                 FieldAccessor::BoxedAsRef
+                            } else {
+                                FieldAccessor::Direct
                             }
-                        } else {
-                            FieldAccessor::Direct
                         },
                         field_type: mapping.result_type_swc.to_string(),
                         source_field: Some(mem.property.clone()),

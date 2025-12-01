@@ -144,6 +144,10 @@ pub enum FieldAccessor {
     /// This is emitted differently than BoxedRefDeref - needs wrapping at expr level
     DerefDisplay,
 
+    /// Atom/JsWord field that needs String::from_utf8_lossy(x.as_bytes()) for Display
+    /// Example: String::from_utf8_lossy(str_lit.value.as_bytes())
+    Utf8Lossy,
+
     /// Enum field that has a different type than expected
     /// Example: member.prop is MemberProp, not Expr
     /// Need to pattern match on it differently

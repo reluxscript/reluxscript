@@ -3354,7 +3354,9 @@ impl SwcRewriter {
             SwcFieldMetadata {
                 swc_field_name: mapping.swc_field.to_string(),
                 field_type: mapping.result_type_swc.to_string(),
-                accessor: if mapping.needs_deref {
+                accessor: if mapping.read_conversion == ".as_bytes()" {
+                    FieldAccessor::Utf8Lossy
+                } else if mapping.needs_deref {
                     // Check if this is Atom type which needs &* for Display
                     if mapping.result_type_swc == "Atom" {
                         FieldAccessor::DerefDisplay

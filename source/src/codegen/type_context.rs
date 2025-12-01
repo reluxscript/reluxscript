@@ -837,10 +837,10 @@ pub fn get_typed_field_mapping(parent_swc_type: &str, field: &str) -> Option<Typ
         ("Str", "value") | ("StrExpr", "value") => Some(TypedFieldMapping {
             reluxscript_field: "value",
             swc_field: "value",
-            needs_deref: true,  // Use &* to deref Atom to &str
+            needs_deref: false,
             result_type_rs: "Str",
             result_type_swc: "Atom",
-            read_conversion: "",  // Deref handled by needs_deref flag
+            read_conversion: ".as_bytes()",  // For Display, use String::from_utf8_lossy(x.as_bytes())
             write_conversion: ".into()",
         }),
         ("Number", "value") => Some(TypedFieldMapping {
