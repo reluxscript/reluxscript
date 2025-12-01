@@ -184,10 +184,16 @@ impl SwcRewriter {
             // Insert unwrap: let x = x.as_ref().unwrap();
             if let DecoratedStmt::If(ref if_stmt) = stmt {
                 if let Some(var_name) = Self::extract_option_guard_variable(if_stmt) {
-                    eprintln!("[REWRITER] Detected Option guard for '{}', inserting unwrap", var_name);
-                    // Create: let var_name = var_name.as_ref().unwrap();
-                    let unwrap_stmt = Self::create_unwrap_rebinding(&var_name);
-                    result_stmts.push(unwrap_stmt);
+                    // Only insert unwrap rebinding for simple identifiers, not member expressions
+                    // Member expressions like "call.callee" can't be used as let patterns
+                    if !var_name.contains('.') {
+                        eprintln!("[REWRITER] Detected Option guard for '{}', inserting unwrap", var_name);
+                        // Create: let var_name = var_name.as_ref().unwrap();
+                        let unwrap_stmt = Self::create_unwrap_rebinding(&var_name);
+                        result_stmts.push(unwrap_stmt);
+                    } else {
+                        eprintln!("[REWRITER] Skipping unwrap rebinding for member expression '{}'", var_name);
+                    }
                 }
             }
         }

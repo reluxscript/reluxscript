@@ -243,7 +243,7 @@ impl MinimactTranspiler {
     }
     
     fn extract_hook_from_call(call: &CallExpr, binding: &Pat, component: &mut ComponentInfo) {
-        if !match &call.callee {
+        if !match &call.callee.as_expr().unwrap() {
             Identifier => {
                 true
             }
@@ -253,15 +253,14 @@ impl MinimactTranspiler {
         } {
             return;
         }
-        let call.callee = call.callee.as_ref().unwrap();
-        let callee_name = call.callee.sym.to_string();
-        if ((&*callee_name == "useState") || (&*callee_name == "useClientState")) {
+        let callee_name = match call.callee.as_expr().unwrap().as_ref() { Expr::Ident(i) => i.sym.to_string(), _ => "".into() };
+        if ((callee_name == "useState") || (callee_name == "useClientState")) {
             Self::extract_use_state(call, binding, component)
         } else {
-            if (&*callee_name == "useEffect") {
+            if (callee_name == "useEffect") {
                 Self::extract_use_effect(call, component)
             } else {
-                if (&*callee_name == "useRef") {
+                if (callee_name == "useRef") {
                     Self::extract_use_ref(call, binding, component)
                 } else {
                     if callee_name.starts_with("use") {

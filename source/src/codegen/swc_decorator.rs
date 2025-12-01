@@ -1411,37 +1411,11 @@ impl SwcDecorator {
                             result
                         });
 
-                    if let Some(swc_type) = narrowed_type {
-                        eprintln!("[DECORATOR MEMBER] Narrowed type for '{}': {}", member_path, swc_type);
-
-                        // Need to check if the ORIGINAL field is boxed
-                        // Narrowing changes the type but doesn't unbox it!
-                        let decorated_object = self.decorate_expr(mem.object.as_ref());
-                        let object_type = &decorated_object.metadata.swc_type;
-
-                        let is_boxed = if let Some(mapping) = get_typed_field_mapping(object_type, &mem.property) {
-                            mapping.needs_deref
-                        } else {
-                            false
-                        };
-
-                        eprintln!("[DECORATOR MEMBER] Original field is_boxed: {}", is_boxed);
-
-                        // Return an identifier with the narrowed type BUT preserve Box info
-                        return DecoratedExpr {
-                            kind: DecoratedExprKind::Ident {
-                                name: member_path,
-                                ident_metadata: SwcIdentifierMetadata::name(),
-                            },
-                            metadata: SwcExprMetadata {
-                                swc_type: swc_type.clone(),
-                                is_boxed,
-                                is_optional: false,
-                                type_kind: SwcTypeKind::Struct,
-                                span: Some(mem.span),
-                                needs_enum_unwrap: None,
-                            },
-                        };
+                    if let Some(_swc_type) = narrowed_type {
+                        eprintln!("[DECORATOR MEMBER] Narrowed type for '{}': {} - will apply narrowing after field access", member_path, _swc_type);
+                        // Don't return early! Let the normal member access logic handle it.
+                        // The narrowing will be applied when this member is accessed.
+                        // Fall through to normal member processing...
                     }
                 }
 
