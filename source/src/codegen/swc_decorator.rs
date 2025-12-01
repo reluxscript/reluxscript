@@ -553,13 +553,32 @@ impl SwcDecorator {
 
         // Get the SWC type of the condition
         // Special case: if condition is matches!(expr, Pattern), extract the scrutinee type
-        let condition_type = if let DecoratedExprKind::Matches { ref expr, .. } = decorated_condition.kind {
+        // Special case: if condition is &expr (Ref), add & prefix to the type
+        let condition_type_base = if let DecoratedExprKind::Matches { ref expr, .. } = decorated_condition.kind {
             eprintln!("[DECORATOR IF-LET] Condition is Matches, using scrutinee type: '{}'", expr.metadata.swc_type);
-            &expr.metadata.swc_type
+            expr.metadata.swc_type.clone()
         } else {
             eprintln!("[DECORATOR IF-LET] Condition is not Matches, using condition type: '{}'", decorated_condition.metadata.swc_type);
-            &decorated_condition.metadata.swc_type
+            decorated_condition.metadata.swc_type.clone()
         };
+
+        // If the condition is a Ref/RefMut expression, add the & prefix
+        let condition_type_string = if let DecoratedExprKind::Unary { op, ref operand, .. } = &decorated_condition.kind {
+            match op {
+                crate::parser::UnaryOp::Ref => {
+                    let with_ref = format!("&{}", condition_type_base);
+                    eprintln!("[DECORATOR IF-LET] Condition is &expr, adjusting type: '{}' -> '{}'", condition_type_base, with_ref);
+                    with_ref
+                }
+                crate::parser::UnaryOp::RefMut => {
+                    format!("&mut {}", condition_type_base)
+                }
+                _ => condition_type_base
+            }
+        } else {
+            condition_type_base
+        };
+        let condition_type = &condition_type_string;
 
         // If this is an if-let, decorate the pattern with CONTEXT
         let decorated_pattern = if let Some(ref pattern) = if_stmt.pattern {
@@ -816,13 +835,23 @@ impl SwcDecorator {
                     // Also handles struct-like patterns like CallExpression(_)
                     // Also handles literals like StringLiteral, NumericLiteral
 
+                    // Strip reference prefix from expected_type to get base type
+                    let base_expected_type = if expected_type.starts_with("&mut ") {
+                        &expected_type[5..]
+                    } else if expected_type.starts_with("&") {
+                        &expected_type[1..]
+                    } else {
+                        expected_type
+                    };
+                    eprintln!("[DEBUG PATTERN] Stripped ref prefix: '{}' -> '{}'", expected_type, base_expected_type);
+
                     // First try context-aware mapping for literals
                     // If expected_type is a struct (like ObjectPat), find its parent enum first
-                    let context = if let Some((parent_enum, _)) = crate::mapping::get_parent_enum_for_swc_type(expected_type) {
-                        eprintln!("[DEBUG PATTERN] expected_type '{}' belongs to enum '{}'", expected_type, parent_enum);
+                    let context = if let Some((parent_enum, _)) = crate::mapping::get_parent_enum_for_swc_type(base_expected_type) {
+                        eprintln!("[DEBUG PATTERN] expected_type '{}' belongs to enum '{}'", base_expected_type, parent_enum);
                         parent_enum
                     } else {
-                        expected_type.to_string()
+                        base_expected_type.to_string()
                     };
 
                     let (enum_name, variant, _struct_name) = get_swc_variant_in_context(name, &context);
@@ -1138,11 +1167,24 @@ impl SwcDecorator {
                             // ObjectPatProp::KeyValue -> KeyValuePatProp
                             format!("{}PatProp", variant_name)
                         } else if enum_name == "Option" {
-                            // Option::Some wraps the inner type from Option<T>
-                            // Need to extract T from the expected_type which should be "Option<T>"
+                            // Option::Some wraps the inner type from Option<T> or &Option<T>
+                            // Need to extract T from the expected_type and preserve & prefix
                             if let Some(ref outer_type) = expected_type {
-                                Self::extract_generic_param(outer_type).unwrap_or_else(|| variant_name.to_string())
+                                eprintln!("[STEP 3] Option::Some - outer_type: '{}'", outer_type);
+                                // Check if outer_type is a reference
+                                let (ref_prefix, base_type) = if outer_type.starts_with("&mut ") {
+                                    ("&mut ", &outer_type[5..])
+                                } else if outer_type.starts_with("&") {
+                                    ("&", &outer_type[1..])
+                                } else {
+                                    ("", outer_type.as_str())
+                                };
+                                let extracted = Self::extract_generic_param(base_type).unwrap_or_else(|| variant_name.to_string());
+                                let full_type = format!("{}{}", ref_prefix, extracted);
+                                eprintln!("[STEP 3] Extracted: '{}' (with ref_prefix: '{}')", full_type, ref_prefix);
+                                full_type
                             } else {
+                                eprintln!("[STEP 3] Option::Some - NO expected_type");
                                 variant_name.to_string()
                             }
                         } else {
@@ -1330,7 +1372,10 @@ impl SwcDecorator {
 
                 // Look up type in environment (local FIRST for pattern-narrowed types, then semantic)
                 let (type_ctx, needs_enum_unwrap) = if let Some(ctx) = self.type_env.get(name).cloned() {
-                    eprintln!("[DECORATOR IDENT] '{}' found in type_env: {}", name, ctx.swc_type);
+                    if name == "init" {
+                        eprintln!("[DECORATOR IDENT 'init'] found in type_env: {} (needs_deref={})", ctx.swc_type, ctx.needs_deref);
+                    }
+                    eprintln!("[DECORATOR IDENT] '{}' found in type_env: {} (needs_deref={})", name, ctx.swc_type, ctx.needs_deref);
                     // Local type_env has pattern-narrowed types from match/if-let
                     eprintln!("[DEBUG] Ident '{}' found in local type_env: {} (needs_deref: {})", name, ctx.swc_type, ctx.needs_deref);
 
@@ -1426,6 +1471,8 @@ impl SwcDecorator {
                     eprintln!("[DEBUG] Ident '{}' not found, using UserDefined", name);
                     (TypeContext::unknown(), None)
                 };
+
+                eprintln!("[DECORATOR IDENT FINAL] '{}' → swc_type: '{}'", name, type_ctx.swc_type);
 
                 DecoratedExpr {
                     kind: DecoratedExprKind::Ident {
@@ -2196,9 +2243,21 @@ impl SwcDecorator {
             }
 
             Expr::Matches(matches) => {
+                eprintln!("[DECORATOR] Processing Matches expression");
                 // Decorate scrutinee first to get its type
                 let expr = Box::new(self.decorate_expr(&matches.scrutinee));
                 let scrutinee_type = expr.metadata.swc_type.clone();
+
+                let scrutinee_desc = match matches.scrutinee.as_ref() {
+                    Expr::Ident(id) => format!("Ident({})", id.name),
+                    Expr::Member(m) => {
+                        let obj = if let Expr::Ident(id) = m.object.as_ref() { id.name.as_str() } else { "?" };
+                        format!("Member({}.{})", obj, m.property)
+                    },
+                    Expr::Deref(_) => "Deref".to_string(),
+                    _ => "Other".to_string(),
+                };
+                eprintln!("[DECORATOR MATCHES] Scrutinee {} decorated, type: '{}'", scrutinee_desc, scrutinee_type);
 
                 // Use scrutinee type for pattern
                 let pattern = self.decorate_pattern_with_context(&matches.pattern, &scrutinee_type);

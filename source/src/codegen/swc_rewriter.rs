@@ -343,7 +343,7 @@ impl SwcRewriter {
                 eprintln!("[DEBUG SHADOWING] Found matches! in condition");
                 // Extract the variable name from the scrutinee
                 if let DecoratedExprKind::Ident { name, .. } = &scrutinee.kind {
-                    eprintln!("[DEBUG SHADOWING] Scrutinee is identifier: {}", name);
+                    eprintln!("[DEBUG SHADOWING] Scrutinee is identifier: {} with type: {}", name, scrutinee.metadata.swc_type);
                     // Transform: if matches!(expr, StringLiteral)
                     // Into:      if let Expr::Lit(Lit::Str(expr)) = expr
                     //
@@ -363,6 +363,7 @@ impl SwcRewriter {
                     // Convert to if-let
                     // Wrap scrutinee in & to match by reference
                     let scrutinee_type = scrutinee.metadata.swc_type.clone();
+                    eprintln!("[DEBUG SHADOWING] Using scrutinee_type: {}", scrutinee_type);
                     let scrutinee_span = scrutinee.metadata.span;
                     let ref_condition = DecoratedExpr {
                         kind: DecoratedExprKind::Ref {
@@ -2433,6 +2434,9 @@ impl SwcRewriter {
                 // The pattern may have already been desugared (in rewrite_pattern)
                 // Now we wrap it in a match expression
 
+                eprintln!("[REWRITER MATCHES START] scrutinee metadata: swc_type='{}', is_boxed={}, needs_enum_unwrap={:?}",
+                          scrutinee.metadata.swc_type, scrutinee.metadata.is_boxed, scrutinee.metadata.needs_enum_unwrap);
+
                 // Create the match arms
                 let match_arm = DecoratedMatchArm {
                     pattern,
@@ -2474,9 +2478,94 @@ impl SwcRewriter {
                 // Create match expression - wrap scrutinee in & to match by reference
                 let scrutinee_type = scrutinee.metadata.swc_type.clone();
                 let scrutinee_span = scrutinee.metadata.span;
+
+                eprintln!("[REWRITER MATCHES] Scrutinee type: '{}'", scrutinee_type);
+
+                // Check if scrutinee type is &Box<T> - if so, we need to unwrap with .as_ref()
+                let unwrapped_scrutinee = if scrutinee_type.starts_with("&Box<") || scrutinee_type.starts_with("&mut Box<") {
+                    // Extract inner type from &Box<T> or &mut Box<T>
+                    let inner_type = if let Some(inner) = scrutinee_type.strip_prefix("&mut Box<") {
+                        inner.strip_suffix(">").unwrap_or(inner)
+                    } else if let Some(inner) = scrutinee_type.strip_prefix("&Box<") {
+                        inner.strip_suffix(">").unwrap_or(inner)
+                    } else {
+                        &scrutinee_type
+                    };
+
+                    eprintln!("[REWRITER MATCHES] Scrutinee type is '{}', unwrapping Box with .as_ref()", scrutinee_type);
+
+                    // Generate: scrutinee.as_ref()
+                    let as_ref_call = DecoratedExpr {
+                        kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                            callee: DecoratedExpr {
+                                kind: DecoratedExprKind::Member {
+                                    object: scrutinee,
+                                    property: "as_ref".to_string(),
+                                    optional: false,
+                                    computed: false,
+                                    is_path: false,
+                                    field_metadata: crate::codegen::swc_metadata::SwcFieldMetadata {
+                                        swc_field_name: "as_ref".to_string(),
+                                        accessor: crate::codegen::swc_metadata::FieldAccessor::Direct,
+                                        field_type: format!("&{}", inner_type),
+                                        source_field: Some("as_ref".to_string()),
+                                        span: scrutinee_span,
+                                        read_conversion: String::new(),
+                                    },
+                                },
+                                metadata: SwcExprMetadata {
+                                    needs_enum_unwrap: None,
+                                    swc_type: format!("&{}", inner_type),
+                                    is_boxed: false,
+                                    is_optional: false,
+                                    type_kind: crate::type_system::SwcTypeKind::Unknown,
+                                    span: scrutinee_span,
+                                },
+                            },
+                            args: vec![],
+                            type_args: vec![],
+                            optional: false,
+                            is_macro: false,
+                            span: scrutinee_span.unwrap_or(crate::lexer::Span::new(0, 0, 0, 0)),
+                        })),
+                        metadata: SwcExprMetadata {
+                            needs_enum_unwrap: None,
+                            swc_type: format!("&{}", inner_type),
+                            is_boxed: false,
+                            is_optional: false,
+                            type_kind: crate::type_system::SwcTypeKind::Unknown,
+                            span: scrutinee_span,
+                        },
+                    };
+
+                    // Now wrap in &* to get &T from &T
+                    let deref_expr = DecoratedExpr {
+                        kind: DecoratedExprKind::Unary {
+                            op: crate::parser::UnaryOp::Deref,
+                            operand: Box::new(as_ref_call),
+                            unary_metadata: crate::codegen::swc_metadata::SwcUnaryMetadata {
+                                override_op: None,
+                                span: scrutinee_span,
+                            },
+                        },
+                        metadata: SwcExprMetadata {
+                            needs_enum_unwrap: None,
+                            swc_type: inner_type.to_string(),
+                            is_boxed: false,
+                            is_optional: false,
+                            type_kind: crate::type_system::SwcTypeKind::Unknown,
+                            span: scrutinee_span,
+                        },
+                    };
+
+                    deref_expr
+                } else {
+                    *scrutinee
+                };
+
                 let ref_scrutinee = DecoratedExpr {
                     kind: DecoratedExprKind::Ref {
-                        expr: scrutinee,
+                        expr: Box::new(unwrapped_scrutinee),
                         mutable: false,
                     },
                     metadata: SwcExprMetadata { needs_enum_unwrap: None,

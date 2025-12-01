@@ -186,7 +186,8 @@ impl MinimactTranspiler {
         }
         match &node.function.body {
             Option::Some(body) => {
-                body.visit_mut_with(&mut __InlineVisitor_0 { component: &mut component })
+                let mut body_clone = Box::new(Option::Some(body.clone()));
+                body_clone.visit_mut_with(&mut __InlineVisitor_0 { component: &mut component })
             }
             _ => {}
         }
