@@ -2211,6 +2211,142 @@ impl SwcRewriter {
                     metadata: expr.metadata,
                 }
             }
+            // If it's a field access, unwrap the object if needed
+            DecoratedExprKind::Member { object, property, optional, computed, is_path, field_metadata } => {
+                // Check if the object is an identifier that needs unwrapping
+                if let DecoratedExprKind::Ident { ref name, .. } = object.kind {
+                    if let Some((parent_enum, variant_name)) = &object.metadata.needs_enum_unwrap {
+                        eprintln!("[AUTO-UNWRAP] Unwrapping '{}' from {}::{} to {} before accessing .{}",
+                            name, parent_enum, variant_name, object.metadata.swc_type, property);
+
+                        // Create the unwrapping match expression
+                        let pattern_str = format!("{}::{}", parent_enum, variant_name);
+                        let inner_type = object.metadata.swc_type.clone();
+
+                        // Create the match arm pattern
+                        let match_pattern = DecoratedPattern {
+                            kind: DecoratedPatternKind::Variant {
+                                name: pattern_str.clone(),
+                                inner: Some(Box::new(DecoratedPattern {
+                                    kind: DecoratedPatternKind::Ident("inner".to_string()),
+                                    metadata: SwcPatternMetadata::direct(inner_type.clone()),
+                                })),
+                            },
+                            metadata: SwcPatternMetadata {
+                                swc_pattern: pattern_str.clone(),
+                                unwrap_strategy: UnwrapStrategy::Ref,
+                                inner: None,
+                                span: None,
+                                source_pattern: None,
+                                desugar_strategy: None,
+                            },
+                        };
+
+                        // Create the match arm body
+                        let match_body = DecoratedExpr {
+                            kind: DecoratedExprKind::Ident {
+                                name: "inner".to_string(),
+                                ident_metadata: SwcIdentifierMetadata::name(),
+                            },
+                            metadata: SwcExprMetadata {
+                                needs_enum_unwrap: None,
+                                swc_type: inner_type.clone(),
+                                is_boxed: false,
+                                is_optional: false,
+                                type_kind: object.metadata.type_kind.clone(),
+                                span: None,
+                            },
+                        };
+
+                        // Create match arm
+                        let match_arm = DecoratedMatchArm {
+                            pattern: match_pattern,
+                            guard: None,
+                            body: DecoratedBlock {
+                                stmts: vec![DecoratedStmt::Expr(match_body)],
+                            },
+                        };
+
+                        // Create wildcard arm with unreachable!()
+                        let unreachable_call = DecoratedExpr {
+                            kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                                callee: DecoratedExpr {
+                                    kind: DecoratedExprKind::Ident {
+                                        name: "unreachable".to_string(),
+                                        ident_metadata: SwcIdentifierMetadata::name(),
+                                    },
+                                    metadata: SwcExprMetadata {
+                                        needs_enum_unwrap: None,
+                                        swc_type: "macro".to_string(),
+                                        is_boxed: false,
+                                        is_optional: false,
+                                        type_kind: crate::type_system::SwcTypeKind::Unknown,
+                                        span: None,
+                                    },
+                                },
+                                args: vec![],
+                                type_args: vec![],
+                                optional: false,
+                                is_macro: true,
+                                span: Span::new(0, 0, 0, 0),
+                            })),
+                            metadata: SwcExprMetadata {
+                                needs_enum_unwrap: None,
+                                swc_type: "!".to_string(),
+                                is_boxed: false,
+                                is_optional: false,
+                                type_kind: crate::type_system::SwcTypeKind::Unknown,
+                                span: None,
+                            },
+                        };
+
+                        let wildcard_arm = DecoratedMatchArm {
+                            pattern: DecoratedPattern {
+                                kind: DecoratedPatternKind::Wildcard,
+                                metadata: SwcPatternMetadata::direct("_".to_string()),
+                            },
+                            guard: None,
+                            body: DecoratedBlock {
+                                stmts: vec![DecoratedStmt::Expr(unreachable_call)],
+                            },
+                        };
+
+                        // Create the match expression
+                        let unwrapped_object = DecoratedExpr {
+                            kind: DecoratedExprKind::Match(Box::new(DecoratedMatchExpr {
+                                expr: *object.clone(),
+                                arms: vec![match_arm, wildcard_arm],
+                            })),
+                            metadata: SwcExprMetadata {
+                                needs_enum_unwrap: None,
+                                swc_type: inner_type.clone(),
+                                is_boxed: false,
+                                is_optional: false,
+                                type_kind: object.metadata.type_kind.clone(),
+                                span: object.metadata.span,
+                            },
+                        };
+
+                        // Return the member expression with the unwrapped object
+                        return DecoratedExpr {
+                            kind: DecoratedExprKind::Member {
+                                object: Box::new(unwrapped_object),
+                                property,
+                                optional,
+                                computed,
+                                is_path,
+                                field_metadata,
+                            },
+                            metadata: expr.metadata,
+                        };
+                    }
+                }
+                // No unwrapping needed, return as-is
+                DecoratedExpr {
+                    kind: DecoratedExprKind::Member { object, property, optional, computed, is_path, field_metadata },
+                    metadata: expr.metadata,
+                }
+            }
             _ => expr,
         }
     }
