@@ -221,10 +221,10 @@ impl MinimactTranspiler {
     
     fn extract_props(param: &Pat, component: &mut ComponentInfo) {
         match param {
-            ObjectPattern(param) => {
+            Pat::Object(param) => {
                 for prop in &param.props {
                     match prop {
-                        ObjectPatternProperty(prop) => {
+                        ObjectPatProp::KeyValue(prop) => {
                             let prop_name = prop.key.name.clone();
                             component.props.push(PropInfo { name: prop_name, prop_type: "dynamic".to_string(), optional: false })
                         }
@@ -234,7 +234,7 @@ impl MinimactTranspiler {
             }
             _ => {
                 match param {
-                    Expr::Ident(param) => {
+                    Pat::Ident(param) => {
                     }
                     _ => {}
                 }

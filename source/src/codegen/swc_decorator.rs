@@ -809,8 +809,16 @@ impl SwcDecorator {
                     // Also handles literals like StringLiteral, NumericLiteral
 
                     // First try context-aware mapping for literals
-                    let (enum_name, variant, _struct_name) = get_swc_variant_in_context(name, expected_type);
-                    eprintln!("[DEBUG PATTERN] get_swc_variant_in_context('{}', '{}') = ('{}', '{}', ...)", name, expected_type, enum_name, variant);
+                    // If expected_type is a struct (like ObjectPat), find its parent enum first
+                    let context = if let Some((parent_enum, _)) = crate::mapping::get_parent_enum_for_swc_type(expected_type) {
+                        eprintln!("[DEBUG PATTERN] expected_type '{}' belongs to enum '{}'", expected_type, parent_enum);
+                        parent_enum
+                    } else {
+                        expected_type.to_string()
+                    };
+
+                    let (enum_name, variant, _struct_name) = get_swc_variant_in_context(name, &context);
+                    eprintln!("[DEBUG PATTERN] get_swc_variant_in_context('{}', '{}') = ('{}', '{}', ...)", name, context, enum_name, variant);
 
                     // Check if this is a nested pattern (variant contains '(' indicating nested enum)
                     // Example: variant = "Lit(Lit::Str" means we need Expr::Lit(Lit::Str(binding))

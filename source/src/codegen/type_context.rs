@@ -460,6 +460,16 @@ pub fn get_swc_variant_in_context(rs_type: &str, context: &str) -> (String, Stri
         };
     }
 
+    // Handle ObjectPatProp context - properties in object patterns
+    if context == "ObjectPatProp" {
+        return match rs_type {
+            "ObjectPatternProperty" => ("ObjectPatProp".into(), "KeyValue".into(), "KeyValuePatProp".into()),
+            "RestElement" => ("ObjectPatProp".into(), "Rest".into(), "RestPat".into()),
+            "AssignmentPattern" => ("ObjectPatProp".into(), "Assign".into(), "AssignPatProp".into()),
+            _ => ("ObjectPatProp".into(), rs_type.to_string(), rs_type.to_string()),
+        };
+    }
+
     // Handle PropName context - property names in objects
     if context == "PropName" {
         return match rs_type {
