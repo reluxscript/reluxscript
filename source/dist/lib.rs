@@ -186,7 +186,7 @@ impl MinimactTranspiler {
         }
         match &node.function.body {
             Option::Some(body) => {
-                let mut body_clone = Box::new(Option::Some(body.clone()));
+                let mut body_clone = body.clone();
                 body_clone.visit_mut_with(&mut __InlineVisitor_0 { component: &mut component })
             }
             _ => {}
@@ -282,7 +282,7 @@ impl MinimactTranspiler {
         } {
             return;
         }
-        let binding = binding.as_ref().unwrap();
+        let Pat::Array(binding) = binding else { return; }
         let arr = binding.clone();
         if (arr.elems.len() < 1) {
             return;
@@ -338,7 +338,7 @@ impl MinimactTranspiler {
         } {
             return;
         }
-        let binding = binding.as_ref().unwrap();
+        let Pat::Identifier(binding) = binding else { return; }
         let ref_name = binding.sym.to_string();
         let initial_value = if (call.args.len() > 0) {
             Self::expr_to_csharp(&*call.args[0].expr.as_ref())

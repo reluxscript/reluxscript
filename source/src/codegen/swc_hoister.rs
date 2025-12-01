@@ -620,11 +620,15 @@ impl SwcHoister {
             };
 
             // Create clone() call
+            // Clear needs_enum_unwrap from target to avoid wrapping clone in enum constructor
+            let mut clone_object = decorated_target.clone();
+            clone_object.metadata.needs_enum_unwrap = None;
+
             let clone_call = DecoratedExpr {
                 kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
                     callee: DecoratedExpr {
                         kind: DecoratedExprKind::Member {
-                            object: Box::new(decorated_target.clone()),
+                            object: Box::new(clone_object),
                             property: "clone".to_string(),
                             optional: false,
                             computed: false,

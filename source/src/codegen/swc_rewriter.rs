@@ -182,17 +182,32 @@ impl SwcRewriter {
 
             // Detect early-return guard: if !matches!(x, Some) { return; }
             // Insert unwrap: let x = x.as_ref().unwrap();
+            // Or for Pat types, insert destructuring: let Pat::Array(x) = x else { return; };
             if let DecoratedStmt::If(ref if_stmt) = stmt {
-                if let Some(var_name) = Self::extract_option_guard_variable(if_stmt) {
+                if let Some((var_name, var_type)) = Self::extract_option_guard_variable(if_stmt) {
                     // Only insert unwrap rebinding for simple identifiers, not member expressions
                     // Member expressions like "call.callee" can't be used as let patterns
+                    let is_pat_type = var_type.contains("Pat") || var_type == "Ident";
+
                     if !var_name.contains('.') {
-                        eprintln!("[REWRITER] Detected Option guard for '{}', inserting unwrap", var_name);
-                        // Create: let var_name = var_name.as_ref().unwrap();
-                        let unwrap_stmt = Self::create_unwrap_rebinding(&var_name);
-                        result_stmts.push(unwrap_stmt);
+                        if is_pat_type {
+                            // For Pat types, extract the variant from the matches! pattern
+                            if let Some(pat_variant) = Self::extract_pat_variant_from_guard(if_stmt) {
+                                eprintln!("[REWRITER] Detected Pat guard for '{}' (variant: {}), inserting destructuring", var_name, pat_variant);
+                                // Create: let Pat::Array(var_name) = var_name else { return; };
+                                let destructure_stmt = Self::create_pat_destructuring(&var_name, &pat_variant);
+                                result_stmts.push(destructure_stmt);
+                            } else {
+                                eprintln!("[REWRITER] Skipping Pat destructuring for '{}' (couldn't extract variant)", var_name);
+                            }
+                        } else {
+                            eprintln!("[REWRITER] Detected Option guard for '{}' (type: {}), inserting unwrap", var_name, var_type);
+                            // Create: let var_name = var_name.as_ref().unwrap();
+                            let unwrap_stmt = Self::create_unwrap_rebinding(&var_name);
+                            result_stmts.push(unwrap_stmt);
+                        }
                     } else {
-                        eprintln!("[REWRITER] Skipping unwrap rebinding for member expression '{}'", var_name);
+                        eprintln!("[REWRITER] Skipping rebinding for '{}' (member expression)", var_name);
                     }
                 }
             }
@@ -3498,7 +3513,7 @@ impl SwcRewriter {
     }
 
     /// Extract variable name from Option guard pattern: if !matches!(x, Some) { return; }
-    fn extract_option_guard_variable(if_stmt: &DecoratedIfStmt) -> Option<String> {
+    fn extract_option_guard_variable(if_stmt: &DecoratedIfStmt) -> Option<(String, String)> {
         // Check if condition is: !matches!(var, Some)
         if let DecoratedExprKind::Unary { op, operand, .. } = &if_stmt.condition.kind {
             if *op == UnaryOp::Not {
@@ -3508,7 +3523,7 @@ impl SwcRewriter {
                         // Check if then-branch is just `return;`
                         if if_stmt.then_branch.stmts.len() == 1 {
                             if matches!(if_stmt.then_branch.stmts[0], DecoratedStmt::Return(_)) {
-                                return Some(name.clone());
+                                return Some((name.clone(), expr.metadata.swc_type.clone()));
                             }
                         }
                     }
@@ -3589,6 +3604,62 @@ impl SwcRewriter {
             },
             ty: None,
             init: unwrap_expr,
+        })
+    }
+
+    /// Extract Pat variant from matches! guard: if !matches!(x, ArrayPattern) { return; }
+    fn extract_pat_variant_from_guard(if_stmt: &DecoratedIfStmt) -> Option<String> {
+        // Check if condition is: !matches!(var, PatVariant)
+        if let DecoratedExprKind::Unary { op, operand, .. } = &if_stmt.condition.kind {
+            if *op == UnaryOp::Not {
+                if let DecoratedExprKind::Matches { pattern, .. } = &operand.kind {
+                    eprintln!("[REWRITER] Extracting Pat variant, pattern.kind: {:?}", pattern.kind);
+                    // Extract the pattern variant name
+                    match &pattern.kind {
+                        DecoratedPatternKind::Variant { name, .. } => {
+                            // Convert ArrayPattern -> Array, ObjectPattern -> Object, etc.
+                            let variant = if name.ends_with("Pattern") {
+                                name.trim_end_matches("Pattern").to_string()
+                            } else {
+                                name.clone()
+                            };
+                            eprintln!("[REWRITER] Extracted variant from Variant: {}", variant);
+                            return Some(variant);
+                        }
+                        DecoratedPatternKind::Ident(name) => {
+                            // The lowering has converted it to just an identifier name
+                            // Convert ArrayPattern -> Array, ObjectPattern -> Object, etc.
+                            let variant = if name.ends_with("Pattern") {
+                                name.trim_end_matches("Pattern").to_string()
+                            } else {
+                                name.clone()
+                            };
+                            eprintln!("[REWRITER] Extracted variant from Ident: {}", variant);
+                            return Some(variant);
+                        }
+                        _ => {
+                            eprintln!("[REWRITER] Pattern kind is neither Variant nor Ident");
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Create Pat destructuring statement: let Pat::Array(var_name) = var_name else { return; };
+    fn create_pat_destructuring(var_name: &str, pat_variant: &str) -> DecoratedStmt {
+        use crate::lexer::Span;
+        use crate::parser::VerbatimTarget;
+
+        // For now, emit a verbatim statement since let-else is complex to construct
+        // The emitter will need to handle this specially
+        let code = format!("let Pat::{}({}) = {} else {{ return; }}", pat_variant, var_name, var_name);
+
+        DecoratedStmt::Verbatim(crate::parser::VerbatimStmt {
+            target: VerbatimTarget::Rust,
+            code,
+            span: Span::new(0, 0, 0, 0),
         })
     }
 }
