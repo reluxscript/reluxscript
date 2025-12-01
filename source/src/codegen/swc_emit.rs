@@ -785,7 +785,15 @@ impl SwcEmitter {
     fn emit_function_with_visibility(&mut self, func: &DecoratedFnDecl, is_public: bool) {
         // Function signature
         let visibility = if is_public { "pub " } else { "" };
-        let mut sig = format!("{}fn {}", visibility, func.name);
+
+        // Transform visit_X -> visit_mut_X for VisitMut trait methods
+        let method_name = if func.name.starts_with("visit_") && !func.name.starts_with("visit_mut_") {
+            func.name.replace("visit_", "visit_mut_")
+        } else {
+            func.name.clone()
+        };
+
+        let mut sig = format!("{}fn {}", visibility, method_name);
 
         // Check if we need lifetime parameter
         let needs_lifetime = func.return_type.as_ref()
@@ -1145,23 +1153,32 @@ impl SwcEmitter {
                 // For example: "Callee::Expr(__callee_expr)" or "Expr::Ident"
                 // We only need the base pattern name, not the inner binding
 
+                // Strip "UserDefined::" prefix if present (it's a marker, not a real type)
+                let swc_pattern = if pattern.metadata.swc_pattern.starts_with("UserDefined::") {
+                    pattern.metadata.swc_pattern.strip_prefix("UserDefined::").unwrap()
+                } else if pattern.metadata.swc_pattern.starts_with("Unknown::") {
+                    pattern.metadata.swc_pattern.strip_prefix("Unknown::").unwrap()
+                } else {
+                    &pattern.metadata.swc_pattern
+                };
+
                 // Check if the metadata contains parentheses (meaning it has a binding)
-                if pattern.metadata.swc_pattern.contains('(') {
+                if swc_pattern.contains('(') {
                     // It already has the binding, use it as-is
-                    self.output.push_str(&pattern.metadata.swc_pattern);
+                    self.output.push_str(swc_pattern);
                 } else if let Some(ref inner_pattern) = inner {
                     // No binding in metadata, emit pattern with inner
-                    self.output.push_str(&pattern.metadata.swc_pattern);
+                    self.output.push_str(swc_pattern);
                     self.output.push('(');
                     self.emit_pattern(inner_pattern);
                     self.output.push(')');
                 } else {
                     // No inner pattern - emit with wildcard for tuple variants
                     // For example: Some -> Some(_), None -> None (no wildcard needed)
-                    self.output.push_str(&pattern.metadata.swc_pattern);
+                    self.output.push_str(swc_pattern);
                     // Check if this is a tuple variant (like Some, Ok, Err) that needs a wildcard
                     let needs_wildcard = matches!(
-                        pattern.metadata.swc_pattern.as_str(),
+                        swc_pattern,
                         "Some" | "Ok" | "Err"
                     );
                     if needs_wildcard {

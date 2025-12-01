@@ -102,7 +102,7 @@ impl<'a> VisitMut for __InlineVisitor_0<'a> {
         match &ret.arg {
             Option::Some(arg) => {
                 match arg {
-                    UserDefined::JSXElement(arg) => {
+                    JSXElement(arg) => {
                         self.component.render_body = Some(arg.clone())
                     }
                     _ => {}
@@ -223,7 +223,7 @@ impl MinimactTranspiler {
             Pat::Object(param) => {
                 for prop in &param.props {
                     match prop {
-                        UserDefined::ObjectPatternProperty(prop) => {
+                        ObjectPatternProperty(prop) => {
                             let prop_name = prop.key.name.clone();
                             component.props.push(PropInfo { name: prop_name, prop_type: "dynamic".to_string(), optional: false })
                         }
