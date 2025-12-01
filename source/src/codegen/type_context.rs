@@ -834,13 +834,13 @@ pub fn get_typed_field_mapping(parent_swc_type: &str, field: &str) -> Option<Typ
         }),
 
         // Literal fields
-        ("Str", "value") => Some(TypedFieldMapping {
+        ("Str", "value") | ("StrExpr", "value") => Some(TypedFieldMapping {
             reluxscript_field: "value",
             swc_field: "value",
-            needs_deref: false,
+            needs_deref: true,  // Use &* to deref Atom to &str
             result_type_rs: "Str",
             result_type_swc: "Atom",
-            read_conversion: ".as_ref()",  // Atom.as_ref() returns &str
+            read_conversion: "",  // Deref handled by needs_deref flag
             write_conversion: ".into()",
         }),
         ("Number", "value") => Some(TypedFieldMapping {

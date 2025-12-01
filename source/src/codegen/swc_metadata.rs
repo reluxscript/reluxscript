@@ -139,6 +139,11 @@ pub enum FieldAccessor {
     /// Example: &*member.obj
     BoxedRefDeref,
 
+    /// Deref-able field that needs &* prefix for Display (e.g., Atom)
+    /// Example: &*str_lit.value (where value is JsWord/Atom)
+    /// This is emitted differently than BoxedRefDeref - needs wrapping at expr level
+    DerefDisplay,
+
     /// Enum field that has a different type than expected
     /// Example: member.prop is MemberProp, not Expr
     /// Need to pattern match on it differently

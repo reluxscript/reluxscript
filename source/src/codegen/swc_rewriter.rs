@@ -3347,12 +3347,23 @@ impl SwcRewriter {
     fn get_field_metadata_for_type(&self, type_name: &str, field_name: &str) -> SwcFieldMetadata {
         use crate::codegen::type_context::get_typed_field_mapping;
 
+        eprintln!("[REWRITER GET FIELD META] type={}, field={}", type_name, field_name);
         // Try to get typed field mapping
         if let Some(mapping) = get_typed_field_mapping(type_name, field_name) {
+            eprintln!("[REWRITER] Found mapping with needs_deref={}", mapping.needs_deref);
             SwcFieldMetadata {
                 swc_field_name: mapping.swc_field.to_string(),
                 field_type: mapping.result_type_swc.to_string(),
-                accessor: FieldAccessor::Direct,  // TODO: determine from mapping
+                accessor: if mapping.needs_deref {
+                    // Check if this is Atom type which needs &* for Display
+                    if mapping.result_type_swc == "Atom" {
+                        FieldAccessor::DerefDisplay
+                    } else {
+                        FieldAccessor::BoxedAsRef
+                    }
+                } else {
+                    FieldAccessor::Direct
+                },
                 source_field: Some(field_name.to_string()),
                 span: None,
                 read_conversion: mapping.read_conversion.to_string(),

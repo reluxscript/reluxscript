@@ -1483,7 +1483,13 @@ impl SwcDecorator {
                     SwcFieldMetadata {
                         swc_field_name: mapping.swc_field.to_string(),
                         accessor: if mapping.needs_deref {
-                            FieldAccessor::BoxedAsRef
+                            // Check if this is Atom type which needs &* for Display
+                            if mapping.result_type_swc == "Atom" {
+                                eprintln!("[DEBUG ATOM] Using DerefDisplay accessor for Atom field");
+                                FieldAccessor::DerefDisplay
+                            } else {
+                                FieldAccessor::BoxedAsRef
+                            }
                         } else {
                             FieldAccessor::Direct
                         },

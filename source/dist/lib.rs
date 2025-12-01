@@ -350,7 +350,7 @@ impl MinimactTranspiler {
     fn expr_to_csharp(expr: &Expr) -> String {
         match expr {
             Expr::Lit(Lit::Str(expr)) => {
-                return format!("\"{}\"", expr.value);
+                return format!("\"{}\"", &*expr.value);
             }
             _ => {
                 match expr {

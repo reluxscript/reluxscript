@@ -1367,6 +1367,7 @@ impl SwcEmitter {
             }
 
             DecoratedExprKind::Member { object, property: _, optional, computed: _, is_path, field_metadata } => {
+                eprintln!("[EMIT MEMBER] field={}, accessor={:?}", field_metadata.swc_field_name, field_metadata.accessor);
                 // Special case: if object has read_conversion that unwraps to Expr enum,
                 // and we're accessing .sym, generate a match expression
                 let needs_enum_match = if let DecoratedExprKind::Member { field_metadata: obj_meta, .. } = &object.kind {
@@ -1386,6 +1387,12 @@ impl SwcEmitter {
                     }
                     self.output.push_str(", _ => \"\".into() }");
                     return;
+                }
+
+                // Special case: DerefDisplay accessor needs &* prefix
+                if matches!(field_metadata.accessor, FieldAccessor::DerefDisplay) {
+                    eprintln!("[EMIT DEREF DISPLAY] Emitting &* prefix");
+                    self.output.push_str("&*");
                 }
 
                 self.emit_expr(object);
@@ -1414,6 +1421,9 @@ impl SwcEmitter {
                     }
                     FieldAccessor::BoxedRefDeref => {
                         // Handled by unary deref
+                    }
+                    FieldAccessor::DerefDisplay => {
+                        // Already handled by &* prefix above
                     }
                     FieldAccessor::EnumField { .. } => {
                         // No special handling needed
