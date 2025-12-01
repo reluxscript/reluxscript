@@ -1,0 +1,11 @@
+// Error: undeclared type `UserDefined`
+// Pattern that decorator can't resolve
+
+plugin TestUserDefined {
+    fn test(prop: &ObjectPatternProperty) {
+        // ObjectPatternProperty doesn't exist in SWC, gets mapped to UserDefined
+        if matches!(prop, ObjectPatternProperty) {  // ERROR: UserDefined::ObjectPatternProperty
+            return;
+        }
+    }
+}

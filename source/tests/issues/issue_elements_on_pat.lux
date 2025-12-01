@@ -1,0 +1,16 @@
+// Error: no field `elements` on type `Pat`
+// User tries to access .elements after matches! check without proper if-let binding
+
+plugin TestElementsOnPat {
+    fn test(binding: &Pat) {
+        if !matches!(binding, ArrayPattern) {
+            return;
+        }
+        
+        // After matches! check, binding is still typed as Pat, not ArrayPat
+        let arr = binding.clone();
+        if arr.elements.len() < 1 {  // ERROR: Pat doesn't have .elements
+            return;
+        }
+    }
+}

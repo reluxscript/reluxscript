@@ -1,0 +1,13 @@
+// Error: no field `properties` on type `&Pat`
+// Trying to access ObjectPat fields on generic Pat type
+
+plugin TestPropertiesOnPat {
+    fn test(binding: &Pat) {
+        if matches!(binding, ObjectPattern) {
+            // binding is still &Pat, not &ObjectPat
+            for prop in &binding.properties {  // ERROR: Pat doesn't have .properties
+                // process prop
+            }
+        }
+    }
+}
