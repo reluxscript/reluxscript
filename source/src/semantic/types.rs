@@ -49,7 +49,17 @@ pub enum TypeInfo {
     },
 
     /// AST node type (from Unified AST)
+    /// If narrowed from a parent enum, stores (parent_enum, variant_name)
     AstNode(String),
+
+    /// AST node type that was narrowed from a parent enum
+    /// Stores: (current_type, parent_enum, variant_name)
+    /// Example: NarrowedAstNode("JSXElement", "Expr", "JSXElement")
+    NarrowedAstNode {
+        current_type: String,
+        parent_enum: String,
+        variant: String,
+    },
 
     /// Module type (for imports like fs, json)
     Module {
@@ -108,6 +118,14 @@ impl TypeInfo {
 
             // Enum can be assigned to AstNode with the same name (nominal typing)
             (TypeInfo::Enum { name, .. }, TypeInfo::AstNode(node_name)) => name == node_name,
+
+            // NarrowedAstNode can be assigned to AstNode with the current or parent type
+            (TypeInfo::NarrowedAstNode { current_type, parent_enum, .. }, TypeInfo::AstNode(node_name)) => {
+                current_type == node_name || parent_enum == node_name
+            }
+
+            // AstNode can be assigned to NarrowedAstNode if names match
+            (TypeInfo::AstNode(name), TypeInfo::NarrowedAstNode { current_type, .. }) => name == current_type,
 
             // Same types are always assignable
             (a, b) if a == b => true,
@@ -223,6 +241,7 @@ impl TypeInfo {
             TypeInfo::Struct { name, .. } => name.clone(),
             TypeInfo::Enum { name, .. } => name.clone(),
             TypeInfo::AstNode(name) => name.clone(),
+            TypeInfo::NarrowedAstNode { current_type, .. } => current_type.clone(),
             TypeInfo::Module { name } => format!("module {}", name),
             TypeInfo::Var(id) => format!("?{}", id),
             TypeInfo::Unknown => "unknown".to_string(),

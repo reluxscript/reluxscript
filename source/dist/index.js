@@ -237,7 +237,7 @@ module.exports = function({ types: t }) {
             const __iflet_9 = expr;
             if (__iflet_9 !== null) {
               const expr = __iflet_9;
-              return expr.name;
+              return expr.name.toString();
             } else {
               const __iflet_10 = expr;
               if (__iflet_10 !== null) {

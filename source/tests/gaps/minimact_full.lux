@@ -341,7 +341,7 @@ fn expr_to_csharp(expr: &Expr) -> Str {
     } else if matches!(expr, NullLiteral) {
         return "null".to_string();
     } else if matches!(expr, Identifier) {
-        return expr.name.clone();
+        return expr.name.to_string();
     } else if matches!(expr, ArrayExpression) {
         return "new List<dynamic>()".to_string();
     } else if matches!(expr, ObjectExpression) {

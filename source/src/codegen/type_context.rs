@@ -626,7 +626,8 @@ pub struct TypedFieldMapping {
 
 /// Get field mapping for a parent type and field name
 pub fn get_typed_field_mapping(parent_swc_type: &str, field: &str) -> Option<TypedFieldMapping> {
-    match (parent_swc_type, field) {
+    eprintln!("[CODEGEN FIELD MAPPING] Lookup: parent='{}', field='{}'", parent_swc_type, field);
+    let result = match (parent_swc_type, field) {
         // MemberExpr fields
         ("MemberExpr", "object") => Some(TypedFieldMapping {
             reluxscript_field: "object",
@@ -1033,7 +1034,9 @@ pub fn get_typed_field_mapping(parent_swc_type: &str, field: &str) -> Option<Typ
         }),
 
         _ => None,
-    }
+    };
+    eprintln!("[CODEGEN FIELD MAPPING] Result: {:?}", result.as_ref().map(|m| &m.result_type_swc));
+    result
 }
 
 // =============================================================================

@@ -104,7 +104,7 @@ impl<'a> VisitMut for __InlineVisitor_0<'a> {
             Option::Some(arg) => {
                 match &*arg.as_ref() {
                     Expr::JSXElement(arg) => {
-                        self.component.render_body = Some(arg.clone())
+                        self.component.render_body = Some(Box::new(Expr::JSXElement(arg.clone())))
                     }
                     _ => {}
                 }
@@ -254,13 +254,13 @@ impl MinimactTranspiler {
             return;
         }
         let callee_name = match call.callee.as_expr().unwrap().as_ref() { Expr::Ident(i) => i.sym.to_string(), _ => "".into() };
-        if ((callee_name == "useState") || (callee_name == "useClientState")) {
+        if ((&*callee_name == "useState") || (&*callee_name == "useClientState")) {
             Self::extract_use_state(call, binding, component)
         } else {
-            if (callee_name == "useEffect") {
+            if (&*callee_name == "useEffect") {
                 Self::extract_use_effect(call, component)
             } else {
-                if (callee_name == "useRef") {
+                if (&*callee_name == "useRef") {
                     Self::extract_use_ref(call, binding, component)
                 } else {
                     if callee_name.starts_with("use") {
@@ -374,7 +374,7 @@ impl MinimactTranspiler {
                                     _ => {
                                         match expr {
                                             Expr::Ident(expr) => {
-                                                return expr.sym.to_string().clone();
+                                                return expr.sym.to_string().to_string();
                                             }
                                             _ => {
                                                 match expr {

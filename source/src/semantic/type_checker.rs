@@ -222,13 +222,47 @@ impl TypeChecker {
 
                     // Extract the scrutinee variable name (only works for simple identifiers)
                     if let Some(var_name) = self.extract_simple_scrutinee(&if_stmt.condition) {
+                        // Get the original type before narrowing
+                        let original_type = self.env.lookup(&var_name).cloned();
+
                         // Get the narrowed type from the pattern
                         if let Some(narrowed_type) = self.pattern_to_concrete_type(pattern) {
-                            eprintln!("DEBUG narrowing: shadowing '{}' with type {:?} in then-branch", var_name, narrowed_type);
+                            // Unwrap Ref if the original type is a reference
+                            let unwrapped_original = original_type.as_ref().and_then(|t| {
+                                if let TypeInfo::Ref { inner, .. } = t {
+                                    Some(inner.as_ref().clone())
+                                } else {
+                                    Some(t.clone())
+                                }
+                            });
+
+                            // If narrowing from a parent enum, create NarrowedAstNode
+                            let final_type = if let (Some(TypeInfo::AstNode(parent_enum)), TypeInfo::AstNode(variant_type)) = (&unwrapped_original, &narrowed_type) {
+                                // Extract variant name from pattern
+                                let variant_name = match pattern {
+                                    Pattern::Variant { name, .. } => name.clone(),
+                                    _ => variant_type.clone(),
+                                };
+                                eprintln!("DEBUG narrowing: creating NarrowedAstNode {{ current: {}, parent: {}, variant: {} }}", variant_type, parent_enum, variant_name);
+                                TypeInfo::NarrowedAstNode {
+                                    current_type: variant_type.clone(),
+                                    parent_enum: parent_enum.clone(),
+                                    variant: variant_name,
+                                }
+                            } else {
+                                narrowed_type
+                            };
+
+                            eprintln!("DEBUG narrowing: shadowing '{}' with type {:?} in then-branch", var_name, final_type);
                             // Shadow the variable with the narrowed type - this will persist!
-                            self.env.define(var_name, narrowed_type);
+                            self.env.define(var_name, final_type);
                         }
                     }
+
+                    // Also register bindings INSIDE the pattern (e.g., `arg` in `Some(arg)`)
+                    // Get the type of the scrutinee to know what type the bindings should have
+                    let scrutinee_type = self.infer_expr(&if_stmt.condition);
+                    self.register_pattern_bindings(pattern, &scrutinee_type);
                 }
 
                 self.check_block(&if_stmt.then_branch);
@@ -926,8 +960,43 @@ impl TypeChecker {
                 fields.get(field).cloned().unwrap_or(TypeInfo::Unknown)
             }
             TypeInfo::Ref { inner, .. } => self.get_field_type(inner, field),
-            TypeInfo::AstNode(_) => {
-                // AST nodes have various fields
+            TypeInfo::NarrowedAstNode { current_type, .. } => {
+                // Use the current narrowed type for field lookup
+                self.get_field_type(&TypeInfo::AstNode(current_type.clone()), field)
+            }
+            TypeInfo::AstNode(node_type) => {
+                // Try to get field type from AST schema
+                use crate::codegen::type_context::{get_typed_field_mapping, map_reluxscript_to_swc};
+                eprintln!("[GET FIELD TYPE] node_type='{}', field='{}'", node_type, field);
+
+                // Map Babel/ReluxScript type name to SWC type name
+                let (swc_type, _) = map_reluxscript_to_swc(node_type);
+                eprintln!("[GET FIELD TYPE] Mapped '{}' -> '{}'", node_type, swc_type);
+
+                if let Some(mapping) = get_typed_field_mapping(&swc_type, field) {
+                    eprintln!("[GET FIELD TYPE] Found mapping: result_type_swc='{}'", mapping.result_type_swc);
+                    // Parse the result_type_swc to create proper TypeInfo
+                    let type_str = mapping.result_type_swc;
+                    if type_str.starts_with("Option<") && type_str.ends_with(">") {
+                        // Extract inner type from Option<T>
+                        let inner_str = &type_str[7..type_str.len()-1]; // Remove "Option<" and ">"
+                        let inner_type = if inner_str.starts_with("Box<") && inner_str.ends_with(">") {
+                            // Option<Box<T>>
+                            let inner_inner = &inner_str[4..inner_str.len()-1]; // Remove "Box<" and ">"
+                            Box::new(TypeInfo::AstNode(inner_inner.to_string()))
+                        } else {
+                            Box::new(TypeInfo::AstNode(inner_str.to_string()))
+                        };
+                        return TypeInfo::Option(inner_type);
+                    } else if type_str.starts_with("Vec<") && type_str.ends_with(">") {
+                        let inner_str = &type_str[4..type_str.len()-1];
+                        return TypeInfo::Vec(Box::new(TypeInfo::AstNode(inner_str.to_string())));
+                    } else {
+                        return TypeInfo::AstNode(type_str.to_string());
+                    }
+                }
+
+                // Fallback for unmapped fields
                 match field {
                     "name" | "value" | "operator" | "kind" => TypeInfo::Str,
                     "body" | "params" | "arguments" | "elements" | "properties" => {
@@ -1006,6 +1075,52 @@ impl TypeChecker {
             matches!(last_stmt, Stmt::Return(_))
         } else {
             false
+        }
+    }
+
+    /// Register bindings from a pattern with their appropriate types
+    /// For example, in `if let Some(x) = opt`, register `x` with the inner type of Option
+    fn register_pattern_bindings(&mut self, pattern: &Pattern, scrutinee_type: &TypeInfo) {
+        eprintln!("[PATTERN BINDING DEBUG] pattern={:?}, scrutinee_type={:?}", pattern, scrutinee_type);
+        match pattern {
+            Pattern::Ident(name) => {
+                // Simple binding - use the scrutinee type
+                eprintln!("[PATTERN BINDING] Registering '{}' with type {:?}", name, scrutinee_type);
+                self.env.define(name.clone(), scrutinee_type.clone());
+            }
+            Pattern::Variant { name, inner } => {
+                // Variant pattern like Some(x) or JSXElement
+                if name == "Some" {
+                    // Option unwrapping - extract inner type
+                    if let TypeInfo::Option(inner_type) = scrutinee_type {
+                        if let Some(inner_pattern) = inner {
+                            eprintln!("[PATTERN BINDING] Option::Some pattern, inner type: {:?}", inner_type);
+                            self.register_pattern_bindings(inner_pattern, inner_type);
+                        }
+                    } else if let TypeInfo::Ref { inner: ref_inner, .. } = scrutinee_type {
+                        // Handle &Option<T> case
+                        if let TypeInfo::Option(inner_type) = ref_inner.as_ref() {
+                            if let Some(inner_pattern) = inner {
+                                eprintln!("[PATTERN BINDING] &Option::Some pattern, inner type: {:?}", inner_type);
+                                // Create a reference to the inner type
+                                let inner_ref_type = TypeInfo::Ref {
+                                    mutable: false,
+                                    inner: inner_type.clone(),
+                                };
+                                self.register_pattern_bindings(inner_pattern, &inner_ref_type);
+                            }
+                        }
+                    }
+                } else if let Some(inner_pattern) = inner {
+                    // Other variant patterns - the binding gets the narrowed type
+                    if let Some(narrowed_type) = self.pattern_to_concrete_type(pattern) {
+                        self.register_pattern_bindings(inner_pattern, &narrowed_type);
+                    }
+                }
+            }
+            _ => {
+                // Other patterns - skip for now
+            }
         }
     }
 

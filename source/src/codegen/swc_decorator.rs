@@ -35,6 +35,11 @@ pub struct SwcDecorator {
     /// Contains all type information already computed
     semantic_type_env: Option<crate::semantic::TypeEnv>,
 
+    /// Tracks variables that were narrowed from a parent enum to a specific variant
+    /// Maps variable name -> (parent_enum, variant)
+    /// E.g., "arg" -> ("Expr", "JSXElement") when arg was bound in match Expr::JSXElement(arg)
+    narrowed_enum_vars: HashMap<String, (String, String)>,
+
     /// Whether we're currently in a writer context
     /// (affects field replacements like self.builder → self)
     is_writer: bool,
@@ -66,6 +71,7 @@ impl SwcDecorator {
             type_env,
             current_params: HashMap::new(),
             semantic_type_env: None,
+            narrowed_enum_vars: HashMap::new(),
             is_writer: false,
             in_traverse: false,
             custom_props: HashMap::new(),
@@ -90,6 +96,7 @@ impl SwcDecorator {
             type_env,
             current_params: HashMap::new(),
             semantic_type_env: Some(semantic_type_env),
+            narrowed_enum_vars: HashMap::new(),
             is_writer: false,
             in_traverse: false,
             custom_props: HashMap::new(),
@@ -387,6 +394,7 @@ impl SwcDecorator {
             }
 
             Stmt::Match(match_stmt) => {
+                eprintln!("[DECORATOR MATCH] Decorating match statement with {} arms", match_stmt.arms.len());
                 // Decorate scrutinee first to get its type
                 let expr = self.decorate_expr(&match_stmt.scrutinee);
                 let scrutinee_type = expr.metadata.swc_type.clone();
@@ -1093,6 +1101,7 @@ impl SwcDecorator {
 
     /// Internal helper that tracks the expected type from parent patterns
     fn add_pattern_bindings_to_env_with_type(&mut self, pattern: &Pattern, decorated: &DecoratedPattern, expected_type: Option<String>) {
+        eprintln!("[ADD PATTERN BINDING] pattern={:?}, decorated.kind={:?}, swc_pattern={}", pattern, decorated.kind, decorated.metadata.swc_pattern);
         match (pattern, &decorated.kind) {
             (Pattern::Ident(name), _) => {
                 // Simple identifier - use the expected type from parent, or fall back to swc_pattern
@@ -1111,7 +1120,7 @@ impl SwcDecorator {
                 // E.g., for Pat::Object(param), the inner type should be ObjectPat
                 // Use the swc_pattern from metadata, not the name from kind
                 let swc_pattern = &decorated.metadata.swc_pattern;
-                let inner_type = if swc_pattern.contains("::") {
+                let (inner_type, parent_enum_info) = if swc_pattern.contains("::") {
                     // Extract parts: "Pat::Object" -> enum="Pat", variant="Object"
                     let parts: Vec<&str> = swc_pattern.split("::").collect();
                     if parts.len() == 2 {
@@ -1140,16 +1149,23 @@ impl SwcDecorator {
                             variant_name.to_string()
                         };
                         eprintln!("[MATCH BINDING] Extracted inner type from {}: {}", swc_pattern, inner_struct);
-                        Some(inner_struct)
+                        // Return both the inner type and the parent enum info
+                        (Some(inner_struct), Some((enum_name.to_string(), variant_name.to_string())))
                     } else {
-                        None
+                        (None, None)
                     }
                 } else {
-                    None
+                    (None, None)
                 };
 
                 // Recursively add inner bindings with the extracted type
                 self.add_pattern_bindings_to_env_with_type(inner_pat, inner_dec, inner_type);
+
+                // If the inner pattern is an identifier, track that it was narrowed from the parent enum
+                if let (Pattern::Ident(binding_name), Some((parent_enum, variant))) = (inner_pat.as_ref(), parent_enum_info) {
+                    eprintln!("[MATCH BINDING] Tracking '{}' as narrowed from {}::{}", binding_name, parent_enum, variant);
+                    self.narrowed_enum_vars.insert(binding_name.clone(), (parent_enum, variant));
+                }
             }
             _ => {
                 // Other patterns don't create bindings we need to track
@@ -1335,6 +1351,34 @@ impl SwcDecorator {
                         eprintln!("[OPTION NARROWING] '{}' narrowed from Option to {}, needs unwrap", name, ctx.swc_type);
                     }
 
+                    // Check if this was narrowed from a parent enum (e.g., Expr -> JSXElement)
+                    // First check the local narrowed_enum_vars map (populated from match patterns)
+                    let needs_enum_wrap = if let Some((parent_enum, variant)) = self.narrowed_enum_vars.get(name) {
+                        eprintln!("[ENUM NARROWING LOCAL] '{}' tracked as narrowed from {}::{}", name, parent_enum, variant);
+                        Some((parent_enum.clone(), variant.clone()))
+                    } else if let Some(semantic_type) = self.semantic_type_env.as_ref().and_then(|env| env.lookup(name)) {
+                        eprintln!("[DECORATOR CHECK NARROWING] '{}' semantic_type = {:?}", name, semantic_type);
+                        // Check if semantic type is NarrowedAstNode
+                        if let crate::semantic::TypeInfo::NarrowedAstNode { current_type, parent_enum, variant } = semantic_type {
+                            eprintln!("[ENUM NARROWING] '{}' is NarrowedAstNode {{ current: {}, parent: {}, variant: {} }}",
+                                      name, current_type, parent_enum, variant);
+                            Some((parent_enum.clone(), variant.clone()))
+                        } else if let crate::semantic::TypeInfo::Ref { inner, .. } = semantic_type {
+                            // Handle &NarrowedAstNode
+                            if let crate::semantic::TypeInfo::NarrowedAstNode { current_type, parent_enum, variant } = inner.as_ref() {
+                                eprintln!("[ENUM NARROWING] '{}' is &NarrowedAstNode {{ current: {}, parent: {}, variant: {} }}",
+                                          name, current_type, parent_enum, variant);
+                                Some((parent_enum.clone(), variant.clone()))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
                     // If local has Unknown/UserDefined, check semantic TypeEnv for better type
                     if (ctx.swc_type == "Unknown" || ctx.swc_type == "UserDefined") {
                         if let Some(swc_type_str) = self.lookup_semantic_type(name) {
@@ -1352,6 +1396,9 @@ impl SwcDecorator {
                     } else if needs_option_unwrap {
                         // Return special unwrap marker
                         (ctx, Some(("Option".to_string(), "unwrap".to_string())))
+                    } else if needs_enum_wrap.is_some() {
+                        // Return enum wrap marker
+                        (ctx, needs_enum_wrap)
                     } else {
                         (ctx, None)
                     }

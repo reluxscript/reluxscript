@@ -1459,6 +1459,27 @@ impl SwcEmitter {
             }
 
             DecoratedExprKind::Call(call) => {
+                // Check if this is obj.clone() where obj is a narrowed enum variant
+                // If so, wrap it: Expr::JSXElement(obj.clone())
+                if let DecoratedExprKind::Member { object, property, .. } = &call.callee.kind {
+                    if property == "clone" && call.args.is_empty() {
+                        // Check if object has needs_enum_unwrap metadata
+                        if let Some((parent_enum, variant)) = &object.metadata.needs_enum_unwrap {
+                            eprintln!("[EMIT CLONE WRAP] Wrapping {}.clone() in {}::{}",
+                                     parent_enum, parent_enum, variant);
+                            // Emit: Box::new(Expr::JSXElement(obj.clone()))
+                            self.output.push_str("Box::new(");
+                            self.output.push_str(parent_enum);
+                            self.output.push_str("::");
+                            self.output.push_str(variant);
+                            self.output.push('(');
+                            self.emit_expr(object);
+                            self.output.push_str(".clone()))");
+                            return;
+                        }
+                    }
+                }
+
                 // CodeBuilder method call transformations (no longer needed - we generate real CodeBuilder)
                 if let DecoratedExprKind::Member { object, property, .. } = &call.callee.kind {
                     if let DecoratedExprKind::Ident { name, .. } = &object.kind {
@@ -1687,7 +1708,32 @@ impl SwcEmitter {
             DecoratedExprKind::Assign { left, right } => {
                 self.emit_expr(left);
                 self.output.push_str(" = ");
-                self.emit_expr(right);
+
+                // Check if we need to wrap the RHS in the parent enum constructor
+                // This happens when assigning a narrowed type back to a field expecting the parent enum
+                let needs_enum_wrap = if let Some((parent_enum, variant)) = &right.metadata.needs_enum_unwrap {
+                    // The RHS is a narrowed type, check if LHS expects the parent enum
+                    left.metadata.swc_type.contains(parent_enum) || left.metadata.swc_type.contains("Expr")
+                } else {
+                    false
+                };
+
+                if needs_enum_wrap {
+                    if let Some((parent_enum, variant)) = &right.metadata.needs_enum_unwrap {
+                        // Emit: Box::new(ParentEnum::Variant(rhs))
+                        self.output.push_str("Box::new(");
+                        self.output.push_str(parent_enum);
+                        self.output.push_str("::");
+                        self.output.push_str(variant);
+                        self.output.push('(');
+                        self.emit_expr(right);
+                        self.output.push_str("))");
+                    } else {
+                        self.emit_expr(right);
+                    }
+                } else {
+                    self.emit_expr(right);
+                }
             }
 
             DecoratedExprKind::CompoundAssign { left, op, right } => {
