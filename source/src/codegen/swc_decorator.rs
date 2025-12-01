@@ -737,8 +737,20 @@ impl SwcDecorator {
                         format!("{}::{}({}))", enum_name, variant, inner_binding)
                     } else if enum_name != expected_type {
                         // Context-aware mapping found a different enum (e.g., Lit vs Expr)
-                        eprintln!("[DEBUG PATTERN] Using simple pattern: {}::{}", enum_name, variant);
-                        format!("{}::{}", enum_name, variant)
+
+                        // Special case: Option<ExprOrSpread> with Expr variant
+                        if expected_type.contains("ExprOrSpread") && enum_name == "Expr" {
+                            let inner_binding = if let Some(Pattern::Ident(ref binding_name)) = inner.as_ref().map(|p| &**p) {
+                                binding_name.clone()
+                            } else {
+                                "_".to_string()
+                            };
+                            eprintln!("[DEBUG PATTERN] Option<ExprOrSpread> + Expr variant -> Some(ExprOrSpread {{ ... }})");
+                            format!("Some(ExprOrSpread {{ expr: box Expr::{}(ref {}), spread: None }})", variant, inner_binding)
+                        } else {
+                            eprintln!("[DEBUG PATTERN] Using simple pattern: {}::{}", enum_name, variant);
+                            format!("{}::{}", enum_name, variant)
+                        }
                     } else if let Some(mapping) = get_node_mapping(name) {
                         // Use node mapping for struct types like CallExpression
                         let full_pattern = mapping.swc_pattern.to_string();

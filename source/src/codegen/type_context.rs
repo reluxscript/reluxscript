@@ -511,12 +511,30 @@ pub fn get_swc_variant_in_context(rs_type: &str, context: &str) -> (String, Stri
         };
     }
 
+    // Handle ExprOrSpread context - when matching inside ExprOrSpread wrapper
+    // ExprOrSpread { expr: Box<Expr>, spread: Option<...> }
+    // When pattern is an Expr variant, it's matching the expr field
+    if context == "ExprOrSpread" || context.starts_with("ExprOrSpread") {
+        // Delegate to Expr context since ExprOrSpread.expr is Box<Expr>
+        return get_swc_variant_in_context(rs_type, "Expr");
+    }
+
     // Handle Option context - Option enum variants
     if context == "Option" || context.starts_with("Option<") {
         return match rs_type {
             "Some" => ("Option".into(), "Some".into(), "Some".into()),
             "None" => ("Option".into(), "None".into(), "None".into()),
-            _ => ("Option".into(), rs_type.to_string(), rs_type.to_string()),
+            _ => {
+                // Pattern is not Some/None, so it's matching the inner type
+                // Extract the inner type from Option<T> and recurse
+                if context.starts_with("Option<") {
+                    let inner_type = context.strip_prefix("Option<").unwrap_or(context).trim_end_matches('>');
+                    // Recurse with inner type as context
+                    return get_swc_variant_in_context(rs_type, inner_type);
+                }
+                // Fallback if just "Option" with no generic
+                ("Option".into(), rs_type.to_string(), rs_type.to_string())
+            }
         };
     }
 
@@ -556,6 +574,8 @@ pub fn get_swc_variant_in_context(rs_type: &str, context: &str) -> (String, Stri
         "ObjectExpression" => ("Expr".into(), "Object".into(), "ObjectLit".into()),
         "FunctionExpression" => ("Expr".into(), "Fn".into(), "FnExpr".into()),
         "ArrowFunctionExpression" => ("Expr".into(), "Arrow".into(), "ArrowExpr".into()),
+        "JSXElement" => ("Expr".into(), "JSXElement".into(), "JSXElement".into()),
+        "JSXFragment" => ("Expr".into(), "JSXFragment".into(), "JSXFragment".into()),
         // Literals - when context is Expr, we need Expr::Lit(Lit::X) pattern
         // But the current pattern generation doesn't support nested patterns
         // For now, map to Expr::Lit for literals in Expr context
