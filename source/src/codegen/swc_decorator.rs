@@ -874,14 +874,12 @@ impl SwcDecorator {
                         // Context-aware mapping found a different enum (e.g., Lit vs Expr)
 
                         // Special case: Option<ExprOrSpread> with Expr variant
+                        // Don't use box pattern syntax (experimental), use guard pattern instead
                         if expected_type.contains("ExprOrSpread") && enum_name == "Expr" {
-                            let inner_binding = if let Some(Pattern::Ident(ref binding_name)) = inner.as_ref().map(|p| &**p) {
-                                binding_name.clone()
-                            } else {
-                                "_".to_string()
-                            };
-                            eprintln!("[DEBUG PATTERN] Option<ExprOrSpread> + Expr variant -> Some(ExprOrSpread {{ ... }})");
-                            format!("Some(ExprOrSpread {{ expr: box Expr::{}(ref {}), spread: None }})", variant, inner_binding)
+                            eprintln!("[DEBUG PATTERN] Option<ExprOrSpread> + Expr variant -> using guard pattern");
+                            // Generate: Some(ref s) if s.spread.is_none()
+                            // The inner Expr match will be handled by narrowing/rewriter
+                            format!("Some(ref s) if s.spread.is_none()")
                         } else {
                             eprintln!("[DEBUG PATTERN] Using simple pattern: {}::{}", enum_name, variant);
                             format!("{}::{}", enum_name, variant)

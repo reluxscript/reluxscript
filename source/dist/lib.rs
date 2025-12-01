@@ -314,8 +314,10 @@ impl MinimactTranspiler {
                 Expr::Array(deps_arg) => {
                     for elem in &deps_arg.elems {
                         match elem {
-                            Some(ExprOrSpread { expr: box Expr::Ident(ref elem), spread: None }) => {
-                                deps.push(elem.sym.to_string().clone())
+                            Some(ref s) if s.spread.is_none() => {
+                                if let Expr::Ident(elem) = s.expr.as_ref() {
+                                    deps.push(elem.sym.to_string().clone())
+                                }
                             }
                             _ => {}
                         }

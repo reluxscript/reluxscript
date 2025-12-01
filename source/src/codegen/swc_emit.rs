@@ -1087,7 +1087,28 @@ impl SwcEmitter {
         self.emit_pattern(pattern);
         self.output.push_str(" => {\n");
         self.indent += 1;
+
+        // Special case: if pattern is a guard pattern for Option<ExprOrSpread> with Expr variant,
+        // insert nested if-let to match the Expr enum
+        eprintln!("[EMIT MATCH ARM] pattern.swc_pattern='{}', condition.swc_type='{}'",
+            pattern.metadata.swc_pattern, if_stmt.condition.metadata.swc_type);
+
+        let needs_nested_expr_match = pattern.metadata.swc_pattern.contains("if s.spread.is_none()")
+            && if_stmt.condition.metadata.swc_type.contains("Option<ExprOrSpread");
+
+        if needs_nested_expr_match {
+            eprintln!("[EMIT MATCH ARM] Inserting nested if-let for Expr::Ident match");
+            self.emit_line("if let Expr::Ident(elem) = s.expr.as_ref() {");
+            self.indent += 1;
+        }
+
         self.emit_block(&if_stmt.then_branch);
+
+        if needs_nested_expr_match {
+            self.indent -= 1;
+            self.emit_line("}");
+        }
+
         self.indent -= 1;
         self.emit_line("}");
 
