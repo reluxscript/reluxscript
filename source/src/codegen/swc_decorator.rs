@@ -120,8 +120,14 @@ impl SwcDecorator {
     fn lookup_semantic_type(&self, var_name: &str) -> Option<String> {
         if let Some(ref type_env) = self.semantic_type_env {
             if let Some(type_info) = type_env.lookup(var_name) {
-                return Some(Self::type_info_to_swc_type(type_info));
+                let swc_type = Self::type_info_to_swc_type(type_info);
+                eprintln!("[DEBUG SEMANTIC LOOKUP] '{}' found in semantic TypeEnv: {:?} -> {}", var_name, type_info, swc_type);
+                return Some(swc_type);
+            } else {
+                eprintln!("[DEBUG SEMANTIC LOOKUP] '{}' NOT found in semantic TypeEnv", var_name);
             }
+        } else {
+            eprintln!("[DEBUG SEMANTIC LOOKUP] No semantic TypeEnv available");
         }
         None
     }
@@ -932,30 +938,24 @@ impl SwcDecorator {
             Expr::Ident(ident_expr) => {
                 let name = &ident_expr.name;
 
-                // Look up type in environment (local first, then semantic)
-                let type_ctx = self.type_env.get(name)
-                    .cloned()
-                    .map(|ctx| {
-                        eprintln!("[DEBUG] Ident '{}' found in type_env: {}", name, ctx.swc_type);
-                        ctx
-                    })
-                    .unwrap_or_else(|| {
-                        eprintln!("[DEBUG] Ident '{}' not found in type_env", name);
-                        // Try semantic type environment
-                        if let Some(swc_type_str) = self.lookup_semantic_type(name) {
-                            eprintln!("[DEBUG] Found '{}' in semantic: {}", name, swc_type_str);
-                            TypeContext {
-                                reluxscript_type: name.clone(),
-                                swc_type: swc_type_str.clone(),
-                                kind: SwcTypeKind::Unknown, // Will be refined later
-                                known_variant: None,
-                                needs_deref: false,
-                            }
-                        } else {
-                            eprintln!("[DEBUG] '{}' -> UserDefined (not found)", name);
-                            TypeContext::unknown()
-                        }
-                    });
+                // Look up type in environment (semantic FIRST for narrowed types, then local)
+                let type_ctx = if let Some(swc_type_str) = self.lookup_semantic_type(name) {
+                    // Semantic TypeEnv has the most up-to-date narrowed types
+                    eprintln!("[DEBUG] Ident '{}' found in semantic TypeEnv: {}", name, swc_type_str);
+                    TypeContext {
+                        reluxscript_type: name.clone(),
+                        swc_type: swc_type_str.clone(),
+                        kind: SwcTypeKind::Unknown, // Will be refined later
+                        known_variant: None,
+                        needs_deref: false,
+                    }
+                } else if let Some(ctx) = self.type_env.get(name).cloned() {
+                    eprintln!("[DEBUG] Ident '{}' found in local type_env: {}", name, ctx.swc_type);
+                    ctx
+                } else {
+                    eprintln!("[DEBUG] Ident '{}' not found, using UserDefined", name);
+                    TypeContext::unknown()
+                };
 
                 DecoratedExpr {
                     kind: DecoratedExprKind::Ident {

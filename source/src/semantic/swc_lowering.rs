@@ -13,7 +13,7 @@
 
 use crate::parser::{
     Program, TopLevelDecl, PluginDecl, WriterDecl, ModuleDecl, InterfaceDecl,
-    PluginItem, FnDecl, Block, Stmt, Expr, IfStmt, Pattern,
+    PluginItem, FnDecl, Block, Stmt, Expr, IfStmt, Pattern, UnaryExpr, UnaryOp,
 };
 use crate::lexer::Span;
 
@@ -149,6 +149,10 @@ impl SwcLowering {
         }
 
         // Transform: if matches!(expr, Pattern) → if let Pattern = expr
+        // NOTE: We do NOT transform negated !matches!() because:
+        // 1. Rust doesn't support `if !let Pattern = expr` syntax
+        // 2. Type narrowing for negated matches is handled in the type checker
+        // 3. The codegen will emit it as matches!() macro call
         if if_stmt.pattern.is_none() {
             if let Expr::Matches(matches_expr) = &if_stmt.condition {
                 eprintln!("[LOWERING] Transforming matches! to if-let");
