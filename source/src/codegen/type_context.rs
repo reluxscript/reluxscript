@@ -81,7 +81,7 @@ impl TypeContext {
 
     /// Check if this type is boxed
     pub fn is_boxed(&self) -> bool {
-        matches!(self.kind, SwcTypeKind::Boxed(_)) || self.needs_deref
+        matches!(self.kind, SwcTypeKind::Boxed(_)) || self.needs_deref || self.swc_type.starts_with("Box<")
     }
 
     /// Check if this type requires enum unwrapping

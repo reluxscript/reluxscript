@@ -88,7 +88,7 @@ impl<'a> VisitMut for __InlineVisitor_0<'a> {
     fn visit_mut_var_declarator(&mut self, decl: &mut VarDeclarator) {
         match &decl.init {
             Option::Some(init) => {
-                match init {
+                match &*init.as_ref() {
                     Expr::Call(init) => {
                         MinimactTranspiler::extract_hook_from_call(init, &decl.name, &mut self.component)
                     }
@@ -102,7 +102,7 @@ impl<'a> VisitMut for __InlineVisitor_0<'a> {
     fn visit_mut_return_stmt(&mut self, ret: &mut ReturnStmt) {
         match &ret.arg {
             Option::Some(arg) => {
-                match arg {
+                match &*arg.as_ref() {
                     Expr::JSXElement(arg) => {
                         self.component.render_body = Some(arg.clone())
                     }

@@ -1071,6 +1071,12 @@ impl SwcEmitter {
         self.emit_indent();
         self.output.push_str("match ");
 
+        // If the condition is a Box<T>, we need to dereference it
+        // Use &* instead of .as_ref() to avoid double-calling as_ref()
+        if if_stmt.condition.metadata.is_boxed {
+            eprintln!("[EMIT IF-LET MATCH] Condition is boxed, emitting &* prefix");
+            self.output.push_str("&*");
+        }
         self.emit_expr(&if_stmt.condition);
 
         self.output.push_str(" {\n");
@@ -1108,7 +1114,9 @@ impl SwcEmitter {
 
         // If the scrutinee is a Box<T>, we need to dereference it with &*
         // This allows matching against the inner type
+        eprintln!("[EMIT MATCH] scrutinee type='{}', is_boxed={}", match_stmt.expr.metadata.swc_type, match_stmt.expr.metadata.is_boxed);
         if match_stmt.expr.metadata.is_boxed {
+            eprintln!("[EMIT MATCH] Emitting &* for boxed scrutinee");
             self.output.push_str("&*");
         }
 
