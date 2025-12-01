@@ -226,7 +226,7 @@ impl MinimactTranspiler {
                 for prop in &param.props {
                     match prop {
                         ObjectPatProp::KeyValue(prop) => {
-                            let prop_name = prop.key.sym.to_string().clone();
+                            let prop_name = match &prop.key { PropName::Ident(ident) => ident.sym.to_string(), _ => "".into() }.clone();
                             component.props.push(PropInfo { name: prop_name, prop_type: "dynamic".to_string(), optional: false })
                         }
                         _ => {}
@@ -338,7 +338,7 @@ impl MinimactTranspiler {
         } {
             return;
         }
-        let Pat::Identifier(binding) = binding else { return; }
+        let Pat::Ident(binding) = binding else { return; }
         let ref_name = binding.sym.to_string();
         let initial_value = if (call.args.len() > 0) {
             Self::expr_to_csharp(&*call.args[0].expr.as_ref())

@@ -1375,7 +1375,9 @@ impl SwcEmitter {
             }
 
             DecoratedExprKind::Member { object, property: _, optional, computed: _, is_path, field_metadata } => {
-                eprintln!("[EMIT MEMBER] field={}, accessor={:?}", field_metadata.swc_field_name, field_metadata.accessor);
+                eprintln!("[EMIT MEMBER] field={}, accessor={:?}, object_type={}",
+                    field_metadata.swc_field_name, field_metadata.accessor, object.metadata.swc_type);
+
                 // Special case: if object has read_conversion that unwraps to Expr enum,
                 // and we're accessing .sym, generate a match expression
                 let needs_enum_match = if let DecoratedExprKind::Member { field_metadata: obj_meta, .. } = &object.kind {
@@ -1389,6 +1391,20 @@ impl SwcEmitter {
                     self.output.push_str("match ");
                     self.emit_expr(object);
                     self.output.push_str(".as_ref() { Expr::Ident(i) => i.sym");
+                    // Apply the read_conversion for sym (.to_string())
+                    if !field_metadata.read_conversion.is_empty() {
+                        self.output.push_str(&field_metadata.read_conversion);
+                    }
+                    self.output.push_str(", _ => \"\".into() }");
+                    return;
+                }
+
+                // Special case: PropName enum accessing .sym
+                if object.metadata.swc_type == "PropName" && field_metadata.swc_field_name == "sym" {
+                    eprintln!("[EMIT MEMBER] Generating PropName match for .sym access");
+                    self.output.push_str("match &");
+                    self.emit_expr(object);
+                    self.output.push_str(" { PropName::Ident(ident) => ident.sym");
                     // Apply the read_conversion for sym (.to_string())
                     if !field_metadata.read_conversion.is_empty() {
                         self.output.push_str(&field_metadata.read_conversion);
