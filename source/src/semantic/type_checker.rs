@@ -248,7 +248,33 @@ impl TypeChecker {
                                 // Extract scrutinee variable name
                                 if let Some(var_name) = self.extract_simple_scrutinee(&matches_expr.scrutinee) {
                                     // Get the narrowed type from the pattern
-                                    if let Some(narrowed_type) = self.pattern_to_concrete_type(&matches_expr.pattern) {
+                                    let narrowed_type = if let Pattern::Variant { name, .. } | Pattern::Ident(name) = &matches_expr.pattern {
+                                        if name == "Some" {
+                                            // Special case: Some pattern narrows Option<T> to T
+                                            eprintln!("DEBUG narrowing: pattern 'Some' detected, extracting inner type from Option");
+                                            let scrutinee_type = self.infer_expr(&matches_expr.scrutinee);
+
+                                            // Unwrap Ref if present
+                                            let scrutinee_type = match scrutinee_type {
+                                                TypeInfo::Ref { inner, .. } => *inner,
+                                                other => other,
+                                            };
+
+                                            if let TypeInfo::Option(inner) = scrutinee_type {
+                                                eprintln!("DEBUG narrowing: extracted inner type from Option: {:?}", inner);
+                                                Some(*inner)
+                                            } else {
+                                                eprintln!("DEBUG narrowing: scrutinee is not Option type, got: {:?}", scrutinee_type);
+                                                None
+                                            }
+                                        } else {
+                                            self.pattern_to_concrete_type(&matches_expr.pattern)
+                                        }
+                                    } else {
+                                        self.pattern_to_concrete_type(&matches_expr.pattern)
+                                    };
+
+                                    if let Some(narrowed_type) = narrowed_type {
                                         eprintln!("DEBUG narrowing: negated matches with early return - narrowing '{}' to {:?} after if-statement", var_name, narrowed_type);
                                         // Narrow in the CURRENT scope (not a new scope)
                                         // After the early return, we know the variable has the narrowed type
@@ -468,6 +494,7 @@ impl TypeChecker {
     fn define_pattern_in_env(&mut self, pattern: &Pattern, type_info: TypeInfo) {
         match pattern {
             Pattern::Ident(name) => {
+                eprintln!("[TYPE ENV DEFINE] Defining '{}' with type {:?}", name, type_info);
                 self.env.define(name.clone(), type_info);
             }
             Pattern::Tuple(patterns) => {
@@ -542,10 +569,12 @@ impl TypeChecker {
             },
 
             Expr::Ident(ident) => {
-                self.env
+                let ty = self.env
                     .lookup(&ident.name)
                     .cloned()
-                    .unwrap_or(TypeInfo::Unknown)
+                    .unwrap_or(TypeInfo::Unknown);
+                eprintln!("[TYPE INFER] Ident '{}' has type: {:?}", ident.name, ty);
+                ty
             }
 
             Expr::Binary(binary) => {
@@ -905,7 +934,7 @@ impl TypeChecker {
 
     /// Infer return type of a method call
     fn infer_method_call(&self, obj_type: &TypeInfo, method: &str, _args: &[Expr]) -> TypeInfo {
-        match (obj_type, method) {
+        let result = match (obj_type, method) {
             // String methods
             (TypeInfo::Str, "clone") => TypeInfo::Str,
             (TypeInfo::Str, "len") => TypeInfo::I32,
@@ -952,7 +981,9 @@ impl TypeChecker {
             (TypeInfo::AstNode(_), "visit_children") => TypeInfo::Unit,
 
             _ => TypeInfo::Unknown,
-        }
+        };
+        eprintln!("[METHOD CALL] {}.{}() -> {:?}", obj_type.display_name(), method, result);
+        result
     }
 
     // ========================================================================

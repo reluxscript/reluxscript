@@ -174,11 +174,26 @@ impl SwcRewriter {
     // ========================================================================
 
     fn rewrite_block(&mut self, block: DecoratedBlock) -> DecoratedBlock {
+        let mut result_stmts = Vec::new();
+
+        for stmt in block.stmts {
+            let rewritten = self.rewrite_stmt(stmt.clone());
+            result_stmts.push(rewritten);
+
+            // Detect early-return guard: if !matches!(x, Some) { return; }
+            // Insert unwrap: let x = x.as_ref().unwrap();
+            if let DecoratedStmt::If(ref if_stmt) = stmt {
+                if let Some(var_name) = Self::extract_option_guard_variable(if_stmt) {
+                    eprintln!("[REWRITER] Detected Option guard for '{}', inserting unwrap", var_name);
+                    // Create: let var_name = var_name.as_ref().unwrap();
+                    let unwrap_stmt = Self::create_unwrap_rebinding(&var_name);
+                    result_stmts.push(unwrap_stmt);
+                }
+            }
+        }
+
         DecoratedBlock {
-            stmts: block.stmts
-                .into_iter()
-                .map(|s| self.rewrite_stmt(s))
-                .collect(),
+            stmts: result_stmts,
         }
     }
 
@@ -3220,5 +3235,100 @@ impl SwcRewriter {
             // Fallback: direct field access
             SwcFieldMetadata::direct(field_name.to_string(), type_name.to_string())
         }
+    }
+
+    /// Extract variable name from Option guard pattern: if !matches!(x, Some) { return; }
+    fn extract_option_guard_variable(if_stmt: &DecoratedIfStmt) -> Option<String> {
+        // Check if condition is: !matches!(var, Some)
+        if let DecoratedExprKind::Unary { op, operand, .. } = &if_stmt.condition.kind {
+            if *op == UnaryOp::Not {
+                if let DecoratedExprKind::Matches { expr, .. } = &operand.kind {
+                    // Check if expr is an identifier
+                    if let DecoratedExprKind::Ident { name, .. } = &expr.kind {
+                        // Check if then-branch is just `return;`
+                        if if_stmt.then_branch.stmts.len() == 1 {
+                            if matches!(if_stmt.then_branch.stmts[0], DecoratedStmt::Return(_)) {
+                                return Some(name.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Create unwrap rebinding statement: let x = x.as_ref().unwrap();
+    fn create_unwrap_rebinding(var_name: &str) -> DecoratedStmt {
+        use crate::lexer::Span;
+
+        let meta = SwcExprMetadata {
+            needs_enum_unwrap: None,
+            swc_type: "Unknown".to_string(),
+            is_boxed: false,
+            is_optional: false,
+            type_kind: SwcTypeKind::Unknown,
+            span: None,
+        };
+
+        // Create: var_name.as_ref().unwrap()
+        let unwrap_expr = DecoratedExpr {
+            kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                callee: DecoratedExpr {
+                    kind: DecoratedExprKind::Member {
+                        object: Box::new(DecoratedExpr {
+                            kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                                callee: DecoratedExpr {
+                                    kind: DecoratedExprKind::Member {
+                                        object: Box::new(DecoratedExpr {
+                                            kind: DecoratedExprKind::Ident {
+                                                name: var_name.to_string(),
+                                                ident_metadata: SwcIdentifierMetadata::name(),
+                                            },
+                                            metadata: meta.clone(),
+                                        }),
+                                        property: "as_ref".to_string(),
+                                        optional: false,
+                                        computed: false,
+                                        is_path: false,
+                                        field_metadata: SwcFieldMetadata::direct("as_ref".to_string(), "Unknown".to_string()),
+                                    },
+                                    metadata: meta.clone(),
+                                },
+                                args: vec![],
+                                type_args: vec![],
+                                optional: false,
+                                is_macro: false,
+                                span: Span::new(0, 0, 0, 0),
+                            })),
+                            metadata: meta.clone(),
+                        }),
+                        property: "unwrap".to_string(),
+                        optional: false,
+                        computed: false,
+                        is_path: false,
+                        field_metadata: SwcFieldMetadata::direct("unwrap".to_string(), "Unknown".to_string()),
+                    },
+                    metadata: meta.clone(),
+                },
+                args: vec![],
+                type_args: vec![],
+                optional: false,
+                is_macro: false,
+                span: Span::new(0, 0, 0, 0),
+            })),
+            metadata: meta,
+        };
+
+        // Create: let var_name = ...
+        DecoratedStmt::Let(DecoratedLetStmt {
+            mutable: false,
+            pattern: DecoratedPattern {
+                kind: DecoratedPatternKind::Ident(var_name.to_string()),
+                metadata: SwcPatternMetadata::direct(var_name.to_string()),
+            },
+            ty: None,
+            init: unwrap_expr,
+        })
     }
 }

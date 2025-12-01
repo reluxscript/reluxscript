@@ -80,13 +80,13 @@ pub fn generate_with_types(
 
     let swc = if target == Target::Swc || target == Target::Both {
         // NEW 4-STAGE PIPELINE: Decorate (with types) → Rewrite → Hoist → Emit
-        let mut decorator = SwcDecorator::with_semantic_types(type_env);
+        let mut decorator = SwcDecorator::with_semantic_types(type_env.clone());
         let decorated_program = decorator.decorate_program(program);
 
         let mut rewriter = SwcRewriter::new();
         let rewritten_program = rewriter.rewrite_program(decorated_program);
 
-        let mut hoister = SwcHoister::new();
+        let mut hoister = SwcHoister::new(type_env);
         let hoisted_program = hoister.hoist_program(rewritten_program);
 
         let mut emitter = SwcEmitter::new();

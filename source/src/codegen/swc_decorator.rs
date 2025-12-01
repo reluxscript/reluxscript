@@ -332,10 +332,13 @@ impl SwcDecorator {
             Stmt::Let(let_stmt) => {
                 // First decorate the initializer to get its type
                 let init = self.decorate_expr(&let_stmt.init);
-                let init_type = &init.metadata.swc_type;
+                let init_type = init.metadata.swc_type.clone();
 
                 // Use that type for pattern decoration
-                let pattern = self.decorate_pattern_with_context(&let_stmt.pattern, init_type);
+                let pattern = self.decorate_pattern_with_context(&let_stmt.pattern, &init_type);
+
+                // Register the pattern bindings with the inferred type
+                self.register_pattern_bindings(&let_stmt.pattern, &init_type);
 
                 DecoratedStmt::Let(DecoratedLetStmt {
                     mutable: let_stmt.mutable,
@@ -453,7 +456,54 @@ impl SwcDecorator {
 
             Stmt::Continue(_) => DecoratedStmt::Continue,
 
-            Stmt::Traverse(traverse) => DecoratedStmt::Traverse(traverse.clone()),
+            Stmt::Traverse(traverse) => {
+                let decorated_target = self.decorate_expr(&traverse.target);
+                let decorated_kind = match &traverse.kind {
+                    crate::parser::TraverseKind::Inline(inline_visitor) => {
+                        let decorated_methods = inline_visitor.methods.iter().map(|method| {
+                            // Register parameter types for field mapping
+                            for param in &method.params {
+                                if let crate::parser::Type::Reference { inner, .. } = &param.ty {
+                                    if let crate::parser::Type::Named(type_name) = inner.as_ref() {
+                                        let swc_type = crate::mapping::get_node_mapping(type_name)
+                                            .map(|m| m.swc.to_string())
+                                            .unwrap_or_else(|| type_name.clone());
+                                        self.register_param_type(&param.name, &swc_type);
+                                    }
+                                }
+                            }
+
+                            let decorated_body = self.decorate_block(&method.body);
+
+                            // Clean up param types after decorating this method
+                            for param in &method.params {
+                                self.type_env.remove(&param.name);
+                            }
+
+                            DecoratedVisitorMethod {
+                                name: method.name.clone(),
+                                params: method.params.clone(),
+                                body: decorated_body,
+                            }
+                        }).collect();
+
+                        DecoratedTraverseKind::Inline(DecoratedInlineVisitor {
+                            state: inline_visitor.state.clone(),
+                            methods: decorated_methods,
+                        })
+                    }
+                    crate::parser::TraverseKind::Delegated(name) => {
+                        DecoratedTraverseKind::Delegated(name.clone())
+                    }
+                };
+
+                DecoratedStmt::Traverse(Box::new(DecoratedTraverseStmt {
+                    target: decorated_target,
+                    captures: traverse.captures.clone(),
+                    kind: decorated_kind,
+                    span: traverse.span,
+                }))
+            }
 
             Stmt::Function(func_decl) => DecoratedStmt::Function(func_decl.clone()),
 
@@ -476,11 +526,13 @@ impl SwcDecorator {
         // If this is an if-let, decorate the pattern with CONTEXT
         let decorated_pattern = if let Some(ref pattern) = if_stmt.pattern {
             // THIS IS THE KEY: We know what type is being matched!
+            eprintln!("[DECORATOR IF-LET] Decorating pattern {:?} with condition_type: '{}'", pattern, condition_type);
             let decorated_pat = self.decorate_pattern_with_context(pattern, condition_type);
 
             // Register pattern bindings in type environment for the then branch
             // Use the decorated pattern's metadata to get the correct narrowed types
-            self.add_pattern_bindings_to_env(pattern, &decorated_pat);
+            // Pass the condition type so Option<T> patterns can extract the T
+            self.add_pattern_bindings_to_env_with_type(pattern, &decorated_pat, Some(condition_type.clone()));
 
             // CRITICAL FIX: Also narrow the scrutinee variable if it's a simple identifier
             // For: if let Pat::Object(__inner) = param
@@ -801,14 +853,28 @@ impl SwcDecorator {
             }
 
             Pattern::Ident(name) => {
-                // Register this binding in type environment
-                // Type is the expected_type we're matching against
-                let type_ctx = TypeContext::from_reluxscript(expected_type);
-                self.type_env.insert(name.clone(), type_ctx);
+                // Check if this is a variant name (Some, None, Ok, Err) rather than a binding
+                let is_variant = matches!(name.as_str(), "Some" | "None" | "Ok" | "Err");
 
-                DecoratedPattern {
-                    kind: DecoratedPatternKind::Ident(name.clone()),
-                    metadata: SwcPatternMetadata::direct(name.clone()),
+                if is_variant {
+                    // Treat as a variant pattern, not a binding
+                    DecoratedPattern {
+                        kind: DecoratedPatternKind::Variant {
+                            name: name.clone(),
+                            inner: None,
+                        },
+                        metadata: SwcPatternMetadata::direct(name.clone()),
+                    }
+                } else {
+                    // Register this binding in type environment
+                    // Type is the expected_type we're matching against
+                    let type_ctx = TypeContext::from_reluxscript(expected_type);
+                    self.type_env.insert(name.clone(), type_ctx);
+
+                    DecoratedPattern {
+                        kind: DecoratedPatternKind::Ident(name.clone()),
+                        metadata: SwcPatternMetadata::direct(name.clone()),
+                    }
                 }
             }
 
@@ -949,6 +1015,14 @@ impl SwcDecorator {
                         } else if enum_name == "Expr" {
                             // Expr::Lit -> Lit, Expr::Ident -> Ident
                             variant_name.to_string()
+                        } else if enum_name == "Option" {
+                            // Option::Some wraps the inner type from Option<T>
+                            // Need to extract T from the expected_type which should be "Option<T>"
+                            if let Some(ref outer_type) = expected_type {
+                                Self::extract_generic_param(outer_type).unwrap_or_else(|| variant_name.to_string())
+                            } else {
+                                variant_name.to_string()
+                            }
                         } else {
                             variant_name.to_string()
                         };
@@ -968,6 +1042,18 @@ impl SwcDecorator {
                 // Other patterns don't create bindings we need to track
             }
         }
+    }
+
+    /// Extract the type parameter from a generic type like "Option<Box<Expr>>" -> "Box<Expr>"
+    fn extract_generic_param(type_str: &str) -> Option<String> {
+        if let Some(start) = type_str.find('<') {
+            if let Some(end) = type_str.rfind('>') {
+                if end > start {
+                    return Some(type_str[start + 1..end].to_string());
+                }
+            }
+        }
+        None
     }
 
     /// Remove pattern bindings from type environment
@@ -1072,8 +1158,45 @@ impl SwcDecorator {
                 // Look up type in environment (local FIRST for pattern-narrowed types, then semantic)
                 let (type_ctx, needs_enum_unwrap) = if let Some(ctx) = self.type_env.get(name).cloned() {
                     // Local type_env has pattern-narrowed types from match/if-let
-                    eprintln!("[DEBUG] Ident '{}' found in local type_env: {}", name, ctx.swc_type);
-                    (ctx, None)
+                    eprintln!("[DEBUG] Ident '{}' found in local type_env: {} (needs_deref: {})", name, ctx.swc_type, ctx.needs_deref);
+
+                    // Check if this was narrowed from Option<T> to T
+                    let needs_option_unwrap = if let Some(semantic_type) = self.semantic_type_env.as_ref().and_then(|env| env.lookup(name)) {
+                        eprintln!("[DEBUG NARROWING CHECK] '{}': semantic_type = {:?}, local_type = {}", name, semantic_type, ctx.swc_type);
+                        // Check if semantic type is Option but local type is not
+                        let is_option_semantic = matches!(semantic_type, crate::semantic::TypeInfo::Ref { inner, .. } if matches!(**inner, crate::semantic::TypeInfo::Option(_)));
+                        let is_not_option_local = !ctx.swc_type.starts_with("Option<");
+                        eprintln!("[DEBUG NARROWING CHECK] is_option_semantic={}, is_not_option_local={}", is_option_semantic, is_not_option_local);
+                        is_option_semantic && is_not_option_local
+                    } else {
+                        eprintln!("[DEBUG NARROWING CHECK] '{}': no semantic type found", name);
+                        false
+                    };
+
+                    if needs_option_unwrap {
+                        eprintln!("[OPTION NARROWING] '{}' narrowed from Option to {}, needs unwrap", name, ctx.swc_type);
+                    }
+
+                    // If local has Unknown/UserDefined, check semantic TypeEnv for better type
+                    if (ctx.swc_type == "Unknown" || ctx.swc_type == "UserDefined") {
+                        if let Some(swc_type_str) = self.lookup_semantic_type(name) {
+                            eprintln!("[DEBUG] Local type is generic, using semantic TypeEnv: {}", swc_type_str);
+                            (TypeContext {
+                                reluxscript_type: name.clone(),
+                                swc_type: swc_type_str.clone(),
+                                kind: SwcTypeKind::Unknown,
+                                known_variant: None,
+                                needs_deref: false,
+                            }, None)
+                        } else {
+                            (ctx, None)
+                        }
+                    } else if needs_option_unwrap {
+                        // Return special unwrap marker
+                        (ctx, Some(("Option".to_string(), "unwrap".to_string())))
+                    } else {
+                        (ctx, None)
+                    }
                 } else if let Some(swc_type_str) = self.lookup_semantic_type(name) {
                     // Semantic TypeEnv has original types from semantic analysis
                     eprintln!("[DEBUG] Ident '{}' found in semantic TypeEnv: {}", name, swc_type_str);
@@ -1320,19 +1443,31 @@ impl SwcDecorator {
             Expr::Call(call) => {
                 let callee = self.decorate_expr(&call.callee);
 
-                // Check for CodeBuilder::new() -> returns String type
-                let return_type = if let Expr::Member(ref mem) = *call.callee {
-                    if let Expr::Ident(ref obj_ident) = *mem.object {
-                        if obj_ident.name == "CodeBuilder" && mem.property == "new" {
-                            Some("String")
+                // Infer return type for known methods
+                let return_type = match &callee.kind {
+                    DecoratedExprKind::Member { object, property, .. } => {
+                        // Check for .clone() -> returns the same type as the object
+                        if property == "clone" {
+                            let obj_type = &object.metadata.swc_type;
+                            eprintln!("[CLONE INFERENCE] {}.clone() -> {}", obj_type, obj_type);
+                            Some(obj_type.clone())
+                        }
+                        // Check for CodeBuilder::new() -> returns String type
+                        else if property == "new" {
+                            if let DecoratedExprKind::Ident { name, .. } = &object.kind {
+                                if name == "CodeBuilder" {
+                                    Some("String".to_string())
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
                         } else {
                             None
                         }
-                    } else {
-                        None
                     }
-                } else {
-                    None
+                    _ => None,
                 };
 
                 // Check if this is a Result/Option constructor (Err, Ok, Some, None)
@@ -1368,8 +1503,8 @@ impl SwcDecorator {
                         is_macro: call.is_macro,
                         span: call.span,
                     })),
-                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
-                        swc_type: return_type.unwrap_or("UserDefined").to_string(),
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None,
+                        swc_type: return_type.unwrap_or_else(|| "UserDefined".to_string()),
                         is_boxed: false,
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
@@ -1810,10 +1945,13 @@ impl SwcDecorator {
 
     /// Determine unwrap strategy based on type being matched
     fn determine_unwrap_strategy(&self, expected_type: &str) -> UnwrapStrategy {
-        // If matching against a Box<T>, need unwrapping
-        if expected_type.starts_with("Box<") {
-            UnwrapStrategy::RefDeref
+        eprintln!("[UNWRAP STRATEGY] expected_type: '{}'", expected_type);
+        // If matching against a Box<T> or &Box<T>, need unwrapping
+        if expected_type.starts_with("Box<") || expected_type.starts_with("&Box<") {
+            eprintln!("[UNWRAP STRATEGY] Detected Box, using AsRef");
+            UnwrapStrategy::AsRef
         } else {
+            eprintln!("[UNWRAP STRATEGY] Not a Box, using None");
             UnwrapStrategy::None
         }
     }

@@ -80,15 +80,18 @@ struct HookSignature {
 
 #[derive(Debug)]
 struct __InlineVisitor_0<'a> {
-    component: &'a mut i32,
+    component: &'a mut ComponentInfo,
 }
 
 impl<'a> VisitMut for __InlineVisitor_0<'a> {
     fn visit_mut_var_declarator(&mut self, decl: &mut VarDeclarator) {
         match &decl.init {
             Option::Some(init) => {
-                if matches!(init, CallExpression) {
-                    MinimactTranspiler::extract_hook_from_call(init, &decl.name, &mut self.component)
+                match init {
+                    Expr::Call(init) => {
+                        MinimactTranspiler::extract_hook_from_call(init, &decl.name, &mut self.component)
+                    }
+                    _ => {}
                 }
             }
             _ => {}
@@ -98,8 +101,11 @@ impl<'a> VisitMut for __InlineVisitor_0<'a> {
     fn visit_mut_return_stmt(&mut self, ret: &mut ReturnStmt) {
         match &ret.arg {
             Option::Some(arg) => {
-                if matches!(arg, JSXElement) {
-                    self.component.render_body = Some(arg.clone())
+                match arg {
+                    UserDefined::JSXElement(arg) => {
+                        self.component.render_body = Some(arg.clone())
+                    }
+                    _ => {}
                 }
             }
             _ => {}
@@ -274,6 +280,7 @@ impl MinimactTranspiler {
         } {
             return;
         }
+        let binding = binding.as_ref().unwrap();
         let arr = binding.clone();
         if (arr.elements.len() < 1) {
             return;
@@ -329,6 +336,7 @@ impl MinimactTranspiler {
         } {
             return;
         }
+        let binding = binding.as_ref().unwrap();
         let ref_name = binding.sym.to_string();
         let initial_value = if (call.args.len() > 0) {
             Self::expr_to_csharp(&call.args[0])

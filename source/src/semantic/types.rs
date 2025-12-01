@@ -418,6 +418,10 @@ pub fn ast_type_to_type_info(ty: &crate::parser::Type) -> TypeInfo {
                     let inner = type_args.first().map(ast_type_to_type_info).unwrap_or(TypeInfo::Unknown);
                     TypeInfo::HashSet(Box::new(inner))
                 }
+                "Box" => {
+                    // Box<T> is transparent for type checking - just use T
+                    type_args.first().map(ast_type_to_type_info).unwrap_or(TypeInfo::Unknown)
+                }
                 _ => TypeInfo::Unknown,
             }
         }

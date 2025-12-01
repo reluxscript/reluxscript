@@ -393,17 +393,21 @@ module.exports = function({ types: t }) {
               const __iflet_18 = decl.init;
               if (__iflet_18 !== null && __iflet_18 !== undefined) {
                 const init = __iflet_18;
-                if ((true)) {
+                const __iflet_19 = init;
+                if (__iflet_19 !== null) {
+                  const init = __iflet_19;
                   extract_hook_from_call(init, decl.id, component);
                 }
               }
             },
             ReturnStatement(path) {
               const ret = path.node;
-              const __iflet_19 = ret.argument;
-              if (__iflet_19 !== null && __iflet_19 !== undefined) {
-                const arg = __iflet_19;
-                if ((true)) {
+              const __iflet_20 = ret.argument;
+              if (__iflet_20 !== null && __iflet_20 !== undefined) {
+                const arg = __iflet_20;
+                const __iflet_21 = arg;
+                if (__iflet_21 !== null) {
+                  const arg = __iflet_21;
                   component.render_body = arg;
                 }
               }

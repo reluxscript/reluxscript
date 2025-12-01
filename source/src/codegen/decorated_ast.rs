@@ -184,7 +184,7 @@ pub enum DecoratedStmt {
     Return(Option<DecoratedExpr>),
     Break,
     Continue,
-    Traverse(crate::parser::TraverseStmt), // TODO: Decorate if needed
+    Traverse(Box<DecoratedTraverseStmt>),
     Function(crate::parser::FnDecl), // Nested functions - TODO: Decorate if needed
     Verbatim(crate::parser::VerbatimStmt), // Platform-specific code - no decoration needed
     CustomPropAssignment(Box<DecoratedCustomPropAssignment>),
@@ -293,4 +293,35 @@ pub struct DecoratedCustomPropAccess {
 
     /// Metadata about the access
     pub metadata: SwcCustomPropAccessMetadata,
+}
+
+/// Decorated traverse statement
+#[derive(Debug, Clone)]
+pub struct DecoratedTraverseStmt {
+    pub target: DecoratedExpr,
+    pub captures: Vec<crate::parser::Capture>,
+    pub kind: DecoratedTraverseKind,
+    pub span: crate::lexer::Span,
+}
+
+/// Decorated traverse kind
+#[derive(Debug, Clone)]
+pub enum DecoratedTraverseKind {
+    Inline(DecoratedInlineVisitor),
+    Delegated(String),
+}
+
+/// Decorated inline visitor
+#[derive(Debug, Clone)]
+pub struct DecoratedInlineVisitor {
+    pub state: Vec<crate::parser::LetStmt>, // TODO: Could decorate these too
+    pub methods: Vec<DecoratedVisitorMethod>,
+}
+
+/// Decorated visitor method
+#[derive(Debug, Clone)]
+pub struct DecoratedVisitorMethod {
+    pub name: String,
+    pub params: Vec<crate::parser::Param>,
+    pub body: DecoratedBlock,
 }

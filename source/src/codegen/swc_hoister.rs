@@ -14,7 +14,8 @@ use crate::codegen::swc_decorator::{
 use crate::codegen::decorated_ast::{
     DecoratedStmt, DecoratedExpr, DecoratedExprKind,
     DecoratedBlock, DecoratedIfStmt, DecoratedWhileStmt,
-    DecoratedForStmt,
+    DecoratedForStmt, DecoratedTraverseStmt, DecoratedTraverseKind,
+    DecoratedInlineVisitor, DecoratedVisitorMethod,
 };
 use crate::codegen::swc_metadata::SwcExprMetadata;
 use crate::parser::{
@@ -37,15 +38,50 @@ pub struct SwcHoister {
 
     /// Current writer type name for qualifying function calls
     current_writer: Option<String>,
+
+    /// Semantic type environment for looking up captured variable types
+    type_env: crate::semantic::TypeEnv,
 }
 
 impl SwcHoister {
-    pub fn new() -> Self {
+    pub fn new(type_env: crate::semantic::TypeEnv) -> Self {
         Self {
             visitor_counter: 0,
             hoisted_structs: Vec::new(),
             hoisted_impls: Vec::new(),
             current_writer: None,
+            type_env,
+        }
+    }
+
+    /// Convert TypeInfo to SWC type string
+    fn typeinfo_to_swc_string(&self, type_info: &crate::semantic::TypeInfo) -> String {
+        use crate::semantic::TypeInfo;
+        match type_info {
+            TypeInfo::Str => "String".to_string(),
+            TypeInfo::I32 => "i32".to_string(),
+            TypeInfo::U32 => "u32".to_string(),
+            TypeInfo::F64 => "f64".to_string(),
+            TypeInfo::Bool => "bool".to_string(),
+            TypeInfo::Unit => "()".to_string(),
+            TypeInfo::Null => "()".to_string(),
+            TypeInfo::Ref { mutable, inner } => {
+                // Recursively convert inner type
+                // But don't add & here, that's handled by the caller
+                self.typeinfo_to_swc_string(inner)
+            }
+            TypeInfo::Vec(inner) => {
+                format!("Vec<{}>", self.typeinfo_to_swc_string(inner))
+            }
+            TypeInfo::Option(inner) => {
+                format!("Option<{}>", self.typeinfo_to_swc_string(inner))
+            }
+            TypeInfo::AstNode(name) => {
+                // Convert AST node names to SWC types
+                get_node_mapping(name).map(|m| m.swc.to_string()).unwrap_or_else(|| name.clone())
+            }
+            TypeInfo::Struct { name, .. } => name.clone(),
+            _ => "UserDefined".to_string(),
         }
     }
 
@@ -222,9 +258,9 @@ impl SwcHoister {
     }
 
     /// Transform a traverse statement into visitor instantiation + call
-    fn hoist_traverse(&mut self, traverse: TraverseStmt) -> DecoratedStmt {
+    fn hoist_traverse(&mut self, traverse: Box<DecoratedTraverseStmt>) -> DecoratedStmt {
         match &traverse.kind {
-            TraverseKind::Inline(inline) => {
+            DecoratedTraverseKind::Inline(inline) => {
                 // Generate unique struct name
                 let struct_name = format!("__InlineVisitor_{}", self.visitor_counter);
                 self.visitor_counter += 1;
@@ -237,16 +273,25 @@ impl SwcHoister {
 
                 // Add captured variables as fields
                 for capture in &traverse.captures {
+                    // Look up the type of the captured variable
+                    let inner_type_name = if let Some(var_type) = self.type_env.lookup(&capture.name) {
+                        // Convert TypeInfo to SWC type string
+                        self.typeinfo_to_swc_string(var_type)
+                    } else {
+                        eprintln!("[HOISTER] Warning: Could not find type for captured variable '{}', using UserDefined", capture.name);
+                        "UserDefined".to_string()
+                    };
+
                     let field_type = if capture.mutable {
                         // &mut T
                         Type::Reference {
-                            inner: Box::new(Type::Primitive("i32".to_string())), // TODO: proper type inference
+                            inner: Box::new(Type::Primitive(inner_type_name)),
                             mutable: true,
                         }
                     } else {
                         // &T
                         Type::Reference {
-                            inner: Box::new(Type::Primitive("i32".to_string())),
+                            inner: Box::new(Type::Primitive(inner_type_name)),
                             mutable: false,
                         }
                     };
@@ -382,7 +427,7 @@ impl SwcHoister {
                 self.generate_visitor_instantiation(&struct_name, &traverse, &inline.state)
             }
 
-            TraverseKind::Delegated(visitor_name) => {
+            DecoratedTraverseKind::Delegated(visitor_name) => {
                 // For delegated visitors, just generate the instantiation + call
                 // TODO: Generate proper delegation code
                 DecoratedStmt::Expr(DecoratedExpr {
@@ -405,7 +450,7 @@ impl SwcHoister {
     fn generate_visitor_instantiation(
         &self,
         struct_name: &str,
-        traverse: &TraverseStmt,
+        traverse: &DecoratedTraverseStmt,
         state: &[crate::parser::LetStmt],
     ) -> DecoratedStmt {
         use crate::codegen::decorated_ast::{DecoratedCallExpr, DecoratedStructInit};
@@ -519,9 +564,8 @@ impl SwcHoister {
         };
 
         // Generate: target.visit_mut_with(&mut visitor)
-        // Need to decorate the target expression first
-        let mut decorator = crate::codegen::swc_decorator::SwcDecorator::new();
-        let decorated_target = decorator.decorate_expr(&traverse.target);
+        // target is already decorated
+        let decorated_target = traverse.target.clone();
 
         let visit_call = DecoratedExpr {
             kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
@@ -588,7 +632,7 @@ impl SwcHoister {
     /// Transform method body to use self.var for captured variables
     fn transform_method_body_with_captures(
         &self,
-        body: &Block,
+        body: &DecoratedBlock,
         captures: &[crate::parser::Capture],
         state: &[crate::parser::LetStmt],
         params: &[crate::parser::Param],
@@ -617,14 +661,8 @@ impl SwcHoister {
             writer_type: self.current_writer.clone(),
         };
 
-        // Transform each statement in the body
-        let transformed_stmts = body.stmts.iter()
-            .map(|stmt| transformer.transform_stmt(stmt))
-            .collect();
-
-        DecoratedBlock {
-            stmts: transformed_stmts,
-        }
+        // Transform the block to replace captured variables with self.var
+        transformer.transform_block(body.clone())
     }
 
 }

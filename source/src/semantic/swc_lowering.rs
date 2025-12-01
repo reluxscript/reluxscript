@@ -127,7 +127,15 @@ impl SwcLowering {
                 self.lower_expr(&mut expr_stmt.expr);
             }
             Stmt::Break(_) | Stmt::Continue(_) => {}
-            Stmt::Const(_) | Stmt::Loop(_) | Stmt::Traverse(_) | Stmt::Function(_) | Stmt::Verbatim(_) | Stmt::CustomPropAssignment(_) => {
+            Stmt::Traverse(traverse_stmt) => {
+                // Lower the visitor methods inside traverse blocks
+                if let crate::parser::TraverseKind::Inline(ref mut inline_visitor) = traverse_stmt.kind {
+                    for method in &mut inline_visitor.methods {
+                        self.lower_block(&mut method.body);
+                    }
+                }
+            }
+            Stmt::Const(_) | Stmt::Loop(_) | Stmt::Function(_) | Stmt::Verbatim(_) | Stmt::CustomPropAssignment(_) => {
                 // These statements don't need lowering or aren't supported yet
             }
         }

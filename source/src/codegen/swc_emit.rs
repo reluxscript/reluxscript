@@ -1012,31 +1012,17 @@ impl SwcEmitter {
 
     fn emit_if_stmt(&mut self, if_stmt: &DecoratedIfStmt) {
         if let Some(ref pattern) = if_stmt.pattern {
-            // Check if pattern is path-qualified (contains ::)
-            // If so, emit as match statement instead of if-let
-            let is_path_qualified = self.is_path_qualified_pattern(pattern);
-            eprintln!("[EMIT] if-let pattern: {:?}, is_path_qualified: {}", pattern.kind, is_path_qualified);
-            if is_path_qualified {
-                eprintln!("[EMIT] Converting path-qualified if-let to match");
-                self.emit_if_let_as_match(if_stmt, pattern);
-                return;
-            }
+            // Emit ALL if-let patterns as match statements
+            // This provides proper type narrowing in the generated code
+            eprintln!("[EMIT] if-let pattern detected: {:?}, emitting as match", pattern.kind);
+            self.emit_if_let_as_match(if_stmt, pattern);
+            return;
         }
 
+        // Regular if statement (no pattern)
         self.emit_indent();
-
-        if let Some(ref pattern) = if_stmt.pattern {
-            // if-let statement (non-path-qualified)
-            self.output.push_str("if let ");
-            self.emit_pattern(pattern);
-            self.output.push_str(" = ");
-            self.emit_expr(&if_stmt.condition);
-        } else {
-            // Regular if
-            self.output.push_str("if ");
-            self.emit_expr(&if_stmt.condition);
-        }
-
+        self.output.push_str("if ");
+        self.emit_expr(&if_stmt.condition);
         self.output.push_str(" {\n");
 
         // Then branch
@@ -1061,7 +1047,11 @@ impl SwcEmitter {
         // Check the swc_pattern in metadata, not the name in kind
         // The kind name is the original ReluxScript name ("ObjectPattern")
         // The metadata swc_pattern is the mapped SWC name ("Pat::Object")
-        pattern.metadata.swc_pattern.contains("::")
+        let is_qualified = pattern.metadata.swc_pattern.contains("::");
+        if is_qualified {
+            eprintln!("[EMIT PATH QUALIFIED] Pattern: {}", pattern.metadata.swc_pattern);
+        }
+        is_qualified
     }
 
     /// Emit if-let with path-qualified pattern as match statement
@@ -1071,7 +1061,9 @@ impl SwcEmitter {
     fn emit_if_let_as_match(&mut self, if_stmt: &DecoratedIfStmt, pattern: &DecoratedPattern) {
         self.emit_indent();
         self.output.push_str("match ");
+
         self.emit_expr(&if_stmt.condition);
+
         self.output.push_str(" {\n");
         self.indent += 1;
 
@@ -1164,8 +1156,17 @@ impl SwcEmitter {
                     self.emit_pattern(inner_pattern);
                     self.output.push(')');
                 } else {
-                    // No inner pattern, just emit the variant name
+                    // No inner pattern - emit with wildcard for tuple variants
+                    // For example: Some -> Some(_), None -> None (no wildcard needed)
                     self.output.push_str(&pattern.metadata.swc_pattern);
+                    // Check if this is a tuple variant (like Some, Ok, Err) that needs a wildcard
+                    let needs_wildcard = matches!(
+                        pattern.metadata.swc_pattern.as_str(),
+                        "Some" | "Ok" | "Err"
+                    );
+                    if needs_wildcard {
+                        self.output.push_str("(_)");
+                    }
                 }
             }
 
@@ -1278,6 +1279,13 @@ impl SwcEmitter {
                 // Check if we need .sym
                 if ident_metadata.use_sym {
                     self.output.push_str(".sym");
+                }
+
+                // Check if we need Option unwrap (from narrowing)
+                if let Some((parent_enum, variant_name)) = &expr.metadata.needs_enum_unwrap {
+                    if parent_enum == "Option" && variant_name == "unwrap" {
+                        self.output.push_str(".as_ref().unwrap()");
+                    }
                 }
             }
 
@@ -2669,7 +2677,7 @@ impl SwcEmitter {
         self.emit_line("");
     }
 
-    fn emit_traverse_stmt(&mut self, _traverse: &crate::parser::TraverseStmt) {
+    fn emit_traverse_stmt(&mut self, _traverse: &Box<DecoratedTraverseStmt>) {
         // Traverse statements should have been transformed by the Hoister stage
         // If we see one here, it's a placeholder that should emit a comment
         self.emit_line("// Traverse statement (should have been hoisted)");
