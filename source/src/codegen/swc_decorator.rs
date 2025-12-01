@@ -722,10 +722,17 @@ impl SwcDecorator {
                         return;
                     }
                 }
-                eprintln!("[DEBUG] Registering pattern binding: {} -> {}", name, bound_type);
+                // Prefer semantic type over decorator type for more accuracy
+                let actual_type = if let Some(semantic_type) = self.lookup_semantic_type(name) {
+                    eprintln!("[DEBUG] Using semantic type for '{}': {} (instead of {})", name, semantic_type, bound_type);
+                    semantic_type
+                } else {
+                    bound_type.to_string()
+                };
+                eprintln!("[DEBUG] Registering pattern binding: {} -> {}", name, actual_type);
                 self.type_env.insert(name.clone(), TypeContext {
-                    reluxscript_type: bound_type.to_string(),
-                    swc_type: bound_type.to_string(),
+                    reluxscript_type: actual_type.clone(),
+                    swc_type: actual_type,
                     kind: SwcTypeKind::Unknown,
                     known_variant: None,
                     needs_deref: false,

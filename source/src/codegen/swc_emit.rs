@@ -1434,6 +1434,23 @@ impl SwcEmitter {
                     return;
                 }
 
+                // Special case: Option<Pat> accessing .sym (from .name field in ReluxScript)
+                // This needs unwrap + Pat::Ident destructure + .id.sym access
+                if object.metadata.swc_type.contains("Option<Pat>") && field_metadata.swc_field_name == "sym" {
+                    eprintln!("[EMIT MEMBER] Generating Option<Pat> unwrap + destructure for .sym access");
+                    // Check if this is an indexed access (arr.elems[0])
+                    // Generate: ({ let Pat::Ident(ident) = &obj.clone().unwrap() else { return; }; ident.id.sym })
+                    self.output.push_str("({ let Pat::Ident(__pat_ident) = &");
+                    self.emit_expr(object);
+                    self.output.push_str(".clone().unwrap() else { return; }; __pat_ident.id.sym");
+                    // Apply the read_conversion for sym (.to_string())
+                    if !field_metadata.read_conversion.is_empty() {
+                        self.output.push_str(&field_metadata.read_conversion);
+                    }
+                    self.output.push_str(" })");
+                    return;
+                }
+
                 // Emit prefix for Utf8Lossy accessor
                 if let FieldAccessor::Utf8Lossy = field_metadata.accessor {
                     eprintln!("[EMIT UTF8LOSSY] Emitting wrapper prefix");

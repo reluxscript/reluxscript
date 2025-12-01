@@ -323,11 +323,17 @@ pub fn map_reluxscript_to_swc(rs_type: &str) -> (String, SwcTypeKind) {
 
         // Pattern types (Struct after unwrapping from Pat)
         "ArrayPattern" => ("ArrayPat".into(), SwcTypeKind::Struct),
+        "ArrayPat" => ("ArrayPat".into(), SwcTypeKind::Struct), // SWC name
         "ObjectPattern" => ("ObjectPat".into(), SwcTypeKind::Struct),
+        "ObjectPat" => ("ObjectPat".into(), SwcTypeKind::Struct), // SWC name
         "ObjectPatternProperty" => ("KeyValuePatProp".into(), SwcTypeKind::Struct),
+        "KeyValuePatProp" => ("KeyValuePatProp".into(), SwcTypeKind::Struct), // SWC name
         "RestElement" => ("RestPat".into(), SwcTypeKind::Struct),
+        "RestPat" => ("RestPat".into(), SwcTypeKind::Struct), // SWC name
         "AssignmentPattern" => ("AssignPat".into(), SwcTypeKind::Struct),
+        "AssignPat" => ("AssignPat".into(), SwcTypeKind::Struct), // SWC name
         "BindingIdentifier" => ("BindingIdent".into(), SwcTypeKind::Struct),
+        "BindingIdent" => ("BindingIdent".into(), SwcTypeKind::Struct), // SWC name
 
         // JSX types (Struct)
         "JSXElement" => ("JSXElement".into(), SwcTypeKind::Struct),
