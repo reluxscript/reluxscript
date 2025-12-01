@@ -1,0 +1,139 @@
+/// Test: Pattern Matching
+/// Tests: matches! macro, if-let, match expression, enum patterns
+
+plugin PatternMatchingPlugin {
+
+    // Enum declaration
+    enum HookType {
+        State,
+        Effect,
+        Ref,
+        Memo,
+        Custom(Str),
+    }
+
+    // Enum with multiple variants
+    enum NodeCategory {
+        Literal,
+        Expression,
+        Statement,
+        Declaration,
+        Unknown,
+    }
+
+    struct State {
+        hook_count: i32,
+        categories: Vec<NodeCategory>,
+    }
+
+    // Function using match expression
+    fn categorize_hook(name: &Str) -> HookType {
+        match name.as_str() {
+            "useState" => HookType::State,
+            "useReducer" => HookType::State,
+            "useEffect" => HookType::Effect,
+            "useLayoutEffect" => HookType::Effect,
+            "useRef" => HookType::Ref,
+            "useMemo" => HookType::Memo,
+            "useCallback" => HookType::Memo,
+            _ => HookType::Custom(name.clone()),
+        }
+    }
+
+    // Match with multiple patterns using |
+    fn get_operator_type(op: &Str) -> Str {
+        match op.as_str() {
+            "+" | "-" => "additive",
+            "*" | "/" | "%" => "multiplicative",
+            "==" | "!=" | "<" | ">" | "<=" | ">=" => "comparison",
+            "&&" | "||" => "logical",
+            _ => "other",
+        }
+    }
+
+    // Function using if-let with Option
+    fn get_identifier_name(expr: &Expression) -> Option<Str> {
+        if let Expression::Identifier(id) = expr {
+            Some(id.name.clone())
+        } else {
+            None
+        }
+    }
+
+    // Nested if-let patterns
+    fn extract_member_object(expr: &Expression) -> Option<Str> {
+        if let Expression::MemberExpression(member) = expr {
+            if let Expression::Identifier(obj) = &member.object {
+                return Some(obj.name.clone());
+            }
+        }
+        None
+    }
+
+    // Visitor using matches! macro
+    fn visit_call_expression(node: &mut CallExpression, ctx: &Context) {
+        // matches! for simple pattern check
+        if matches!(node.arguments.len(), 0 | 1 | 2) {
+            self.state.hook_count += 1;
+        }
+
+        // matches! with struct pattern
+        if matches!(node.callee, MemberExpression {
+            object: Identifier { name: "console" },
+            property: Identifier { name: "log" }
+        }) {
+            // This is console.log
+            self.state.hook_count += 1;
+        }
+
+        node.visit_children(self);
+    }
+
+    // Visitor using if-let with Option return
+    fn visit_expression_statement(node: &mut ExpressionStatement, ctx: &Context) {
+        if let Some(name) = get_identifier_name(&node.expression) {
+            if name.starts_with("use") {
+                let hook_type = categorize_hook(&name);
+
+                // Match on enum variant
+                match hook_type {
+                    HookType::State => self.state.hook_count += 2,
+                    HookType::Effect => self.state.hook_count += 1,
+                    HookType::Custom(custom_name) => {
+                        let _msg = format!("Custom hook: {}", custom_name);
+                    },
+                    _ => {},
+                }
+            }
+        }
+
+        node.visit_children(self);
+    }
+
+    // Visitor with multiple if-let chains
+    fn visit_member_expression(node: &mut MemberExpression, ctx: &Context) {
+        if let Expression::Identifier(obj) = &node.object {
+            if let MemberProperty::Identifier(prop) = &node.property {
+                let full_path = format!("{}.{}", obj.name, prop.name);
+                let _category = get_operator_type(&full_path);
+            }
+        }
+
+        node.visit_children(self);
+    }
+
+    // if-let with else branch
+    fn classify_literal(lit: &Literal) -> NodeCategory {
+        if let Literal::StringLiteral(s) = lit {
+            if s.value.is_empty() {
+                NodeCategory::Unknown
+            } else {
+                NodeCategory::Literal
+            }
+        } else if let Literal::NumericLiteral(n) = lit {
+            NodeCategory::Literal
+        } else {
+            NodeCategory::Unknown
+        }
+    }
+}

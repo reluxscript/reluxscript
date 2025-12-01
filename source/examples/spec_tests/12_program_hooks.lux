@@ -1,0 +1,160 @@
+/// Test: Program Hooks
+/// Tests: pre() hook, exit() hook, file metadata, post-processing
+
+use fs;
+use json;
+
+plugin ProgramHooksPlugin {
+
+    struct ComponentInfo {
+        name: Str,
+        hook_count: i32,
+        jsx_count: i32,
+    }
+
+    struct State {
+        components: Vec<ComponentInfo>,
+        current_component: Option<Str>,
+        original_code: Str,
+        start_time: i64,
+    }
+
+    /// Pre-hook: runs before any visitors
+    /// Used to save original state, initialize tracking, etc.
+    fn pre(file: &File) {
+        // Save original code for later comparison or format-preserving transforms
+        file.metadata.originalCode = file.code.clone();
+
+        // Store the filename
+        file.metadata.inputFile = file.filename.clone();
+
+        // Initialize tracking data
+        file.metadata.transformCount = 0;
+    }
+
+    /// Exit hook: runs after all visitors complete
+    /// Used for post-processing, file generation, cleanup
+    fn exit(program: &mut Program, state: &PluginState) {
+        // Generate metadata file
+        generate_metadata_file(&self.state, state);
+
+        // Log summary
+        let component_count = self.state.components.len();
+        let total_hooks = count_total_hooks(&self.state.components);
+
+        let summary = format!(
+            "Processed {} components with {} total hooks",
+            component_count,
+            total_hooks
+        );
+
+        // Write summary
+        fs::write_file("transform-summary.txt", &summary);
+    }
+
+    // Visitor methods that run between pre and exit
+
+    fn visit_function_declaration(node: &mut FunctionDeclaration, ctx: &Context) {
+        let name = node.id.name.clone();
+
+        if is_component_name(&name) {
+            self.state.current_component = Some(name.clone());
+
+            // Convert name to Str via helper function
+            let info = ComponentInfo {
+                name: to_str(&name),
+                hook_count: 0,
+                jsx_count: 0,
+            };
+            self.state.components.push(info);
+        }
+
+        node.visit_children(self);
+
+        self.state.current_component = None;
+    }
+
+    fn visit_call_expression(node: &mut CallExpression, ctx: &Context) {
+        if let Some(ref component_name) = self.state.current_component {
+            if let Expression::Identifier(id) = &node.callee {
+                if id.name.starts_with("use") {
+                    // Increment hook count for current component
+                    for comp in &mut self.state.components {
+                        if comp.name == *component_name {
+                            comp.hook_count += 1;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        node.visit_children(self);
+    }
+
+    fn visit_jsx_element(node: &mut JSXElement, ctx: &Context) {
+        if let Some(ref component_name) = self.state.current_component {
+            // Increment JSX count
+            for comp in &mut self.state.components {
+                if comp.name == *component_name {
+                    comp.jsx_count += 1;
+                    break;
+                }
+            }
+        }
+
+        node.visit_children(self);
+    }
+
+    // Helper functions
+
+    fn to_str(s: &Str) -> Str {
+        s.clone()
+    }
+
+    fn is_component_name(name: &Str) -> bool {
+        if name.is_empty() {
+            return false;
+        }
+        let first = name.chars().next().unwrap();
+        first.is_uppercase()
+    }
+
+    fn count_total_hooks(components: &Vec<ComponentInfo>) -> i32 {
+        let mut total = 0;
+        for comp in components {
+            total += comp.hook_count;
+        }
+        total
+    }
+
+    fn generate_metadata_file(state: &State, plugin_state: &PluginState) {
+        let mut output = CodeBuilder::new();
+
+        output.append("// Generated metadata");
+        output.newline();
+        output.append("// Source: ");
+        output.append(&plugin_state.filename);
+        output.newline();
+        output.newline();
+
+        output.append("export const components = ");
+        let json_data = json::stringify(&state.components);
+        output.append(&json_data);
+        output.append(";");
+        output.newline();
+
+        let metadata_path = format!("{}.meta.js", plugin_state.filename);
+        fs::write_file(&metadata_path, &output.to_string());
+    }
+}
+
+// Note: Multiple plugins in one file not yet supported by parser
+// The AlternativeHooksPlugin example is commented out for now
+//
+// plugin AlternativeHooksPlugin {
+//     struct State { visited: i32 }
+//     fn pre(file: &File) { file.metadata.initialized = true; }
+//     fn visit_identifier(node: &mut Identifier, ctx: &Context) { self.state.visited += 1; }
+//     fn exit(program: &mut Program, state: &PluginState) { ... }
+// }

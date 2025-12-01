@@ -1,0 +1,138 @@
+/// Test: Collections
+/// Tests: Vec, HashMap, HashSet, iterators, map/filter/collect
+
+plugin CollectionsPlugin {
+
+    struct HookInfo {
+        name: Str,
+        arg_count: i32,
+    }
+
+    struct State {
+        // Vec usage
+        hooks: Vec<HookInfo>,
+        names: Vec<Str>,
+
+        // HashMap usage
+        hook_counts: HashMap<Str, i32>,
+
+        // HashSet usage
+        visited: HashSet<Str>,
+    }
+
+    // Vec operations
+    fn add_hook(hooks: &mut Vec<HookInfo>, name: Str, args: i32) {
+        let info = HookInfo {
+            name: name,
+            arg_count: args,
+        };
+        hooks.push(info);
+    }
+
+    fn get_hook(hooks: &Vec<HookInfo>, index: i32) -> Option<&HookInfo> {
+        hooks.get(index)
+    }
+
+    fn hook_count(hooks: &Vec<HookInfo>) -> i32 {
+        hooks.len()
+    }
+
+    fn is_empty_hooks(hooks: &Vec<HookInfo>) -> bool {
+        hooks.is_empty()
+    }
+
+    // Vec with vec! macro
+    fn create_default_names() -> Vec<Str> {
+        vec!["useState", "useEffect", "useRef"]
+    }
+
+    // HashMap operations
+    fn increment_count(counts: &mut HashMap<Str, i32>, key: &Str) {
+        if let Some(current) = counts.get(key) {
+            counts.insert(key.clone(), current + 1);
+        } else {
+            counts.insert(key.clone(), 1);
+        }
+    }
+
+    fn has_hook(counts: &HashMap<Str, i32>, key: &Str) -> bool {
+        counts.contains_key(key)
+    }
+
+    // HashSet operations
+    fn mark_visited(visited: &mut HashSet<Str>, name: Str) {
+        visited.insert(name);
+    }
+
+    fn was_visited(visited: &HashSet<Str>, name: &Str) -> bool {
+        visited.contains(name)
+    }
+
+    // Iterator methods - map
+    fn get_hook_names(hooks: &Vec<HookInfo>) -> Vec<Str> {
+        hooks.iter().map(|h| h.name.clone()).collect()
+    }
+
+    // Iterator methods - filter
+    fn get_hooks_with_args(hooks: &Vec<HookInfo>) -> Vec<HookInfo> {
+        hooks.iter()
+            .filter(|h| h.arg_count > 0)
+            .map(|h| h.clone())
+            .collect()
+    }
+
+    // Iterator methods - find
+    fn find_hook_by_name(hooks: &Vec<HookInfo>, name: &Str) -> Option<&HookInfo> {
+        hooks.iter().find(|h| h.name == *name)
+    }
+
+    // Iterator - for-in loop
+    fn count_total_args(hooks: &Vec<HookInfo>) -> i32 {
+        let mut total = 0;
+        for hook in hooks {
+            total += hook.arg_count;
+        }
+        total
+    }
+
+    // HashMap iteration
+    fn print_counts(counts: &HashMap<Str, i32>) {
+        for (key, value) in counts {
+            let _msg = format!("{}: {}", key, value);
+        }
+    }
+
+    fn visit_call_expression(node: &mut CallExpression, ctx: &Context) {
+        if let Expression::Identifier(id) = &node.callee {
+            let name = id.name.clone();
+
+            // Check if already visited
+            if !was_visited(&self.state.visited, &name) {
+                mark_visited(&mut self.state.visited, name.clone());
+
+                // Add to hooks vec
+                add_hook(&mut self.state.hooks, name.clone(), node.arguments.len());
+
+                // Update count map
+                increment_count(&mut self.state.hook_counts, &name);
+
+                // Add to names
+                self.state.names.push(name);
+            }
+        }
+
+        node.visit_children(self);
+    }
+
+    fn visit_program_exit(node: &Program, ctx: &Context) {
+        // Use collected data
+        let all_names = get_hook_names(&self.state.hooks);
+        let hooks_with_args = get_hooks_with_args(&self.state.hooks);
+        let total = count_total_args(&self.state.hooks);
+
+        // Find specific hook
+        if let Some(use_state) = find_hook_by_name(&self.state.hooks, &"useState") {
+            let _count = use_state.arg_count.clone();
+        }
+    }
+}

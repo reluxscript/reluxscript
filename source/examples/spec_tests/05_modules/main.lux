@@ -1,0 +1,73 @@
+/// Test: Module System - Main Plugin
+/// Tests: use statements, imports, module prefixes
+
+// Import from relative file module
+use "./helpers.lux";
+
+// Import specific items
+use "./helpers.lux" { get_component_name, ComponentInfo, is_react_component };
+
+// Import with alias
+use "./helpers.lux" as h;
+
+// Import built-in modules
+use fs;
+use json;
+use path;
+
+plugin ModuleTestPlugin {
+
+    struct State {
+        components: Vec<ComponentInfo>,
+        output_path: Str,
+    }
+
+    fn visit_function_declaration(node: &mut FunctionDeclaration, ctx: &Context) {
+        // Use directly imported function
+        let name = get_component_name(node);
+
+        // Use directly imported function
+        if is_react_component(&name) {
+            // Use directly imported struct
+            let info = ComponentInfo {
+                name: name.clone(),
+                props: vec![],
+                is_functional: true,
+            };
+            self.state.components.push(info);
+        }
+
+        // Use with module alias prefix
+        let safe_name = h::safe_component_name(&name);
+
+        // Use aliased module's enum
+        let _comp_type = h::ComponentType::Functional;
+
+        node.visit_children(self);
+    }
+
+    fn visit_program_exit(node: &Program, ctx: &Context) {
+        // Use path module
+        let output_dir = path::dirname(&self.state.output_path);
+        let filename = path::basename(&self.state.output_path);
+        let full_path = path::join(vec![output_dir, filename]);
+
+        // Use json module
+        let json_data = json::stringify(&self.state.components);
+
+        // Use fs module
+        if fs::exists(&full_path) {
+            let _existing = fs::read_file(&full_path);
+        }
+
+        fs::write_file(&full_path, &json_data);
+    }
+
+    // Helper using imported module
+    fn save_component(info: &ComponentInfo) -> Result<(), Str> {
+        let filename = format!("{}.json", info.name);
+        let data = json::stringify(info);
+        fs::write_file(&filename, &data)?;
+        Ok(())
+    }
+}

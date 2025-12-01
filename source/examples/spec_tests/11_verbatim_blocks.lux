@@ -1,0 +1,154 @@
+/// Test: Verbatim Code Blocks
+/// Tests: babel! blocks, swc! blocks, js! alias, rust! alias, platform-specific code
+
+plugin VerbatimBlocksPlugin {
+
+    struct State {
+        keys_generated: i32,
+    }
+
+    fn visit_jsx_element(node: &mut JSXElement, ctx: &Context) {
+        // Mix ReluxScript with verbatim blocks
+        let tag_name = &node.opening_element.name;
+
+        // Babel-specific code using babel! block
+        babel! {
+            // Raw JavaScript - preserved exactly as written
+            const recast = require('recast');
+            const keyAttr = t.jsxAttribute(
+                t.jsxIdentifier('key'),
+                t.stringLiteral('generated-key')
+            );
+            node.openingElement.attributes.push(keyAttr);
+        }
+
+        // SWC-specific code using swc! block
+        swc! {
+            // Raw Rust - preserved exactly as written
+            use swc_ecma_ast::*;
+            node.opening.attrs.push(JSXAttr {
+                span: DUMMY_SP,
+                name: JSXAttrName::Ident(Ident::new("key".into(), DUMMY_SP)),
+                value: Some(JSXAttrValue::Lit(Lit::Str("generated-key".into())))
+            });
+        }
+
+        self.state.keys_generated += 1;
+
+        node.visit_children(self);
+    }
+
+    fn visit_call_expression(node: &mut CallExpression, ctx: &Context) {
+        // js! is an alias for babel!
+        js! {
+            // This is JavaScript-only code
+            if (t.isIdentifier(node.callee)) {
+                console.log('Processing call to:', node.callee.name);
+            }
+        }
+
+        // rust! is an alias for swc!
+        rust! {
+            // This is Rust-only code
+            if let Callee::Expr(expr) = &node.callee {
+                if let Expr::Ident(id) = &**expr {
+                    println!("Processing call to: {}", id.sym);
+                }
+            }
+        }
+
+        node.visit_children(self);
+    }
+
+    // Pre hook with verbatim blocks
+    fn pre(file: &File) {
+        babel! {
+            // Save original code before transforms
+            file.metadata.originalCode = file.code;
+            file.metadata.startTime = Date.now();
+        }
+
+        swc! {
+            // SWC doesn't have pre hook, this becomes a regular function
+            // that may be called manually
+        }
+    }
+
+    // Exit hook with format-preserving output using Recast
+    fn exit(program: &mut Program, state: &PluginState) {
+        babel! {
+            // Use Recast for format-preserving transformations
+            const recast = require('recast');
+            const fs = require('fs');
+            const path = require('path');
+
+            // Get the original source
+            const originalAst = recast.parse(state.file.metadata.originalCode, {
+                parser: require('recast/parsers/babel-ts')
+            });
+
+            // Generate output with preserved formatting
+            const output = recast.print(originalAst, {
+                tabWidth: 2,
+                quote: 'single'
+            });
+
+            // Write keys file
+            const keysFilePath = path.join(
+                path.dirname(state.filename),
+                path.basename(state.filename, '.tsx') + '.keys'
+            );
+            fs.writeFileSync(keysFilePath, output.code);
+
+            // Log timing
+            const duration = Date.now() - state.file.metadata.startTime;
+            console.log(`Transform completed in ${duration}ms`);
+        }
+
+        swc! {
+            // SWC equivalent - different approach needed
+            use std::fs;
+            use std::path::Path;
+
+            let output_path = Path::new(&state.filename)
+                .with_extension("keys");
+
+            // SWC doesn't have Recast, would need different approach
+            // for format-preserving output
+        }
+    }
+
+    fn visit_identifier(node: &mut Identifier, ctx: &Context) {
+        // Complex platform-specific logic
+        babel! {
+            // Babel: Use path API for scope checking
+            if (path.scope.hasBinding(node.name)) {
+                path.node.__isBound = true;
+            }
+        }
+
+        swc! {
+            // SWC: Manual scope tracking needed
+            // This would use a pre-computed scope map
+            if self.scope_map.contains_key(&node.sym.to_string()) {
+                // Mark as bound using custom property system
+            }
+        }
+    }
+
+    // Helper with platform divergence
+    fn generate_unique_id(hint: &Str) -> Str {
+        babel! {
+            // Babel has built-in UID generation
+            return path.scope.generateUidIdentifier(hint).name;
+        }
+
+        swc! {
+            // SWC needs manual implementation
+            use std::sync::atomic::{AtomicUsize, Ordering};
+            static COUNTER: AtomicUsize = AtomicUsize::new(0);
+            let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+            return format!("_{}${}", hint, id);
+        }
+    }
+}

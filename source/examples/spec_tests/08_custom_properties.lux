@@ -1,0 +1,132 @@
+/// Test: Custom AST Properties
+/// Tests: __ prefix properties, property assignment, property access, property deletion
+
+plugin CustomPropertiesPlugin {
+
+    struct State {
+        processed_count: i32,
+    }
+
+    fn visit_jsx_element(node: &mut JSXElement, ctx: &Context) {
+        // Assign string property
+        node.__componentName = "Button";
+
+        // Assign boolean flag
+        node.__processed = true;
+
+        // Assign integer
+        node.__visitCount = 1;
+
+        // Assign float
+        node.__priority = 0.5;
+
+        node.visit_children(self);
+    }
+
+    fn visit_jsx_opening_element(node: &mut JSXOpeningElement, ctx: &Context) {
+        // Access parent's custom property using if-let
+        if let Some(name) = node.parent.__componentName {
+            let _msg = format!("Opening element for: {}", name);
+        }
+
+        // Check boolean property
+        if let Some(processed) = node.parent.__processed {
+            if processed {
+                self.state.processed_count += 1;
+            }
+        }
+
+        // Increment visit count
+        if let Some(count) = node.parent.__visitCount {
+            node.parent.__visitCount = count + 1;
+        }
+
+        node.visit_children(self);
+    }
+
+    fn visit_identifier(node: &mut Identifier, ctx: &Context) {
+        // Track transformation state with custom property
+        if let Some(count) = node.__transformCount {
+            if count >= 3 {
+                // Already processed 3 times, skip
+                return;
+            }
+            node.__transformCount = count + 1;
+        } else {
+            // First visit
+            node.__transformCount = 1;
+        }
+
+        // Store computed data
+        node.__originalName = node.name.clone();
+
+        // Apply transformation
+        if node.name.starts_with("_") {
+            node.__isPrivate = true;
+        } else {
+            node.__isPrivate = false;
+        }
+    }
+
+    fn visit_call_expression(node: &mut CallExpression, ctx: &Context) {
+        // Mark as hook call
+        if let Expression::Identifier(id) = &node.callee {
+            if id.name.starts_with("use") {
+                node.__isHookCall = true;
+                node.__hookName = id.name.clone();
+            }
+        }
+
+        node.visit_children(self);
+    }
+
+    fn visit_function_declaration(node: &mut FunctionDeclaration, ctx: &Context) {
+        // Store computed path
+        let path = compute_function_path(node);
+        node.__functionPath = path;
+
+        // Mark component functions
+        let name = node.id.name.clone();
+        if is_component_name(&name) {
+            node.__isComponent = true;
+            node.__componentName = name;
+        }
+
+        node.visit_children(self);
+
+        // After visiting children, we can read properties set on child nodes
+    }
+
+    fn visit_return_statement(node: &mut ReturnStatement, ctx: &Context) {
+        // Check parent function's custom property
+        if let Some(is_component) = node.parent.__isComponent {
+            if is_component {
+                // This return is from a component function
+                node.__isComponentReturn = true;
+            }
+        }
+    }
+
+    fn visit_program_exit(node: &Program, ctx: &Context) {
+        // Delete properties by assigning None
+        // This cleans up temporary tracking data
+        for stmt in &node.body {
+            if let Statement::FunctionDeclaration(func) = stmt {
+                func.__functionPath = None;
+            }
+        }
+    }
+
+    // Helper functions
+    fn compute_function_path(node: &FunctionDeclaration) -> Str {
+        format!("functions/{}", node.id.name)
+    }
+
+    fn is_component_name(name: &Str) -> bool {
+        if name.is_empty() {
+            return false;
+        }
+        let first = name.chars().next().unwrap();
+        first.is_uppercase()
+    }
+}

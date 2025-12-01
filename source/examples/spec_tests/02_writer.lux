@@ -1,0 +1,124 @@
+/// Test: Writer API
+/// Tests: writer declaration, CodeBuilder, init/finish (pre/exit) hooks, read-only visitors
+
+writer ReactToCSharp {
+
+    // Metadata struct
+    struct ClassInfo {
+        name: Str,
+        field_count: i32,
+    }
+
+    // Writer state
+    struct State {
+        builder: CodeBuilder,
+        classes: Vec<ClassInfo>,
+        indent_level: i32,
+    }
+
+    // Pre-hook (initialization) - using init() alias
+    fn init() -> State {
+        State {
+            builder: CodeBuilder::new(),
+            classes: vec![],
+            indent_level: 0,
+        }
+    }
+
+    // Helper to convert to Str type
+    fn to_str(s: &Str) -> Str {
+        s.clone()
+    }
+
+    // Helper to check component name
+    fn is_component(name: &Str) -> bool {
+        if name.is_empty() {
+            return false;
+        }
+        let first = name.chars().next().unwrap();
+        first.is_uppercase()
+    }
+
+    // Read-only visitor - note: &T not &mut T
+    pub fn visit_function_declaration(node: &FunctionDeclaration) {
+        let name = node.id.name.clone();
+
+        if Self::is_component(&name) {
+            // Use CodeBuilder methods
+            self.state.builder.append("public class ");
+            self.state.builder.append(&name);
+            self.state.builder.append(" : ComponentBase");
+            self.state.builder.newline();
+            self.state.builder.append("{");
+            self.state.builder.newline();
+            self.state.builder.indent();
+
+            // Track class - note: name needs to go through a Str-returning function
+            let class_name = Self::to_str(&name);
+            let info = ClassInfo {
+                name: class_name,
+                field_count: 0,
+            };
+            self.state.classes.push(info);
+
+            // Visit children
+            node.visit_children(self);
+
+            // Close class
+            self.state.builder.dedent();
+            self.state.builder.append("}");
+            self.state.builder.newline();
+        }
+    }
+
+    pub fn visit_call_expression(node: &CallExpression) {
+        // Check for useState
+        if let Expression::Identifier(id) = &node.callee {
+            if id.name == "useState" {
+                self.state.builder.append("[Parameter]");
+                self.state.builder.newline();
+                self.state.builder.append("public object State { get; set; }");
+                self.state.builder.newline();
+            }
+        }
+
+        node.visit_children(self);
+    }
+
+    pub fn visit_jsx_element(node: &JSXElement) {
+        self.state.builder.append("// Render: <");
+        let tag = &node.opening_element.name;
+        self.state.builder.append("element");
+        self.state.builder.append(">");
+        self.state.builder.newline();
+
+        node.visit_children(self);
+    }
+
+    // Exit-hook (finalization) - using finish() alias
+    pub fn finish(&self) -> Str {
+        let mut output = CodeBuilder::new();
+
+        // Add using statements
+        output.append("using Microsoft.AspNetCore.Components;");
+        output.newline();
+        output.newline();
+
+        // Add namespace
+        output.append("namespace Generated");
+        output.newline();
+        output.append("{");
+        output.newline();
+        output.indent();
+
+        // Add generated content
+        output.append(&self.state.builder.to_string());
+
+        // Close namespace
+        output.dedent();
+        output.append("}");
+        output.newline();
+
+        output.to_string()
+    }
+}

@@ -1,0 +1,140 @@
+/// Test: Regex Support
+/// Tests: Regex:: namespace methods (matches, find, find_all, captures, replace, replace_all)
+
+plugin RegexPlugin {
+
+    struct State {
+        hooks_found: Vec<Str>,
+        sanitized_names: Vec<Str>,
+    }
+
+    // Regex::matches - test if pattern matches
+    fn is_hook(name: &Str) -> bool {
+        Regex::matches(name, r"^use[A-Z]\w*$")
+    }
+
+    // Regex::matches for validation
+    fn is_valid_identifier(name: &Str) -> bool {
+        Regex::matches(name, r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+    }
+
+    // Regex::find - find first match
+    fn find_version(text: &Str) -> Option<Str> {
+        Regex::find(text, r"\d+\.\d+\.\d+")
+    }
+
+    // Regex::find_all - find all matches
+    fn find_all_numbers(text: &Str) -> Vec<Str> {
+        Regex::find_all(text, r"\d+")
+    }
+
+    // Regex::captures - extract capture groups
+    fn extract_version(text: &Str) -> Option<(i32, i32, i32)> {
+        if let Some(caps) = Regex::captures(text, r"^v?(\d+)\.(\d+)\.(\d+)") {
+            // Use type annotation instead of turbofish
+            let major: i32 = caps.get(1).parse().ok()?;
+            let minor: i32 = caps.get(2).parse().ok()?;
+            let patch: i32 = caps.get(3).parse().ok()?;
+            Some((major, minor, patch))
+        } else {
+            None
+        }
+    }
+
+    // Regex::captures with named groups
+    fn parse_import(line: &Str) -> Option<Str> {
+        if let Some(caps) = Regex::captures(line, r"import\s+(?P<name>\w+)\s+from") {
+            caps.get("name")
+        } else {
+            None
+        }
+    }
+
+    // Regex::replace - replace first match
+    fn remove_first_number(text: &Str) -> Str {
+        Regex::replace(text, r"\d+", "X")
+    }
+
+    // Regex::replace_all - replace all matches
+    fn sanitize_identifier(name: &Str) -> Str {
+        Regex::replace_all(name, r"[^a-zA-Z0-9_]", "_")
+    }
+
+    // Regex::replace_all for normalization
+    fn normalize_whitespace(text: &Str) -> Str {
+        Regex::replace_all(text, r"\s+", " ")
+    }
+
+    // Complex regex for hook detection
+    fn categorize_hook(name: &Str) -> Str {
+        if Regex::matches(name, r"^use(State|Reducer)$") {
+            return "state";
+        }
+        if Regex::matches(name, r"^use(Effect|LayoutEffect)$") {
+            return "effect";
+        }
+        if Regex::matches(name, r"^use(Memo|Callback)$") {
+            return "memoization";
+        }
+        if Regex::matches(name, r"^use[A-Z]") {
+            return "custom";
+        }
+        "unknown"
+    }
+
+    fn visit_identifier(node: &mut Identifier, ctx: &Context) {
+        let name = node.name.clone();
+
+        // Check if it's a hook
+        if is_hook(&name) {
+            self.state.hooks_found.push(name.clone());
+
+            let category = categorize_hook(&name);
+            let _msg = format!("Found {} hook: {}", category, name);
+        }
+
+        // Validate and sanitize
+        if !is_valid_identifier(&name) {
+            let sanitized = sanitize_identifier(&name);
+            self.state.sanitized_names.push(sanitized.clone());
+
+            *node = Identifier {
+                name: sanitized,
+            };
+        }
+    }
+
+    fn visit_string_literal(node: &mut StringLiteral, ctx: &Context) {
+        let value = node.value.clone();
+
+        // Extract version if present
+        if let Some(version) = find_version(&value) {
+            if let Some((major, minor, patch)) = extract_version(&version) {
+                let _formatted = format!("v{}.{}.{}", major, minor, patch);
+            }
+        }
+
+        // Find all numbers
+        let numbers = find_all_numbers(&value);
+        for num in &numbers {
+            let _parsed: i32 = num.parse();
+        }
+
+        // Normalize whitespace in string literals
+        let normalized = normalize_whitespace(&value);
+        if normalized != value {
+            *node = StringLiteral {
+                value: normalized,
+            };
+        }
+    }
+
+    fn visit_import_declaration(node: &mut ImportDeclaration, ctx: &Context) {
+        let source = node.source.value.clone();
+
+        // Parse import using regex
+        if let Some(module_name) = parse_import(&source) {
+            let _msg = format!("Importing module: {}", module_name);
+        }
+    }
+}

@@ -1,0 +1,138 @@
+/// Test: Scoped Traversal
+/// Tests: traverse with inline visitor, traverse using delegated visitor, manual iteration
+
+// Separate plugin for delegated traversal
+plugin ReturnCleaner {
+    fn visit_return_statement(ret: &mut ReturnStatement, ctx: &Context) {
+        // Clear all return arguments
+        ret.argument = None;
+    }
+}
+
+// Separate plugin for identifier renaming
+plugin IdentifierRenamer {
+    fn visit_identifier(node: &mut Identifier, ctx: &Context) {
+        if node.name == "oldVar" {
+            *node = Identifier {
+                name: "newVar",
+            };
+        }
+    }
+}
+
+plugin TraverseTestPlugin {
+
+    struct State {
+        return_count: i32,
+        async_functions: Vec<Str>,
+    }
+
+    fn visit_function_declaration(func: &mut FunctionDeclaration, ctx: &Context) {
+        let func_name = func.id.name.clone();
+
+        // Inline traversal with local state
+        for stmt in &mut func.body.stmts {
+            if stmt.is_if_statement() {
+                // Spawn inline nested visitor for just this statement
+                traverse(stmt) {
+                    // Local state for this traversal
+                    let found_returns = 0;
+
+                    fn visit_return_statement(ret: &mut ReturnStatement, ctx: &Context) {
+                        ret.argument = None;
+                        self.found_returns += 1;
+                    }
+
+                    fn visit_identifier(id: &mut Identifier, ctx: &Context) {
+                        // Can access local state
+                        if self.found_returns > 0 {
+                            let _name = id.name.clone();
+                        }
+                    }
+                }
+            }
+        }
+
+        // Delegated traversal - route through separate plugin
+        if func.is_async {
+            self.state.async_functions.push(func_name.clone());
+
+            // Apply ReturnCleaner to this async function's body
+            traverse(&mut func.body) using ReturnCleaner;
+        }
+
+        // Don't call visit_children - we handled iteration manually
+    }
+
+    // Manual iteration pattern with selective traversal
+    fn visit_block_statement(node: &mut BlockStatement, ctx: &Context) {
+        // 1. Do NOT call node.visit_children(self) - we iterate manually
+
+        // 2. Manually iterate and selectively visit
+        for stmt in &mut node.stmts {
+            if needs_special_handling(stmt) {
+                // Use delegated traversal for special statements
+                traverse(stmt) using IdentifierRenamer;
+            } else {
+                // Continue with current visitor for normal statements
+                stmt.visit_with(self);
+            }
+        }
+    }
+
+    fn needs_special_handling(stmt: &Statement) -> bool {
+        // Check if statement contains certain patterns
+        matches!(stmt, Statement::TryStatement(_)) ||
+        matches!(stmt, Statement::ThrowStatement(_))
+    }
+
+    // Inline traverse with complex local state
+    fn visit_class_declaration(node: &mut ClassDeclaration, ctx: &Context) {
+        traverse(&mut node.body) {
+            // Multiple local state variables
+            let method_count = 0;
+            let has_constructor = false;
+            let private_fields: Vec<Str> = vec![];
+
+            fn visit_method_definition(method: &mut MethodDefinition, ctx: &Context) {
+                self.method_count += 1;
+
+                if method.key.name == "constructor" {
+                    self.has_constructor = true;
+                }
+            }
+
+            fn visit_class_property(prop: &mut ClassProperty, ctx: &Context) {
+                if prop.key.name.starts_with("_") {
+                    self.private_fields.push(prop.key.name.clone());
+                }
+            }
+        }
+    }
+
+    // Using traverse with flat_map_in_place for sibling manipulation
+    fn visit_block_statement_with_injection(node: &mut BlockStatement, ctx: &Context) {
+        node.stmts.flat_map_in_place(|stmt| {
+            if stmt.is_return() {
+                // Replace 1 statement with 2 (injection before return)
+                vec![
+                    Statement::expression(create_log_call()),
+                    stmt.clone()
+                ]
+            } else {
+                // Keep statement as-is
+                vec![stmt.clone()]
+            }
+        });
+    }
+
+    fn create_log_call() -> Expression {
+        CallExpression {
+            callee: MemberExpression {
+                object: Identifier { name: "console" },
+                property: Identifier { name: "log" },
+            },
+            arguments: vec![StringLiteral { value: "before return" }],
+        }
+    }
+}

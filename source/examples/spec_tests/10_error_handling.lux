@@ -1,0 +1,157 @@
+/// Test: Error Handling
+/// Tests: Result type, Ok, Err, ? operator, error propagation
+
+use fs;
+use json;
+use parser;
+
+plugin ErrorHandlingPlugin {
+
+    struct ComponentData {
+        name: Str,
+        hooks: Vec<Str>,
+    }
+
+    struct State {
+        components: Vec<ComponentData>,
+        errors: Vec<Str>,
+    }
+
+    // Function returning Result with Ok
+    fn validate_name(name: &Str) -> Result<Str, Str> {
+        if name.is_empty() {
+            return Err("Name cannot be empty");
+        }
+        if name.len() < 2 {
+            return Err("Name too short");
+        }
+        Ok(name.clone())
+    }
+
+    // Function returning Result with error propagation
+    fn process_component(name: &Str) -> Result<ComponentData, Str> {
+        // Use ? operator to propagate errors
+        let validated_name = validate_name(name)?;
+
+        Ok(ComponentData {
+            name: validated_name,
+            hooks: vec![],
+        })
+    }
+
+    // Chain multiple fallible operations
+    fn load_and_parse(path: &Str) -> Result<ComponentData, Str> {
+        // Each ? propagates error if operation fails
+        let content = fs::read_file(path)?;
+        let parsed = json::parse(&content)?;
+
+        // Manual error construction
+        if parsed.is_empty() {
+            return Err("Parsed data is empty");
+        }
+
+        Ok(ComponentData {
+            name: "loaded".into(),
+            hooks: vec![],
+        })
+    }
+
+    // Using parser module with error handling
+    fn analyze_file(path: &Str) -> Result<Vec<Str>, Str> {
+        let ast = parser::parse_file(path)?;
+
+        let mut hook_names = vec![];
+        for stmt in &ast.body {
+            if let Statement::FunctionDeclaration(func) = stmt {
+                let name = func.id.name.clone();
+                if name.starts_with("use") {
+                    hook_names.push(name);
+                }
+            }
+        }
+
+        Ok(hook_names)
+    }
+
+    // Combining Result with Option
+    fn find_main_component(path: &Str) -> Result<Option<Str>, Str> {
+        let ast = parser::parse_file(path)?;
+
+        for stmt in &ast.body {
+            if let Statement::FunctionDeclaration(func) = stmt {
+                let name = func.id.name.clone();
+                if is_component(&name) {
+                    return Ok(Some(name));
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    fn is_component(name: &Str) -> bool {
+        if name.is_empty() {
+            return false;
+        }
+        let first = name.chars().next().unwrap();
+        first.is_uppercase()
+    }
+
+    // Handling Result in visitor
+    fn visit_function_declaration(node: &mut FunctionDeclaration, ctx: &Context) {
+        let name = node.id.name.clone();
+
+        // Handle Result with match
+        match process_component(&name) {
+            Ok(data) => {
+                self.state.components.push(data);
+            },
+            Err(e) => {
+                self.state.errors.push(e);
+            }
+        }
+
+        node.visit_children(self);
+    }
+
+    fn visit_import_declaration(node: &mut ImportDeclaration, ctx: &Context) {
+        let source = node.source.value.clone();
+
+        // Try to analyze imported file
+        match analyze_file(&source) {
+            Ok(hooks) => {
+                for hook in hooks {
+                    let _msg = format!("Imported hook: {}", hook);
+                }
+            },
+            Err(_) => {
+                // File couldn't be analyzed, continue
+            }
+        }
+    }
+
+    fn visit_program_exit(node: &Program, ctx: &Context) {
+        // Write results with error handling
+        let result = save_results(&self.state.components);
+
+        if let Err(e) = result {
+            self.state.errors.push(format!("Failed to save: {}", e));
+        }
+    }
+
+    // Helper that can fail
+    fn save_results(components: &Vec<ComponentData>) -> Result<(), Str> {
+        let json_data = json::stringify(components);
+        fs::write_file("output.json", &json_data)?;
+        Ok(())
+    }
+
+    // Result with tuple return (unit type for success)
+    fn ensure_valid(name: &Str) -> Result<(), Str> {
+        if name.is_empty() {
+            Err("Invalid name")
+        } else {
+            Ok(())
+        }
+    }
+}

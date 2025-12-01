@@ -1460,6 +1460,19 @@ impl Parser {
                         span,
                     });
                 } else if self.match_token(TokenKind::LParen) {
+                    // Check if this is a Regex:: namespace call
+                    if let Expr::Member(ref member) = expr {
+                        if member.is_path {
+                            if let Expr::Ident(ref ident) = *member.object {
+                                if ident.name == "Regex" {
+                                    // Parse Regex::method(...) call
+                                    expr = self.parse_regex_call(&member.property)?;
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+
                     // Regular function call
                     let args = self.parse_args()?;
                     self.expect(TokenKind::RParen)?;

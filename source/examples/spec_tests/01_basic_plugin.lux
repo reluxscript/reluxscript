@@ -1,0 +1,92 @@
+/// Test: Basic Plugin Structure
+/// Tests: plugin declaration, struct, fn, primitives, visitor methods, node replacement
+
+plugin BasicPlugin {
+
+    // Struct with primitive types
+    struct State {
+        count: i32,
+        total: f64,
+        name: Str,
+        enabled: bool,
+    }
+
+    // Struct with nested types
+    struct ComponentInfo {
+        name: Str,
+        prop_count: i32,
+        is_functional: bool,
+    }
+
+    // Helper function with reference parameter
+    fn is_valid_name(name: &Str) -> bool {
+        !name.is_empty() && name.len() > 2
+    }
+
+    // Helper function returning unit type
+    fn log_visit(node_type: &Str) -> () {
+        let _msg = format!("Visited: {}", node_type);
+    }
+
+    // Public helper function
+    pub fn create_info(name: Str) -> ComponentInfo {
+        ComponentInfo {
+            name: name,
+            prop_count: 0,
+            is_functional: true,
+        }
+    }
+
+    // Visitor method - Identifier
+    fn visit_identifier(node: &mut Identifier, ctx: &Context) {
+        let name = node.name.clone();
+
+        // String comparison
+        if name == "deprecated" {
+            // Node replacement via dereference assignment
+            *node = Identifier {
+                name: "updated",
+            };
+        }
+
+        // String methods
+        if name.starts_with("_private") {
+            self.state.count += 1;
+        }
+
+        if name.ends_with("Handler") {
+            self.state.total += 1.0;
+        }
+    }
+
+    // Visitor method - CallExpression
+    fn visit_call_expression(node: &mut CallExpression, ctx: &Context) {
+        let args_len = node.arguments.len();
+
+        // Numeric operations
+        if args_len > 5 {
+            self.state.count = self.state.count + 1;
+        }
+
+        // Boolean logic
+        if self.state.enabled && args_len > 0 {
+            self.state.total += 0.5;
+        }
+
+        // Visit children explicitly
+        node.visit_children(self);
+    }
+
+    // Visitor method - FunctionDeclaration
+    fn visit_function_declaration(node: &mut FunctionDeclaration, ctx: &Context) {
+        let func_name = node.id.name.clone();
+
+        // Use helper function
+        if is_valid_name(&func_name) {
+            let info = create_info(func_name);
+            self.state.name = info.name;
+        }
+
+        node.visit_children(self);
+    }
+}

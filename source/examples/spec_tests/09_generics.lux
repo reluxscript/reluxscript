@@ -1,0 +1,158 @@
+/// Test: Generic Functions
+/// Tests: type parameters, where clauses, Fn trait types, generic function calls
+
+plugin GenericsPlugin {
+
+    struct State {
+        results: Vec<Str>,
+    }
+
+    // Simple generic function
+    fn identity<T>(value: T) -> T {
+        value
+    }
+
+    // Generic with trait bound using where clause
+    pub fn map_expression<F>(expr: &Expression, mapper: F) -> Str
+    where
+        F: Fn(&Expression) -> Str
+    {
+        mapper(expr)
+    }
+
+    // Generic with multiple parameters in where clause
+    fn transform<F, G>(input: Str, f: F, g: G) -> Str
+    where
+        F: Fn(Str) -> Str,
+        G: Fn(Str) -> Str
+    {
+        g(f(input))
+    }
+
+    // Generic with Fn that takes multiple arguments
+    pub fn process_with_context<F>(expr: &Expression, flag: bool, processor: F) -> Str
+    where
+        F: Fn(&Expression, bool) -> Str
+    {
+        processor(expr, flag)
+    }
+
+    // Generic with reference parameters in Fn
+    fn apply_transform<F>(node: &Identifier, transform: F) -> Str
+    where
+        F: Fn(&Identifier) -> Str
+    {
+        transform(node)
+    }
+
+    // Generic returning Option
+    fn find_first<T, F>(items: &Vec<T>, predicate: F) -> Option<&T>
+    where
+        F: Fn(&T) -> bool
+    {
+        for item in items {
+            if predicate(item) {
+                return Some(item);
+            }
+        }
+        None
+    }
+
+    // Generic with Result return
+    fn try_transform<T, E, F>(value: T, transformer: F) -> Result<T, E>
+    where
+        F: Fn(T) -> Result<T, E>
+    {
+        transformer(value)
+    }
+
+    // Concrete helper functions to use as callbacks
+    fn extract_name(expr: &Expression) -> Str {
+        if let Expression::Identifier(id) = expr {
+            id.name.clone()
+        } else {
+            "unknown".into()
+        }
+    }
+
+    fn uppercase(s: Str) -> Str {
+        s.to_uppercase()
+    }
+
+    fn add_prefix(s: Str) -> Str {
+        format!("prefix_{}", s)
+    }
+
+    fn extract_with_flag(expr: &Expression, include_type: bool) -> Str {
+        if let Expression::Identifier(id) = expr {
+            if include_type {
+                format!("Identifier:{}", id.name)
+            } else {
+                id.name.clone()
+            }
+        } else {
+            "other".into()
+        }
+    }
+
+    fn get_identifier_name(id: &Identifier) -> Str {
+        id.name.clone()
+    }
+
+    fn visit_call_expression(node: &mut CallExpression, ctx: &Context) {
+        // Use generic function with closure
+        let name = map_expression(&node.callee, |e| {
+            if let Expression::Identifier(id) = e {
+                id.name.clone()
+            } else {
+                "call".into()
+            }
+        });
+        self.state.results.push(name);
+
+        // Use generic with function reference
+        let extracted = map_expression(&node.callee, extract_name);
+        self.state.results.push(extracted);
+
+        // Use transform with two functions
+        let transformed = transform(
+            "input".into(),
+            uppercase,
+            add_prefix
+        );
+        self.state.results.push(transformed);
+
+        // Use with context
+        let with_ctx = process_with_context(&node.callee, true, extract_with_flag);
+        self.state.results.push(with_ctx);
+
+        node.visit_children(self);
+    }
+
+    fn visit_identifier(node: &mut Identifier, ctx: &Context) {
+        // Use apply_transform
+        let result = apply_transform(node, get_identifier_name);
+        self.state.results.push(result);
+
+        // Use identity
+        let same = identity(node.name.clone());
+        self.state.results.push(same);
+    }
+
+    fn visit_array_expression(node: &mut ArrayExpression, ctx: &Context) {
+        // Use find_first with predicate closure
+        let found = find_first(&node.elements, |elem| {
+            if let Expression::Identifier(id) = elem {
+                id.name.starts_with("use")
+            } else {
+                false
+            }
+        });
+
+        if let Some(hook_elem) = found {
+            let _msg = format!("Found hook element");
+        }
+
+        node.visit_children(self);
+    }
+}
