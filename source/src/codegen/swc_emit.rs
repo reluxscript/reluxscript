@@ -44,6 +44,9 @@ pub struct SwcEmitter {
     /// Whether codegen module is used
     uses_codegen: bool,
 
+    /// Whether CodeBuilder type is used
+    uses_codebuilder: bool,
+
     /// Whether regex captures helper is needed
     needs_regex_captures_helper: bool,
 
@@ -71,6 +74,7 @@ impl SwcEmitter {
             uses_fs: false,
             uses_parser: false,
             uses_codegen: false,
+            uses_codebuilder: false,
             needs_regex_captures_helper: false,
             uses_regex: false,
             uses_custom_props: false,
@@ -101,6 +105,11 @@ impl SwcEmitter {
         if self.uses_codegen {
             self.emit_line("");
             self.emit_codegen_helpers();
+        }
+
+        if self.uses_codebuilder {
+            self.emit_line("");
+            self.emit_codebuilder_helper();
         }
 
         if self.needs_regex_captures_helper {
@@ -202,6 +211,7 @@ impl SwcEmitter {
                 match name.as_str() {
                     "HashMap" => self.uses_hashmap = true,
                     "HashSet" => self.uses_hashset = true,
+                    "CodeBuilder" => self.uses_codebuilder = true,
                     _ => {}
                 }
                 // Recursively check type arguments
@@ -221,6 +231,11 @@ impl SwcEmitter {
             Type::Tuple(types) => {
                 for ty in types {
                     self.detect_hashmap_hashset_in_type(ty);
+                }
+            }
+            Type::Named(name) => {
+                if name == "CodeBuilder" {
+                    self.uses_codebuilder = true;
                 }
             }
             _ => {}
@@ -275,8 +290,15 @@ impl SwcEmitter {
         // Recursively check child expressions
         match &expr.kind {
             DecoratedExprKind::Call(call) => {
-                // Check for custom prop method calls
+                // Check for CodeBuilder::new() calls
                 if let DecoratedExprKind::Member { object, property, .. } = &call.callee.kind {
+                    if let DecoratedExprKind::Ident { name, .. } = &object.kind {
+                        if name == "CodeBuilder" && property == "new" {
+                            self.uses_codebuilder = true;
+                        }
+                    }
+
+                    // Check for custom prop method calls
                     if let DecoratedExprKind::Member { property: state_prop, .. } = &object.kind {
                         if state_prop == "state" && (property == "set_custom_prop" || property == "get_custom_prop" || property == "delete_custom_prop") {
                             self.uses_custom_props = true;
@@ -1301,18 +1323,15 @@ impl SwcEmitter {
             }
 
             DecoratedExprKind::Call(call) => {
-                // Special handling for CodeBuilder::new() -> String::new()
+                // CodeBuilder method call transformations (no longer needed - we generate real CodeBuilder)
                 if let DecoratedExprKind::Member { object, property, .. } = &call.callee.kind {
                     if let DecoratedExprKind::Ident { name, .. } = &object.kind {
-                        if name == "CodeBuilder" && property == "new" {
-                            self.output.push_str("String::new()");
-                            return;
-                        }
+                        // Old code that mapped CodeBuilder to String is now removed
+                        // CodeBuilder is a real struct now
                     }
 
-                    // CodeBuilder method call transformations
-                    // Check if object is CodeBuilder type (String)
-                    if object.metadata.swc_type == "String" || object.metadata.swc_type == "CodeBuilder" {
+                    // Old CodeBuilder method call transformations (no longer needed)
+                    if false && (object.metadata.swc_type == "String" || object.metadata.swc_type == "CodeBuilder") {
                         match property.as_str() {
                             "append_line" => {
                                 // builder.append_line(s) -> { builder.push_str(s); builder.push_str("\n"); }
@@ -2373,6 +2392,79 @@ impl SwcEmitter {
         self.indent -= 1;
         self.emit_line("}");
         self.emit_line("String::from_utf8(buf).unwrap()");
+        self.indent -= 1;
+        self.emit_line("}");
+    }
+
+    fn emit_codebuilder_helper(&mut self) {
+        self.emit_line("// CodeBuilder type for code generation");
+        self.emit_line("struct CodeBuilder {");
+        self.indent += 1;
+        self.emit_line("buffer: String,");
+        self.emit_line("indent_level: usize,");
+        self.emit_line("indent_string: String,");
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("");
+        self.emit_line("impl CodeBuilder {");
+        self.indent += 1;
+        self.emit_line("fn new() -> Self {");
+        self.indent += 1;
+        self.emit_line("Self {");
+        self.indent += 1;
+        self.emit_line("buffer: String::new(),");
+        self.emit_line("indent_level: 0,");
+        self.emit_line("indent_string: \"    \".to_string(),");
+        self.indent -= 1;
+        self.emit_line("}");
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("");
+        self.emit_line("fn append(&mut self, s: &str) {");
+        self.indent += 1;
+        self.emit_line("self.buffer.push_str(s);");
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("");
+        self.emit_line("fn append_line(&mut self, s: &str) {");
+        self.indent += 1;
+        self.emit_line("for _ in 0..self.indent_level {");
+        self.indent += 1;
+        self.emit_line("self.buffer.push_str(&self.indent_string);");
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("self.buffer.push_str(s);");
+        self.emit_line("self.buffer.push('\\n');");
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("");
+        self.emit_line("fn newline(&mut self) {");
+        self.indent += 1;
+        self.emit_line("self.buffer.push('\\n');");
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("");
+        self.emit_line("fn indent(&mut self) {");
+        self.indent += 1;
+        self.emit_line("self.indent_level += 1;");
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("");
+        self.emit_line("fn dedent(&mut self) {");
+        self.indent += 1;
+        self.emit_line("if self.indent_level > 0 {");
+        self.indent += 1;
+        self.emit_line("self.indent_level -= 1;");
+        self.indent -= 1;
+        self.emit_line("}");
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("");
+        self.emit_line("fn to_string(self) -> String {");
+        self.indent += 1;
+        self.emit_line("self.buffer");
+        self.indent -= 1;
+        self.emit_line("}");
         self.indent -= 1;
         self.emit_line("}");
     }

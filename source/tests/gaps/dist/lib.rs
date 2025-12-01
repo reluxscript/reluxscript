@@ -256,13 +256,20 @@ impl MinimactTranspiler {
         } {
             return;
         }
-        let arr = binding.clone();
-        if (arr.elements.len() < 1) {
+        let arr = match binding {
+            Expr::Ident(inner) => {
+                inner
+            }
+            _ => {
+                unreachable!()
+            }
+        }.clone();
+        if (arr.elems.len() < 1) {
             return;
         }
-        let state_var = arr.elements[0].name.to_string();
-        let setter_var = if (arr.elements.len() > 1) {
-            Some(arr.elements[1].name.to_string())
+        let state_var = arr.elems[0].name.to_string();
+        let setter_var = if (arr.elems.len() > 1) {
+            Some(arr.elems[1].name.to_string())
         } else {
             None
         };
@@ -305,7 +312,14 @@ impl MinimactTranspiler {
         } {
             return;
         }
-        let ref_name = binding.name.to_string();
+        let ref_name = match binding {
+            Expr::Ident(inner) => {
+                inner
+            }
+            _ => {
+                unreachable!()
+            }
+        }.sym.to_string();
         let initial_value = if (call.args.len() > 0) {
             Self::expr_to_csharp(&call.args[0])
         } else {
@@ -378,37 +392,84 @@ impl MinimactTranspiler {
     }
     
     fn generate_csharp_class(component: &ComponentInfo) -> String {
-        let mut builder = String::new();
-        { builder.push_str(&"using Minimact.Core;"); builder.push_str("\n"); };
-        { builder.push_str(&"using Minimact.VDom;"); builder.push_str("\n"); };
-        { builder.push_str(&"using System.Collections.Generic;"); builder.push_str("\n"); };
-        builder.push_str("\n");
-        { builder.push_str(&format!("public class {} : MinimactComponent", component.name)); builder.push_str("\n"); };
-        { builder.push_str(&"{"); builder.push_str("\n"); };
-        ();
+        let mut builder = CodeBuilder::new();
+        builder.append_line(&"using Minimact.Core;");
+        builder.append_line(&"using Minimact.VDom;");
+        builder.append_line(&"using System.Collections.Generic;");
+        builder.newline();
+        builder.append_line(&format!("public class {} : MinimactComponent", component.name));
+        builder.append_line(&"{");
+        builder.indent();
         for state in &component.use_state {
-            { builder.push_str(&format!("[State] private {} {} = {};", state.state_type, state.name, state.initial_value)); builder.push_str("\n"); }
+            builder.append_line(&format!("[State] private {} {} = {};", state.state_type, state.name, state.initial_value))
         }
         for ref_info in &component.use_ref {
-            { builder.push_str(&format!("[Ref] private object {} = {};", ref_info.name, ref_info.initial_value)); builder.push_str("\n"); }
+            builder.append_line(&format!("[Ref] private object {} = {};", ref_info.name, ref_info.initial_value))
         }
         if ((component.use_state.len() > 0) || (component.use_ref.len() > 0)) {
-            builder.push_str("\n")
+            builder.newline()
         }
-        { builder.push_str(&"protected override VNode Render()"); builder.push_str("\n"); };
-        { builder.push_str(&"{"); builder.push_str("\n"); };
-        ();
+        builder.append_line(&"protected override VNode Render()");
+        builder.append_line(&"{");
+        builder.indent();
         if component.render_body.is_some() {
-            { builder.push_str(&"// TODO: Generate VNode from JSX"); builder.push_str("\n"); };
-            { builder.push_str(&"return new VNull();"); builder.push_str("\n"); }
+            builder.append_line(&"// TODO: Generate VNode from JSX");
+            builder.append_line(&"return new VNull();")
         } else {
-            { builder.push_str(&"return new VNull();"); builder.push_str("\n"); }
+            builder.append_line(&"return new VNull();")
         }
-        ();
-        { builder.push_str(&"}"); builder.push_str("\n"); };
-        ();
-        { builder.push_str(&"}"); builder.push_str("\n"); };
-        return builder.clone();
+        builder.dedent();
+        builder.append_line(&"}");
+        builder.dedent();
+        builder.append_line(&"}");
+        return builder.to_string();
     }
     
+}
+
+// CodeBuilder type for code generation
+struct CodeBuilder {
+    buffer: String,
+    indent_level: usize,
+    indent_string: String,
+}
+
+impl CodeBuilder {
+    fn new() -> Self {
+        Self {
+            buffer: String::new(),
+            indent_level: 0,
+            indent_string: "    ".to_string(),
+        }
+    }
+    
+    fn append(&mut self, s: &str) {
+        self.buffer.push_str(s);
+    }
+    
+    fn append_line(&mut self, s: &str) {
+        for _ in 0..self.indent_level {
+            self.buffer.push_str(&self.indent_string);
+        }
+        self.buffer.push_str(s);
+        self.buffer.push('\n');
+    }
+    
+    fn newline(&mut self) {
+        self.buffer.push('\n');
+    }
+    
+    fn indent(&mut self) {
+        self.indent_level += 1;
+    }
+    
+    fn dedent(&mut self) {
+        if self.indent_level > 0 {
+            self.indent_level -= 1;
+        }
+    }
+    
+    fn to_string(self) -> String {
+        self.buffer
+    }
 }

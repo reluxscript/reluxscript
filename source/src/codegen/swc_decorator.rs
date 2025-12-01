@@ -53,11 +53,11 @@ impl SwcDecorator {
         let mut type_env = HashMap::new();
 
         // Register built-in types
-        // CodeBuilder is a built-in type that maps to String in SWC
+        // CodeBuilder is a built-in type - we generate a CodeBuilder struct
         type_env.insert("CodeBuilder".to_string(), TypeContext {
             reluxscript_type: "CodeBuilder".to_string(),
-            swc_type: "String".to_string(),
-            kind: SwcTypeKind::Primitive,
+            swc_type: "CodeBuilder".to_string(),
+            kind: SwcTypeKind::Struct,
             known_variant: None,
             needs_deref: false,
         });
@@ -77,11 +77,11 @@ impl SwcDecorator {
         let mut type_env = HashMap::new();
 
         // Register built-in types
-        // CodeBuilder is a built-in type that maps to String in SWC
+        // CodeBuilder is a built-in type - we generate a CodeBuilder struct
         type_env.insert("CodeBuilder".to_string(), TypeContext {
             reluxscript_type: "CodeBuilder".to_string(),
-            swc_type: "String".to_string(),
-            kind: SwcTypeKind::Primitive,
+            swc_type: "CodeBuilder".to_string(),
+            kind: SwcTypeKind::Struct,
             known_variant: None,
             needs_deref: false,
         });
