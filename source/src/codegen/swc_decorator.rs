@@ -278,6 +278,10 @@ impl SwcDecorator {
                     span: static_decl.span,
                 })
             }
+            PluginItem::PubUse(use_stmt) => {
+                // Re-exports pass through
+                DecoratedPluginItem::PubUse(use_stmt.clone())
+            }
         }
     }
 
@@ -2847,6 +2851,7 @@ pub enum DecoratedPluginItem {
     PreHook(DecoratedFnDecl),
     ExitHook(DecoratedFnDecl),
     Static(DecoratedStaticDecl),
+    PubUse(UseStmt),
 }
 
 #[derive(Debug, Clone)]

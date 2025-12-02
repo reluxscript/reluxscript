@@ -711,6 +711,14 @@ impl BabelGenerator {
                     self.gen_expr(&s.init);
                     self.emit(";\n");
                 }
+                PluginItem::PubUse(use_stmt) => {
+                    // Re-export: load and re-export the module's exports
+                    // For Babel/JS, generate: const { ... } = require("..."); module.exports.x = x;
+                    // Or just add to exports list for now
+                    for import_name in &use_stmt.imports {
+                        exports.push(import_name.clone());
+                    }
+                }
             }
         }
 

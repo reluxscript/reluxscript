@@ -111,6 +111,9 @@ impl Parser {
             self.expect_ident()?
         };
 
+        // Skip any newlines after path
+        self.skip_newlines();
+
         // Optional: as alias
         let alias = if self.check(TokenKind::As) {
             self.advance();
@@ -118,6 +121,9 @@ impl Parser {
         } else {
             None
         };
+
+        // Skip any newlines before import list
+        self.skip_newlines();
 
         // Optional: { imports }
         let imports = if self.check(TokenKind::LBrace) {
@@ -231,7 +237,7 @@ impl Parser {
             } else if self.check(TokenKind::Enum) {
                 PluginItem::Enum(self.parse_enum()?)
             } else if self.check(TokenKind::Pub) {
-                // Handle pub struct, pub enum, pub fn
+                // Handle pub struct, pub enum, pub fn, pub use
                 self.advance(); // consume 'pub'
                 if self.check(TokenKind::Struct) {
                     PluginItem::Struct(self.parse_struct()?)
@@ -245,8 +251,12 @@ impl Parser {
                         "exit" | "finish" => PluginItem::ExitHook(func),
                         _ => PluginItem::Function(func),
                     }
+                } else if self.check(TokenKind::Use) {
+                    // pub use - re-export
+                    let use_stmt = self.parse_use_stmt()?;
+                    PluginItem::PubUse(use_stmt)
                 } else {
-                    return Err(self.error("Expected struct, enum, or fn after 'pub'"));
+                    return Err(self.error("Expected struct, enum, fn, or use after 'pub'"));
                 }
             } else if self.check(TokenKind::Fn) {
                 // Check if this is a special hook (pre, exit, or finish)

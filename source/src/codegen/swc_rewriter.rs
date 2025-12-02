@@ -150,6 +150,10 @@ impl SwcRewriter {
                 // Static declarations pass through (init expr could be rewritten if needed)
                 DecoratedPluginItem::Static(static_decl)
             }
+            DecoratedPluginItem::PubUse(use_stmt) => {
+                // Re-exports pass through unchanged
+                DecoratedPluginItem::PubUse(use_stmt)
+            }
         }
     }
 

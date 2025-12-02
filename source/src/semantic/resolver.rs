@@ -189,21 +189,35 @@ impl Resolver {
     /// Load a module file and extract its exports
     fn load_module(&mut self, module_path: &str, import_span: Span) -> Result<ModuleExports, SemanticError> {
         // Resolve the file path relative to base_dir
-        let resolved_path = self.base_dir.join(module_path);
-        let canonical_path = resolved_path.canonicalize().unwrap_or(resolved_path.clone());
+        let mut resolved_path = self.base_dir.join(module_path);
 
-        // Check for circular dependencies
-        if self.resolving_stack.contains(&canonical_path) {
-            return Err(SemanticError::new(
-                "RS008",
-                format!("Circular dependency detected: {}", module_path),
-                import_span,
-            ));
+        // If the path doesn't exist but a directory with mod.lux does, use that
+        // This supports Rust-style module directories: `use "./foo.lux"` can resolve to `./foo/mod.lux`
+        if !resolved_path.exists() {
+            let without_ext = module_path.trim_end_matches(".lux");
+            let mod_path = self.base_dir.join(without_ext).join("mod.lux");
+            if mod_path.exists() {
+                resolved_path = mod_path;
+            }
         }
 
-        // Check cache first
+        let canonical_path = resolved_path.canonicalize().unwrap_or(resolved_path.clone());
+
+        // Check cache first (this handles circular dependencies - exports are cached before imports are resolved)
         if let Some(exports) = self.module_cache.get(&canonical_path) {
             return Ok(exports.clone());
+        }
+
+        // Check if we're already resolving this module (circular dependency)
+        // In this case, return empty exports - the actual exports will be available
+        // once the module finishes loading
+        if self.resolving_stack.contains(&canonical_path) {
+            eprintln!("[RESOLVER] Circular dependency detected for '{}', returning empty exports (will be resolved later)", module_path);
+            return Ok(ModuleExports {
+                functions: HashMap::new(),
+                structs: HashMap::new(),
+                enums: HashMap::new(),
+            });
         }
 
         // Load the file
@@ -230,10 +244,16 @@ impl Resolver {
         // Mark as currently resolving
         self.resolving_stack.push(canonical_path.clone());
 
+        // Extract exports FIRST (before resolving imports) and cache them
+        // This allows circular dependencies to find the exports
+        let exports = self.extract_exports(&program);
+        self.module_cache.insert(canonical_path.clone(), exports.clone());
+
         // Save current base_dir and update for the loaded module
         let old_base_dir = std::mem::replace(&mut self.base_dir, resolved_path.parent().unwrap_or(&resolved_path).to_path_buf());
 
-        // First, resolve this module's imports (recursively)
+        // Now resolve this module's imports (recursively)
+        // If any of these create a circular dependency back to us, they'll find our exports in the cache
         for use_stmt in &program.uses {
             if !use_stmt.deferred {
                 self.resolve_use(use_stmt);
@@ -245,17 +265,11 @@ impl Resolver {
             }
         }
 
-        // Extract exports from the module
-        let exports = self.extract_exports(&program);
-
         // Restore the base_dir
         self.base_dir = old_base_dir;
 
         // Remove from resolving stack
         self.resolving_stack.pop();
-
-        // Cache the exports
-        self.module_cache.insert(canonical_path, exports.clone());
 
         Ok(exports)
     }

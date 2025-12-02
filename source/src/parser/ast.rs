@@ -71,6 +71,7 @@ pub enum PluginItem {
     PreHook(FnDecl),   // fn pre() hook - runs before visitors
     ExitHook(FnDecl),  // fn exit() hook - runs after all visitors
     Static(StaticDecl), // static or static mut variable
+    PubUse(UseStmt),    // pub use re-export
 }
 
 /// Static variable declaration

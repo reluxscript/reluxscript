@@ -50,6 +50,7 @@ impl SwcLowering {
                 PluginItem::PreHook(func) => self.lower_function(func),
                 PluginItem::ExitHook(func) => self.lower_function(func),
                 PluginItem::Static(_) => {} // Static variables don't need lowering
+                PluginItem::PubUse(_) => {} // Re-exports don't need lowering
             }
         }
     }
@@ -68,6 +69,7 @@ impl SwcLowering {
                 PluginItem::PreHook(func) => self.lower_function(func),
                 PluginItem::ExitHook(func) => self.lower_function(func),
                 PluginItem::Static(_) => {} // Static variables don't need lowering
+                PluginItem::PubUse(_) => {} // Re-exports don't need lowering
             }
         }
     }

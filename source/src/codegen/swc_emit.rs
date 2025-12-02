@@ -664,6 +664,18 @@ impl SwcEmitter {
             DecoratedPluginItem::Static(static_decl) => {
                 self.emit_static(static_decl);
             }
+            DecoratedPluginItem::PubUse(use_stmt) => {
+                // Emit pub use as Rust re-export
+                self.emit_indent();
+                self.output.push_str("pub use ");
+                self.output.push_str(&use_stmt.path);
+                if !use_stmt.imports.is_empty() {
+                    self.output.push_str("::{");
+                    self.output.push_str(&use_stmt.imports.join(", "));
+                    self.output.push_str("}");
+                }
+                self.output.push_str(";\n");
+            }
         }
     }
 
