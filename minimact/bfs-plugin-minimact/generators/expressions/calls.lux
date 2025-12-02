@@ -1,0 +1,23 @@
+/**
+ * Call Expression Generators
+ *
+ * Generate C# code for call expressions.
+ */
+
+use "../../types/component_types.lux" { Component };
+
+/**
+ * Generate C# for a call expression
+ */
+pub fn generate_call_expression(expr: &CallExpression, component: &Component) -> Str {
+    // Stub - TODO: implement full call expression generation
+    "/* call expression */".into()
+}
+
+/**
+ * Generate C# for an optional call expression (?.())
+ */
+pub fn generate_optional_call_expression(expr: &OptionalCallExpression, component: &Component) -> Str {
+    // Stub - TODO: implement optional call expression generation
+    "/* optional call expression */".into()
+}

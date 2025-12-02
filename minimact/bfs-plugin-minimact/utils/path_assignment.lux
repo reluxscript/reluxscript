@@ -357,3 +357,23 @@ fn generate_vnode_representation(node: &JSXElement, path: &Str) -> Option<VNode>
         children
     })
 }
+
+/**
+ * Get hex path from node
+ *
+ * Retrieves the pre-assigned path from node metadata.
+ * Must call assign_paths_to_jsx first!
+ */
+pub fn get_path_from_node(node: &Expression) -> Str {
+    // In actual implementation, this reads from node.__minimactPath
+    // For now, return empty string as stub
+    "".into()
+}
+
+/**
+ * Get path segments from node
+ */
+pub fn get_path_segments_from_node(node: &Expression) -> Vec<Str> {
+    // In actual implementation, this reads from node.__minimactPathSegments
+    vec![]
+}

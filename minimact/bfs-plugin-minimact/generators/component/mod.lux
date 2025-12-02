@@ -3,6 +3,29 @@
  * Re-exports all component generation utilities
  */
 
+use "../../types/component_types.lux" { Component };
+
+/**
+ * Generate full C# component class
+ */
+pub fn generate_component(component: &Component) -> Vec<Str> {
+    let mut lines = vec![];
+
+    // TODO: Implement full component generation
+    // This should generate:
+    // - Class declaration
+    // - Properties (props, state, refs)
+    // - Render method
+    // - Event handlers
+    // - Effects
+
+    lines.push(format!("public partial class {} : MinimactComponent", component.name));
+    lines.push("{".into());
+    lines.push("}".into());
+
+    lines
+}
+
 pub use "./infer_types.lux" {
     infer_csharp_type_from_init,
     ts_type_to_csharp_type

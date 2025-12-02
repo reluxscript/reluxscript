@@ -60,7 +60,7 @@ pub fn is_client_only_handler(body: &Statement) -> bool {
                 }
 
                 // element.focus, blur, etc
-                if vec!["focus", "blur", "scrollIntoView", "select"].contains(&prop.name.as_str()) {
+                if prop.name == "focus" || prop.name == "blur" || prop.name == "scrollIntoView" || prop.name == "select" {
                     *has_client = true;
                 }
 

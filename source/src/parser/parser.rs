@@ -2772,6 +2772,36 @@ impl Parser {
             }));
         }
 
+        // vec![] macro: vec![] or vec![expr, expr, ...]
+        // Parses as a VecInit expression
+        if self.check(TokenKind::Vec) {
+            // Check for Vec followed by ! (macro invocation)
+            if let Some(next) = self.tokens.get(self.pos + 1) {
+                if matches!(next.kind, TokenKind::Not) {
+                    self.advance(); // consume 'Vec'
+                    self.advance(); // consume '!'
+                    self.expect(TokenKind::LBracket)?;
+                    self.skip_newlines();
+
+                    let mut elements = Vec::new();
+                    while !self.check(TokenKind::RBracket) {
+                        elements.push(self.parse_expr()?);
+                        self.skip_newlines();
+                        if !self.match_token(TokenKind::Comma) {
+                            break;
+                        }
+                        self.skip_newlines();
+                    }
+                    self.expect(TokenKind::RBracket)?;
+
+                    return Ok(Expr::VecInit(VecInitExpr {
+                        elements,
+                        span,
+                    }));
+                }
+            }
+        }
+
         // Self
         if self.match_token(TokenKind::Self_) {
             return Ok(Expr::Ident(IdentExpr {

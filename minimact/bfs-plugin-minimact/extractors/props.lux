@@ -20,4 +20,45 @@ pub struct PropInfo {
     pub prop_type: Str
 }
 
-// extractProps(params, tsTypeToCSharpType) - to be implemented
+/**
+ * Extract props from function parameters
+ *
+ * Handles destructured props, single object props, and TS type annotations.
+ */
+pub fn extract_props(params: &Vec<Pattern>) -> Vec<PropInfo> {
+    let mut props = vec![];
+
+    for param in params {
+        match param {
+            Pattern::ObjectPattern(obj_pat) => {
+                // Destructured props: ({ user, loading })
+                for prop in &obj_pat.properties {
+                    if let ObjectPatternProperty::KeyValue(kv) = prop {
+                        if let Expression::Identifier(id) = &kv.key {
+                            let prop_type = if let Some(ref type_ann) = kv.value {
+                                // TODO: extract type from annotation
+                                "dynamic".into()
+                            } else {
+                                "dynamic".into()
+                            };
+                            props.push(PropInfo {
+                                name: id.name.clone(),
+                                prop_type,
+                            });
+                        }
+                    }
+                }
+            }
+            Pattern::Identifier(id) => {
+                // Single object prop: (props)
+                props.push(PropInfo {
+                    name: id.name.clone(),
+                    prop_type: "dynamic".into(),
+                });
+            }
+            _ => {}
+        }
+    }
+
+    props
+}
