@@ -65,6 +65,12 @@ pub struct SwcEmitter {
 
     /// All module names to declare in lib.rs (for multi-file output)
     all_module_names: std::collections::HashSet<String>,
+
+    /// Whether this is an inline module (skip headers/imports, just emit functions)
+    is_inline: bool,
+
+    /// Skip file module imports (for when modules are inlined)
+    skip_file_imports: bool,
 }
 
 impl SwcEmitter {
@@ -88,10 +94,63 @@ impl SwcEmitter {
             custom_prop_types: std::collections::HashSet::new(),
             is_module: false,
             all_module_names: std::collections::HashSet::new(),
+            is_inline: false,
+            skip_file_imports: false,
+        }
+    }
+
+    /// Create new emitter for when modules are inlined (skip file-based use statements)
+    pub fn new_with_inlined_modules() -> Self {
+        Self {
+            output: String::new(),
+            indent: 0,
+            name: String::new(),
+            is_writer: false,
+            uses_hashmap: false,
+            uses_hashset: false,
+            uses_json: false,
+            uses_fs: false,
+            uses_parser: false,
+            uses_codegen: false,
+            uses_codebuilder: false,
+            needs_regex_captures_helper: false,
+            uses_regex: false,
+            uses_custom_props: false,
+            custom_prop_types: std::collections::HashSet::new(),
+            is_module: false,
+            all_module_names: std::collections::HashSet::new(),
+            is_inline: false,
+            skip_file_imports: true,
+        }
+    }
+
+    /// Create new emitter for inlined modules (skip headers/imports, just emit functions)
+    pub fn new_inline() -> Self {
+        Self {
+            output: String::new(),
+            indent: 0,
+            name: String::new(),
+            is_writer: false,
+            uses_hashmap: false,
+            uses_hashset: false,
+            uses_json: false,
+            uses_fs: false,
+            uses_parser: false,
+            uses_codegen: false,
+            uses_codebuilder: false,
+            needs_regex_captures_helper: false,
+            uses_regex: false,
+            uses_custom_props: false,
+            custom_prop_types: std::collections::HashSet::new(),
+            is_module: false,
+            all_module_names: std::collections::HashSet::new(),
+            is_inline: true,
+            skip_file_imports: true,
         }
     }
 
     /// Create new emitter with all module names to declare (for multi-file lib.rs)
+    #[allow(dead_code)]
     pub fn new_with_all_modules(all_module_names: std::collections::HashSet<String>) -> Self {
         Self {
             output: String::new(),
@@ -111,10 +170,13 @@ impl SwcEmitter {
             custom_prop_types: std::collections::HashSet::new(),
             is_module: false,
             all_module_names,
+            is_inline: false,
+            skip_file_imports: false,
         }
     }
 
     /// Create new emitter for a module file (uses `use crate::...` instead of `mod ...`)
+    #[allow(dead_code)]
     pub fn new_module() -> Self {
         Self {
             output: String::new(),
@@ -134,11 +196,19 @@ impl SwcEmitter {
             custom_prop_types: std::collections::HashSet::new(),
             is_module: true,
             all_module_names: std::collections::HashSet::new(),
+            is_inline: false,
+            skip_file_imports: false,
         }
     }
 
     /// Main entry point: emit entire program
     pub fn emit_program(&mut self, program: &DecoratedProgram) -> String {
+        // For inline mode, just emit the functions without headers/imports/helpers
+        if self.is_inline {
+            self.emit_top_level_decl(&program.decl);
+            return std::mem::take(&mut self.output);
+        }
+
         // Detect what imports we need
         self.detect_imports(program);
 
@@ -492,6 +562,11 @@ impl SwcEmitter {
 
         for use_stmt in uses {
             let is_file_module = use_stmt.path.starts_with("./") || use_stmt.path.starts_with("../");
+
+            // Skip file module imports when modules are inlined (functions are in the same file)
+            if is_file_module && self.skip_file_imports {
+                continue;
+            }
 
             if is_file_module {
                 // File module: convert path to module name
@@ -900,6 +975,13 @@ impl SwcEmitter {
                 self.emit_static(static_decl);
             }
             DecoratedPluginItem::PubUse(use_stmt) => {
+                // Skip file module re-exports when modules are inlined
+                let is_file_module = use_stmt.path.starts_with("./") || use_stmt.path.starts_with("../");
+                if is_file_module && self.skip_file_imports {
+                    // Skip - functions are already available from inlined code
+                    return;
+                }
+
                 // Emit pub use as Rust re-export
                 self.emit_indent();
                 self.output.push_str("pub use ");
@@ -2684,9 +2766,308 @@ impl SwcEmitter {
                 }
                 self.emit_parser_expr(&ref_expr.expr);
             }
-            _ => {
-                // For other expression types, emit a placeholder
-                self.output.push_str("/* complex expr */");
+            Expr::Closure(closure) => {
+                self.output.push('|');
+                for (i, param) in closure.params.iter().enumerate() {
+                    if i > 0 {
+                        self.output.push_str(", ");
+                    }
+                    match param {
+                        crate::parser::ClosureParam::Ident(name) => {
+                            self.output.push_str(name);
+                        }
+                        crate::parser::ClosureParam::Tuple(names) => {
+                            self.output.push('(');
+                            for (j, name) in names.iter().enumerate() {
+                                if j > 0 {
+                                    self.output.push_str(", ");
+                                }
+                                self.output.push_str(name);
+                            }
+                            self.output.push(')');
+                        }
+                        crate::parser::ClosureParam::Typed { name, ty } => {
+                            self.output.push_str(name);
+                            self.output.push_str(": ");
+                            self.emit_parser_type(ty);
+                        }
+                    }
+                }
+                self.output.push_str("| ");
+                self.emit_parser_expr(&closure.body);
+            }
+            Expr::Index(idx) => {
+                self.emit_parser_expr(&idx.object);
+                self.output.push('[');
+                self.emit_parser_expr(&idx.index);
+                self.output.push(']');
+            }
+            Expr::VecInit(vec_init) => {
+                self.output.push_str("vec![");
+                for (i, elem) in vec_init.elements.iter().enumerate() {
+                    if i > 0 {
+                        self.output.push_str(", ");
+                    }
+                    self.emit_parser_expr(elem);
+                }
+                self.output.push(']');
+            }
+            Expr::Match(match_expr) => {
+                self.output.push_str("match ");
+                self.emit_parser_expr(&match_expr.scrutinee);
+                self.output.push_str(" {\n");
+                self.indent += 1;
+                for arm in &match_expr.arms {
+                    self.emit_indent();
+                    self.emit_parser_pattern(&arm.pattern);
+                    self.output.push_str(" => ");
+                    self.emit_parser_expr(&arm.body);
+                    self.output.push_str(",\n");
+                }
+                self.indent -= 1;
+                self.emit_indent();
+                self.output.push('}');
+            }
+            Expr::Assign(assign) => {
+                self.emit_parser_expr(&assign.target);
+                self.output.push_str(" = ");
+                self.emit_parser_expr(&assign.value);
+            }
+            Expr::CompoundAssign(compound) => {
+                self.emit_parser_expr(&compound.target);
+                self.output.push(' ');
+                self.output.push_str(&self.compound_op_to_string(&compound.op));
+                self.output.push(' ');
+                self.emit_parser_expr(&compound.value);
+            }
+            Expr::Range(range) => {
+                if let Some(ref start) = range.start {
+                    self.emit_parser_expr(start);
+                }
+                self.output.push_str("..");
+                if let Some(ref end) = range.end {
+                    self.emit_parser_expr(end);
+                }
+            }
+            Expr::Paren(inner) => {
+                self.output.push('(');
+                self.emit_parser_expr(inner);
+                self.output.push(')');
+            }
+            Expr::Try(inner) => {
+                self.emit_parser_expr(inner);
+                self.output.push('?');
+            }
+            Expr::Tuple(exprs) => {
+                self.output.push('(');
+                for (i, expr) in exprs.iter().enumerate() {
+                    if i > 0 {
+                        self.output.push_str(", ");
+                    }
+                    self.emit_parser_expr(expr);
+                }
+                // Add trailing comma for single-element tuples
+                if exprs.len() == 1 {
+                    self.output.push(',');
+                }
+                self.output.push(')');
+            }
+            Expr::Path(path) => {
+                self.output.push_str(&path.segments.join("::"));
+            }
+            Expr::Return(ret) => {
+                self.output.push_str("return");
+                if let Some(ref expr) = ret {
+                    self.output.push(' ');
+                    self.emit_parser_expr(expr);
+                }
+            }
+            Expr::Break => {
+                self.output.push_str("break");
+            }
+            Expr::Continue => {
+                self.output.push_str("continue");
+            }
+            Expr::Matches(matches) => {
+                self.output.push_str("matches!(");
+                self.emit_parser_expr(&matches.scrutinee);
+                self.output.push_str(", ");
+                self.emit_parser_pattern(&matches.pattern);
+                self.output.push(')');
+            }
+            Expr::RegexCall(_) | Expr::CustomPropAccess(_) => {
+                // These should be handled by the decorated AST path
+                self.output.push_str("/* special expr */");
+            }
+        }
+    }
+
+    fn emit_parser_type(&mut self, ty: &crate::parser::Type) {
+        use crate::parser::Type;
+        match ty {
+            Type::Primitive(name) => self.output.push_str(name),
+            Type::Named(name) => self.output.push_str(name),
+            Type::Container { name, type_args } => {
+                self.output.push_str(name);
+                if !type_args.is_empty() {
+                    self.output.push('<');
+                    for (i, arg) in type_args.iter().enumerate() {
+                        if i > 0 {
+                            self.output.push_str(", ");
+                        }
+                        self.emit_parser_type(arg);
+                    }
+                    self.output.push('>');
+                }
+            }
+            Type::Reference { mutable, inner } => {
+                self.output.push('&');
+                if *mutable {
+                    self.output.push_str("mut ");
+                }
+                self.emit_parser_type(inner);
+            }
+            Type::Tuple(types) => {
+                self.output.push('(');
+                for (i, t) in types.iter().enumerate() {
+                    if i > 0 {
+                        self.output.push_str(", ");
+                    }
+                    self.emit_parser_type(t);
+                }
+                self.output.push(')');
+            }
+            Type::FnTrait { params, return_type } => {
+                self.output.push_str("Fn(");
+                for (i, p) in params.iter().enumerate() {
+                    if i > 0 {
+                        self.output.push_str(", ");
+                    }
+                    self.emit_parser_type(p);
+                }
+                self.output.push_str(") -> ");
+                self.emit_parser_type(return_type);
+            }
+            Type::Array { element } => {
+                self.output.push('[');
+                self.emit_parser_type(element);
+                self.output.push(']');
+            }
+            Type::Optional(inner) => {
+                self.output.push_str("Option<");
+                self.emit_parser_type(inner);
+                self.output.push('>');
+            }
+            Type::RawPointer { mutable, inner } => {
+                self.output.push('*');
+                if *mutable {
+                    self.output.push_str("mut ");
+                } else {
+                    self.output.push_str("const ");
+                }
+                self.emit_parser_type(inner);
+            }
+            Type::Unit => self.output.push_str("()"),
+        }
+    }
+
+    fn emit_parser_pattern(&mut self, pattern: &crate::parser::Pattern) {
+        use crate::parser::Pattern;
+        match pattern {
+            Pattern::Literal(lit) => self.emit_literal(lit),
+            Pattern::Ident(name) => self.output.push_str(name),
+            Pattern::Wildcard => self.output.push('_'),
+            Pattern::Tuple(patterns) => {
+                self.output.push('(');
+                for (i, p) in patterns.iter().enumerate() {
+                    if i > 0 {
+                        self.output.push_str(", ");
+                    }
+                    self.emit_parser_pattern(p);
+                }
+                self.output.push(')');
+            }
+            Pattern::Struct { name, fields } => {
+                self.output.push_str(name);
+                self.output.push_str(" { ");
+                for (i, (field_name, field_pattern)) in fields.iter().enumerate() {
+                    if i > 0 {
+                        self.output.push_str(", ");
+                    }
+                    self.output.push_str(field_name);
+                    self.output.push_str(": ");
+                    self.emit_parser_pattern(field_pattern);
+                }
+                self.output.push_str(" }");
+            }
+            Pattern::Variant { name, inner } => {
+                self.output.push_str(name);
+                if let Some(ref inner_pattern) = inner {
+                    self.output.push('(');
+                    self.emit_parser_pattern(inner_pattern);
+                    self.output.push(')');
+                }
+            }
+            Pattern::Array(patterns) => {
+                self.output.push('[');
+                for (i, p) in patterns.iter().enumerate() {
+                    if i > 0 {
+                        self.output.push_str(", ");
+                    }
+                    self.emit_parser_pattern(p);
+                }
+                self.output.push(']');
+            }
+            Pattern::Object(props) => {
+                use crate::parser::ObjectPatternProp;
+                self.output.push_str("{ ");
+                for (i, prop) in props.iter().enumerate() {
+                    if i > 0 {
+                        self.output.push_str(", ");
+                    }
+                    match prop {
+                        ObjectPatternProp::Shorthand(name) => {
+                            self.output.push_str(name);
+                        }
+                        ObjectPatternProp::KeyValue { key, value } => {
+                            self.output.push_str(key);
+                            self.output.push_str(": ");
+                            self.emit_parser_pattern(value);
+                        }
+                        ObjectPatternProp::Rest(name) => {
+                            self.output.push_str("..");
+                            self.output.push_str(name);
+                        }
+                        ObjectPatternProp::Or(patterns) => {
+                            for (j, p) in patterns.iter().enumerate() {
+                                if j > 0 {
+                                    self.output.push_str(" | ");
+                                }
+                                self.emit_parser_pattern(p);
+                            }
+                        }
+                    }
+                }
+                self.output.push_str(" }");
+            }
+            Pattern::Rest(inner) => {
+                self.output.push_str("..");
+                self.emit_parser_pattern(inner);
+            }
+            Pattern::Or(patterns) => {
+                for (i, p) in patterns.iter().enumerate() {
+                    if i > 0 {
+                        self.output.push_str(" | ");
+                    }
+                    self.emit_parser_pattern(p);
+                }
+            }
+            Pattern::Ref { is_mut, pattern } => {
+                self.output.push_str("ref ");
+                if *is_mut {
+                    self.output.push_str("mut ");
+                }
+                self.emit_parser_pattern(pattern);
             }
         }
     }
@@ -2721,11 +3102,13 @@ impl SwcEmitter {
             Stmt::Let(let_stmt) => {
                 self.emit_indent();
                 self.output.push_str("let ");
-                // For simplicity, only handle simple identifier patterns
-                if let crate::parser::Pattern::Ident(ref name) = let_stmt.pattern {
-                    self.output.push_str(name);
-                } else {
-                    self.output.push_str("/* complex pattern */");
+                if let_stmt.mutable {
+                    self.output.push_str("mut ");
+                }
+                self.emit_parser_pattern(&let_stmt.pattern);
+                if let Some(ref ty) = let_stmt.ty {
+                    self.output.push_str(": ");
+                    self.emit_parser_type(ty);
                 }
                 if let Some(ref init) = let_stmt.init {
                     self.output.push_str(" = ");

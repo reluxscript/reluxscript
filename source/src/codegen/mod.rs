@@ -121,35 +121,38 @@ pub fn generate_with_types_and_modules(
     };
 
     let swc = if target == Target::Swc || target == Target::Both {
-        // Collect ALL unique module names from main program AND all loaded modules
-        // These all need to be declared in lib.rs for Rust's module system
-        let mut all_module_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // INLINE APPROACH: Generate all module code into a single lib.rs
+        // This avoids Rust module system complexity (mod declarations, pub visibility, use crate::...)
 
-        // Helper to extract module names from use statements
-        fn extract_module_names(uses: &[crate::parser::UseStmt]) -> Vec<String> {
-            uses.iter()
-                .filter(|u| u.path.starts_with("./") || u.path.starts_with("../"))
-                .map(|u| {
-                    let path = u.path.replace(".lux", "").replace(".rsc", "");
-                    path.split('/').last().unwrap_or(&path).to_string()
-                })
-                .collect()
-        }
+        // First, process all loaded modules and collect their emitted code
+        let mut module_codes: Vec<String> = Vec::new();
 
-        // Collect from main program
-        for name in extract_module_names(&program.uses) {
-            all_module_names.insert(name);
-        }
-
-        // Collect from all loaded modules
         for module in loaded_modules {
-            // Add this module itself
-            if let Some(name) = module.path.file_stem().and_then(|s| s.to_str()) {
-                all_module_names.insert(name.to_string());
-            }
-            // Add modules this module imports
-            for name in extract_module_names(&module.program.uses) {
-                all_module_names.insert(name);
+            let mut mod_decorator = SwcDecorator::with_semantic_types(type_env.clone());
+            let mod_decorated = mod_decorator.decorate_program(&module.program);
+
+            let mut mod_rewriter = SwcRewriter::new();
+            let mod_rewritten = mod_rewriter.rewrite_program(mod_decorated);
+
+            let mut mod_hoister = SwcHoister::new(type_env.clone());
+            let mod_hoisted = mod_hoister.hoist_program(mod_rewritten);
+
+            // Use new_inline() for inlined modules - skips header/imports, just emits functions
+            let mut mod_emitter = SwcEmitter::new_inline();
+            let content = mod_emitter.emit_program(&mod_hoisted);
+
+            if !content.trim().is_empty() {
+                let filename = module.path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("module");
+                module_codes.push(format!(
+                    "// ============================================================\n\
+                     // Module: {}\n\
+                     // ============================================================\n\n\
+                     {}",
+                    filename, content
+                ));
             }
         }
 
@@ -163,34 +166,22 @@ pub fn generate_with_types_and_modules(
         let mut hoister = SwcHoister::new(type_env.clone());
         let hoisted_program = hoister.hoist_program(rewritten_program);
 
-        // Use new_with_all_modules to inject all module declarations into lib.rs
-        let mut emitter = SwcEmitter::new_with_all_modules(all_module_names.clone());
-        let main = emitter.emit_program(&hoisted_program);
+        // Main emitter generates full lib.rs with headers
+        // Use new_with_inlined_modules() when there are modules to inline (skips file imports)
+        let mut emitter = if !loaded_modules.is_empty() {
+            SwcEmitter::new_with_inlined_modules()
+        } else {
+            SwcEmitter::new()
+        };
+        let mut main = emitter.emit_program(&hoisted_program);
 
-        // Generate code for each loaded module
-        for module in loaded_modules {
-            let mut mod_decorator = SwcDecorator::with_semantic_types(type_env.clone());
-            let mod_decorated = mod_decorator.decorate_program(&module.program);
-
-            let mut mod_rewriter = SwcRewriter::new();
-            let mod_rewritten = mod_rewriter.rewrite_program(mod_decorated);
-
-            let mut mod_hoister = SwcHoister::new(type_env.clone());
-            let mod_hoisted = mod_hoister.hoist_program(mod_rewritten);
-
-            // Use new_module() for module files - emits `use crate::...` instead of `mod ...`
-            let mut mod_emitter = SwcEmitter::new_module();
-            let content = mod_emitter.emit_program(&mod_hoisted);
-
-            // Get filename from path (e.g., "process_component.lux" -> "process_component.rs")
-            let filename = module.path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("module");
-            swc_modules.push(GeneratedFile {
-                path: format!("{}.rs", filename),
-                content,
-            });
+        // Append all inlined module code at the end
+        if !module_codes.is_empty() {
+            main.push_str("\n\n");
+            main.push_str("// ============================================================\n");
+            main.push_str("// INLINED MODULES\n");
+            main.push_str("// ============================================================\n\n");
+            main.push_str(&module_codes.join("\n\n"));
         }
 
         Some(main)

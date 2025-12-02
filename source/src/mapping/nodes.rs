@@ -698,6 +698,29 @@ pub static NODE_MAPPINGS: Lazy<Vec<NodeMapping>> = Lazy::new(|| vec![
         swc_visitor: "visit_mut_ts_keyword_type",
     },
 
+    // TypeScript Type Literal (object type)
+    NodeMapping {
+        reluxscript: "TSTypeLiteral",
+        babel: "TSTypeLiteral",
+        swc: "TsTypeLit",
+        swc_enum: Some("TsType::TsTypeLit"),
+        babel_checker: "isTSTypeLiteral",
+        swc_pattern: "TsType::TsTypeLit(ts_type_lit)",
+        visitor_method: "visit_ts_type_literal",
+        swc_visitor: "visit_mut_ts_type_lit",
+    },
+    // TypeScript Array Type
+    NodeMapping {
+        reluxscript: "TSArrayType",
+        babel: "TSArrayType",
+        swc: "TsArrayType",
+        swc_enum: Some("TsType::TsArrayType"),
+        babel_checker: "isTSArrayType",
+        swc_pattern: "TsType::TsArrayType(ts_array_type)",
+        visitor_method: "visit_ts_array_type",
+        swc_visitor: "visit_mut_ts_array_type",
+    },
+
     // === TypeScript Type Parameters ===
     NodeMapping {
         reluxscript: "TSTypeParameterInstantiation",
