@@ -1,0 +1,520 @@
+/**
+ * useStateX Extractor
+ * Extracts useStateX hook calls and analyzes transform functions for C# generation
+ */
+
+use "../generators/expressions.lux" { generate_csharp_expression };
+use "../types/type_conversion.lux" { infer_type };
+use "../types/component_types.lux" { Component };
+
+pub struct Projection {
+    pub selector: Str,
+    pub transform: Option<Str>,
+    pub transform_id: Option<Str>,
+    pub transform_type: Str,
+    pub apply_if: Option<ApplyIfCondition>,
+    pub apply_as: Str,
+    pub property: Option<Str>,
+    pub template: Option<Str>
+}
+
+pub struct ApplyIfCondition {
+    pub csharp_code: Str,
+    pub condition_type: Str
+}
+
+pub struct TransformAnalysis {
+    pub transform_type: Str,
+    pub csharp_code: Option<Str>
+}
+
+pub struct UseStateXInfo {
+    pub var_name: Str,
+    pub setter_name: Str,
+    pub initial_value: Option<Str>,
+    pub initial_value_type: Str,
+    pub targets: Vec<Projection>,
+    pub sync: Str
+}
+
+/**
+ * Extract useStateX hook and analyze projections
+ *
+ * @example
+ * const [price, setPrice] = useStateX(99, {
+ *   targets: {
+ *     '.price-display': {
+ *       transform: v => `$${v.toFixed(2)}`,
+ *       applyIf: ctx => ctx.user.canSeePrice
+ *     }
+ *   }
+ * });
+ */
+pub fn extract_use_state_x(
+    call_expr: &CallExpression,
+    declarator: &VariableDeclarator,
+    component: &mut Component
+) {
+    // Get the variable declarator (const [price, setPrice] = ...)
+    if let Pattern::ArrayPattern(array_pattern) = &declarator.id {
+        let elements = &array_pattern.elements;
+
+        if elements.is_empty() {
+            println!("[useStateX] Expected array pattern destructuring");
+            return;
+        }
+
+        let value_binding = &elements[0];
+        let var_name = if let Pattern::Identifier(ident) = value_binding {
+            ident.name.clone()
+        } else {
+            println!("[useStateX] Expected identifier for value binding");
+            return;
+        };
+
+        let setter_name = if elements.len() > 1 {
+            if let Pattern::Identifier(setter) = &elements[1] {
+                setter.name.clone()
+            } else {
+                format!("set{}{}",
+                    var_name.chars().next().unwrap().to_uppercase(),
+                    &var_name[1..]
+                )
+            }
+        } else {
+            format!("set{}{}",
+                var_name.chars().next().unwrap().to_uppercase(),
+                &var_name[1..]
+            )
+        };
+
+        // Get initial value and config
+        let args = &call_expr.arguments;
+        if args.is_empty() {
+            println!("[useStateX] Expected at least initial value argument");
+            return;
+        }
+
+        let initial_value_arg = &args[0];
+        let config_arg = if args.len() > 1 {
+            Some(&args[1])
+        } else {
+            None
+        };
+
+        if config_arg.is_none() {
+            println!("[useStateX] Expected config object as second argument");
+            return;
+        }
+
+        let config_expr = config_arg.unwrap();
+        if !matches!(config_expr, Expression::ObjectExpression(_)) {
+            println!("[useStateX] Expected config object as second argument");
+            return;
+        }
+
+        // Extract initial value
+        let (initial_value, initial_value_type) = if let Expression::Literal(lit) = initial_value_arg {
+            (Some(format!("{:?}", lit.value)), infer_type(initial_value_arg))
+        } else {
+            (Some(generate_csharp_expression(initial_value_arg)), "dynamic".into())
+        };
+
+        // Extract target projections
+        let targets = if let Expression::ObjectExpression(obj) = config_expr {
+            extract_targets(obj)
+        } else {
+            vec![]
+        };
+
+        // Extract sync strategy
+        let sync = if let Expression::ObjectExpression(obj) = config_expr {
+            extract_sync_strategy(obj)
+        } else {
+            "immediate".into()
+        };
+
+        // Store useStateX metadata
+        if component.use_state_x.is_none() {
+            component.use_state_x = Some(vec![]);
+        }
+
+        component.use_state_x.as_mut().unwrap().push(UseStateXInfo {
+            var_name: var_name.clone(),
+            setter_name,
+            initial_value,
+            initial_value_type,
+            targets,
+            sync
+        });
+
+        // Track state type
+        component.state_types.insert(var_name, "useStateX".into());
+    }
+}
+
+/**
+ * Extract target projection configurations
+ */
+fn extract_targets(config_object: &ObjectExpression) -> Vec<Projection> {
+    let mut targets = vec![];
+
+    // Find targets property
+    let targets_prop = config_object.properties.iter().find(|p| {
+        if let ObjectProperty::Property(prop) = p {
+            if let Expression::Identifier(key) = &prop.key {
+                return key.name == "targets";
+            }
+        }
+        false
+    });
+
+    if targets_prop.is_none() {
+        return targets;
+    }
+
+    if let ObjectProperty::Property(prop) = targets_prop.unwrap() {
+        if let Expression::ObjectExpression(target_obj) = &prop.value {
+            // Process each target selector
+            for target in &target_obj.properties {
+                if let ObjectProperty::Property(target_prop) = target {
+                    let selector = match &target_prop.key {
+                        Expression::StringLiteral(lit) => lit.value.clone(),
+                        Expression::Identifier(ident) => ident.name.clone(),
+                        _ => continue
+                    };
+
+                    if let Expression::ObjectExpression(target_config) = &target_prop.value {
+                        let mut projection = Projection {
+                            selector,
+                            transform: None,
+                            transform_id: None,
+                            transform_type: "none".into(),
+                            apply_if: None,
+                            apply_as: "textContent".into(),
+                            property: None,
+                            template: None
+                        };
+
+                        // Extract each property
+                        for prop in &target_config.properties {
+                            if let ObjectProperty::Property(p) = prop {
+                                if let Expression::Identifier(prop_name_ident) = &p.key {
+                                    let prop_name = &prop_name_ident.name;
+                                    let prop_value = &p.value;
+
+                                    match prop_name.as_str() {
+                                        "transform" => {
+                                            if matches!(prop_value, Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)) {
+                                                // Analyze transform function
+                                                let transform_analysis = analyze_transform_function(prop_value);
+                                                projection.transform = transform_analysis.csharp_code;
+                                                projection.transform_type = transform_analysis.transform_type;
+                                            }
+                                        }
+                                        "transformId" => {
+                                            if let Expression::StringLiteral(lit) = prop_value {
+                                                projection.transform_id = Some(lit.value.clone());
+                                                projection.transform_type = "registry".into();
+                                            }
+                                        }
+                                        "applyIf" => {
+                                            if matches!(prop_value, Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)) {
+                                                // Analyze applyIf condition
+                                                projection.apply_if = Some(analyze_apply_if_condition(prop_value));
+                                            }
+                                        }
+                                        "applyAs" => {
+                                            if let Expression::StringLiteral(lit) = prop_value {
+                                                projection.apply_as = lit.value.clone();
+                                            }
+                                        }
+                                        "property" => {
+                                            if let Expression::StringLiteral(lit) = prop_value {
+                                                projection.property = Some(lit.value.clone());
+                                            }
+                                        }
+                                        "template" => {
+                                            if let Expression::StringLiteral(lit) = prop_value {
+                                                projection.template = Some(lit.value.clone());
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+                        }
+
+                        targets.push(projection);
+                    }
+                }
+            }
+        }
+    }
+
+    targets
+}
+
+/**
+ * Analyze transform function and generate C# equivalent
+ *
+ * Supports:
+ * - Template literals with simple expressions
+ * - Method calls (toFixed, toUpperCase, etc.)
+ * - Ternary expressions
+ * - Property access
+ */
+fn analyze_transform_function(arrow_fn: &Expression) -> TransformAnalysis {
+    let (param_name, body) = match arrow_fn {
+        Expression::ArrowFunctionExpression(arrow) => {
+            let param = if !arrow.params.is_empty() {
+                if let Pattern::Identifier(ident) = &arrow.params[0] {
+                    ident.name.clone()
+                } else {
+                    "v".into()
+                }
+            } else {
+                "v".into()
+            };
+            (param, &arrow.body)
+        }
+        _ => return TransformAnalysis {
+            transform_type: "complex".into(),
+            csharp_code: None
+        }
+    };
+
+    // Template literal: `$${v.toFixed(2)}`
+    if let Expression::TemplateLiteral(template) = body {
+        return TransformAnalysis {
+            transform_type: "template".into(),
+            csharp_code: Some(generate_csharp_from_template(template, &param_name))
+        };
+    }
+
+    // Ternary: v > 10 ? 'High' : 'Low'
+    if let Expression::ConditionalExpression(cond) = body {
+        return TransformAnalysis {
+            transform_type: "ternary".into(),
+            csharp_code: Some(generate_csharp_from_ternary(cond, &param_name))
+        };
+    }
+
+    // Method call: v.toUpperCase()
+    if let Expression::CallExpression(call) = body {
+        return TransformAnalysis {
+            transform_type: "method-call".into(),
+            csharp_code: Some(generate_csharp_from_method_call(call, &param_name))
+        };
+    }
+
+    // Member expression: v.firstName
+    if let Expression::MemberExpression(mem) = body {
+        return TransformAnalysis {
+            transform_type: "property-access".into(),
+            csharp_code: Some(generate_csharp_from_member_expression(mem, &param_name))
+        };
+    }
+
+    // Fallback: complex
+    TransformAnalysis {
+        transform_type: "complex".into(),
+        csharp_code: None
+    }
+}
+
+/**
+ * Generate C# code from template literal
+ * Example: `$${v.toFixed(2)}` → $"${v.ToString("F2")}"
+ */
+fn generate_csharp_from_template(template_literal: &TemplateLiteral, param_name: &Str) -> Str {
+    let mut csharp_code = "$\"".to_string();
+
+    for i in 0..template_literal.quasis.len() {
+        let quasi = &template_literal.quasis[i];
+        csharp_code.push_str(&quasi.value.raw);
+
+        if i < template_literal.expressions.len() {
+            let expr = &template_literal.expressions[i];
+            csharp_code.push_str("{");
+            csharp_code.push_str(&generate_csharp_from_expression(expr, param_name));
+            csharp_code.push_str("}");
+        }
+    }
+
+    csharp_code.push_str("\"");
+    csharp_code
+}
+
+/**
+ * Generate C# code from ternary expression
+ * Example: v > 10 ? 'High' : 'Low' → v > 10 ? "High" : "Low"
+ */
+fn generate_csharp_from_ternary(ternary: &ConditionalExpression, param_name: &Str) -> Str {
+    let test = generate_csharp_from_expression(&ternary.test, param_name);
+    let consequent = generate_csharp_from_expression(&ternary.consequent, param_name);
+    let alternate = generate_csharp_from_expression(&ternary.alternate, param_name);
+
+    format!("{} ? {} : {}", test, consequent, alternate)
+}
+
+/**
+ * Generate C# code from method call
+ * Example: v.toFixed(2) → v.ToString("F2")
+ */
+fn generate_csharp_from_method_call(call_expr: &CallExpression, param_name: &Str) -> Str {
+    if let Expression::MemberExpression(mem) = &call_expr.callee {
+        let object = generate_csharp_from_expression(&mem.object, param_name);
+
+        if let Expression::Identifier(method_ident) = &mem.property {
+            let method = &method_ident.name;
+            let args = &call_expr.arguments;
+
+            // Map JS methods to C# equivalents
+            let csharp_method = match method.as_str() {
+                "toFixed" => {
+                    let decimals = if !args.is_empty() {
+                        if let Expression::NumericLiteral(lit) = &args[0] {
+                            lit.value as i32
+                        } else {
+                            2
+                        }
+                    } else {
+                        2
+                    };
+                    format!("ToString(\"F{}\")", decimals)
+                }
+                "toUpperCase" => "ToUpper()".into(),
+                "toLowerCase" => "ToLower()".into(),
+                "toString" => "ToString()".into(),
+                "trim" => "Trim()".into(),
+                "length" => "Length".into(),
+                _ => format!("{}()", method)
+            };
+
+            return format!("{}.{}", object, csharp_method);
+        }
+    }
+
+    "null".into()
+}
+
+/**
+ * Generate C# code from member expression
+ * Example: v.firstName → v.FirstName
+ */
+fn generate_csharp_from_member_expression(member_expr: &MemberExpression, param_name: &Str) -> Str {
+    let object = generate_csharp_from_expression(&member_expr.object, param_name);
+
+    if let Expression::Identifier(prop_ident) = &member_expr.property {
+        let property = &prop_ident.name;
+
+        // Pascal case the property name for C#
+        let csharp_property = format!("{}{}",
+            property.chars().next().unwrap().to_uppercase(),
+            &property[1..]
+        );
+
+        return format!("{}.{}", object, csharp_property);
+    }
+
+    "null".into()
+}
+
+/**
+ * Generate C# code from any expression
+ */
+fn generate_csharp_from_expression(expr: &Expression, param_name: &Str) -> Str {
+    match expr {
+        Expression::Identifier(ident) => {
+            if ident.name == *param_name || ident.name == "v" {
+                "v".into()
+            } else {
+                ident.name.clone()
+            }
+        }
+
+        Expression::StringLiteral(lit) => {
+            format!("\"{}\"", lit.value)
+        }
+
+        Expression::NumericLiteral(lit) => {
+            lit.value.to_string()
+        }
+
+        Expression::BooleanLiteral(lit) => {
+            if lit.value { "true".into() } else { "false".into() }
+        }
+
+        Expression::MemberExpression(mem) => {
+            generate_csharp_from_member_expression(mem, param_name)
+        }
+
+        Expression::CallExpression(call) => {
+            generate_csharp_from_method_call(call, param_name)
+        }
+
+        Expression::BinaryExpression(bin) => {
+            let left = generate_csharp_from_expression(&bin.left, param_name);
+            let right = generate_csharp_from_expression(&bin.right, param_name);
+            let operator = &bin.operator;
+            format!("{} {} {}", left, operator, right)
+        }
+
+        _ => "null".into()
+    }
+}
+
+/**
+ * Analyze applyIf condition
+ * Example: ctx => ctx.user.isAdmin → "ctx => ctx.User.IsAdmin"
+ */
+fn analyze_apply_if_condition(arrow_fn: &Expression) -> ApplyIfCondition {
+    let (param_name, body) = match arrow_fn {
+        Expression::ArrowFunctionExpression(arrow) => {
+            let param = if !arrow.params.is_empty() {
+                if let Pattern::Identifier(ident) = &arrow.params[0] {
+                    ident.name.clone()
+                } else {
+                    "ctx".into()
+                }
+            } else {
+                "ctx".into()
+            };
+            (param, &arrow.body)
+        }
+        _ => return ApplyIfCondition {
+            csharp_code: "null".into(),
+            condition_type: "complex".into()
+        }
+    };
+
+    let csharp_condition = generate_csharp_from_expression(body, &param_name);
+
+    ApplyIfCondition {
+        csharp_code: format!("{} => {}", param_name, csharp_condition),
+        condition_type: "arrow".into()
+    }
+}
+
+/**
+ * Extract sync strategy
+ */
+fn extract_sync_strategy(config_object: &ObjectExpression) -> Str {
+    let sync_prop = config_object.properties.iter().find(|p| {
+        if let ObjectProperty::Property(prop) = p {
+            if let Expression::Identifier(key) = &prop.key {
+                return key.name == "sync";
+            }
+        }
+        false
+    });
+
+    if let Some(ObjectProperty::Property(prop)) = sync_prop {
+        if let Expression::StringLiteral(lit) = &prop.value {
+            return lit.value.clone();
+        }
+    }
+
+    "immediate".into()
+}

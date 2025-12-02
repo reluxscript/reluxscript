@@ -475,5 +475,10 @@ pub fn ast_type_to_type_info(ty: &crate::parser::Type) -> TypeInfo {
             // They're mainly syntactic for the Rust target
             TypeInfo::Unknown
         }
+        crate::parser::Type::RawPointer { mutable, inner } => {
+            // Raw pointer types - treat as unknown for type checking, emit correctly in codegen
+            let _ = (mutable, inner);
+            TypeInfo::Unknown
+        }
     }
 }

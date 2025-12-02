@@ -70,6 +70,18 @@ pub enum PluginItem {
     Impl(ImplBlock),
     PreHook(FnDecl),   // fn pre() hook - runs before visitors
     ExitHook(FnDecl),  // fn exit() hook - runs after all visitors
+    Static(StaticDecl), // static or static mut variable
+}
+
+/// Static variable declaration
+/// `static [mut] NAME: TYPE = EXPR;`
+#[derive(Debug, Clone)]
+pub struct StaticDecl {
+    pub name: String,
+    pub ty: Type,
+    pub init: Expr,
+    pub is_mut: bool,
+    pub span: Span,
 }
 
 /// Struct declaration
@@ -191,6 +203,11 @@ pub enum Type {
     FnTrait {
         params: Vec<Type>,
         return_type: Box<Type>,
+    },
+    /// Raw pointer type: *const T or *mut T
+    RawPointer {
+        mutable: bool,
+        inner: Box<Type>,
     },
 }
 
@@ -359,6 +376,14 @@ pub enum Stmt {
     Function(FnDecl),  // Nested function declaration
     Verbatim(VerbatimStmt),  // Platform-specific code block
     CustomPropAssignment(CustomPropAssignment),  // Custom AST property assignment
+    Unsafe(UnsafeBlock),  // Unsafe block: `unsafe { ... }`
+}
+
+/// Unsafe block: `unsafe { ... }`
+#[derive(Debug, Clone)]
+pub struct UnsafeBlock {
+    pub body: Block,
+    pub span: Span,
 }
 
 /// Let statement: `let [mut] name [: Type] = expr;`
@@ -367,7 +392,7 @@ pub struct LetStmt {
     pub mutable: bool,
     pub pattern: Pattern,  // Changed from name: String to support destructuring
     pub ty: Option<Type>,
-    pub init: Expr,
+    pub init: Option<Expr>,  // Optional: allows `let x: Type;` without initialization
     pub span: Span,
 }
 
@@ -644,6 +669,16 @@ pub enum Expr {
     Break,
     /// Continue expression: continue
     Continue,
+    /// Path expression: std::ptr::null, crate::module::func
+    Path(PathExpr),
+}
+
+/// Path expression (e.g., std::ptr::null)
+#[derive(Debug, Clone)]
+pub struct PathExpr {
+    /// The segments of the path (e.g., ["std", "ptr", "null"])
+    pub segments: Vec<String>,
+    pub span: Span,
 }
 
 /// Literal values

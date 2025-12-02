@@ -1,0 +1,274 @@
+/**
+ * Field generators for component class
+ */
+
+use "../../types/component_types.lux" { Component };
+use "./infer_types.lux" { infer_csharp_type_from_init };
+
+/**
+ * Generate template properties (from useTemplate)
+ */
+pub fn generate_template_properties(component: &Component, lines: &mut Vec<Str>) {
+    if let Some(use_template) = &component.use_template {
+        if let Some(props) = &use_template.props {
+            for (prop_name, prop_value) in props {
+                // Capitalize first letter for C# property name
+                let csharp_prop_name = format!("{}{}",
+                    prop_name.chars().next().unwrap().to_uppercase(),
+                    &prop_name[1..]
+                );
+                lines.push(format!("    public override string {} => \"{}\";", csharp_prop_name, prop_value));
+                lines.push("".into());
+            }
+        }
+    }
+}
+
+/**
+ * Generate prop fields
+ */
+pub fn generate_prop_fields(component: &Component, lines: &mut Vec<Str>) {
+    for prop in &component.props {
+        lines.push("    [Prop]".into());
+        lines.push(format!("    public {} {} {{ get; set; }}", prop.prop_type, prop.name));
+        lines.push("".into());
+    }
+}
+
+/**
+ * Generate state fields (useState)
+ */
+pub fn generate_state_fields(component: &Component, lines: &mut Vec<Str>) {
+    for state in &component.use_state {
+        lines.push("    [State]".into());
+        lines.push(format!("    private {} {} = {};", state.state_type, state.name, state.initial_value));
+        lines.push("".into());
+    }
+}
+
+/**
+ * Generate MVC state fields (useMvcState)
+ */
+pub fn generate_mvc_state_fields(component: &Component, lines: &mut Vec<Str>) {
+    if let Some(use_mvc_state) = &component.use_mvc_state {
+        for mvc_state in use_mvc_state {
+            let csharp_type = if let Some(t) = &mvc_state.state_type {
+                t.clone()
+            } else {
+                "dynamic".into()
+            };
+            lines.push(format!("    // MVC State property: {}", mvc_state.property_name));
+            lines.push(format!("    private {} {} => GetState<{}>(\"{}\");", csharp_type, mvc_state.name, csharp_type, mvc_state.property_name));
+            lines.push("".into());
+        }
+    }
+}
+
+/**
+ * Generate MVC ViewModel fields (useMvcViewModel)
+ */
+pub fn generate_mvc_view_model_fields(component: &Component, lines: &mut Vec<Str>) {
+    if let Some(use_mvc_view_model) = &component.use_mvc_view_model {
+        for view_model in use_mvc_view_model {
+            lines.push("    // useMvcViewModel - read-only access to entire ViewModel".into());
+            lines.push(format!("    private dynamic {} = null;", view_model.name));
+            lines.push("".into());
+        }
+    }
+}
+
+/**
+ * Generate StateX fields
+ */
+pub fn generate_state_x_fields(component: &Component, lines: &mut Vec<Str>) {
+    if let Some(use_state_x) = &component.use_state_x {
+        for state_x in use_state_x {
+            lines.push("    [State]".into());
+            lines.push(format!("    private {} {} = {};", state_x.initial_value_type, state_x.var_name, state_x.initial_value.as_ref().unwrap_or(&"null".into())));
+            lines.push("".into());
+        }
+    }
+}
+
+/**
+ * Generate ref fields (useRef)
+ */
+pub fn generate_ref_fields(component: &Component, lines: &mut Vec<Str>) {
+    for ref_info in &component.use_ref {
+        lines.push("    [Ref]".into());
+        lines.push(format!("    private object {} = {};", ref_info.name, ref_info.initial_value));
+        lines.push("".into());
+    }
+}
+
+/**
+ * Generate markdown fields (useMarkdown)
+ */
+pub fn generate_markdown_fields(component: &Component, lines: &mut Vec<Str>) {
+    for md in &component.use_markdown {
+        lines.push("    [Markdown]".into());
+        lines.push("    [State]".into());
+        lines.push(format!("    private string {} = {};", md.name, md.initial_value));
+        lines.push("".into());
+    }
+}
+
+/**
+ * Generate Razor markdown fields (useRazorMarkdown)
+ */
+pub fn generate_razor_markdown_fields(component: &Component, lines: &mut Vec<Str>) {
+    if let Some(use_razor_markdown) = &component.use_razor_markdown {
+        for md in use_razor_markdown {
+            lines.push("    [RazorMarkdown]".into());
+            lines.push("    [State]".into());
+            lines.push(format!("    private string {} = null!;", md.name));
+            lines.push("".into());
+        }
+    }
+}
+
+/**
+ * Generate validation fields (useValidation)
+ */
+pub fn generate_validation_fields(component: &Component, lines: &mut Vec<Str>) {
+    for validation in &component.use_validation {
+        lines.push("    [Validation]".into());
+        lines.push(format!("    private ValidationField {} = new ValidationField", validation.name));
+        lines.push("    {".into());
+        lines.push(format!("        FieldKey = \"{}\",", validation.field_key));
+
+        // Add validation rules
+        if let Some(required) = validation.rules.required {
+            lines.push(format!("        Required = {},", if required { "true" } else { "false" }));
+        }
+        if let Some(min_length) = validation.rules.min_length {
+            lines.push(format!("        MinLength = {},", min_length));
+        }
+        if let Some(max_length) = validation.rules.max_length {
+            lines.push(format!("        MaxLength = {},", max_length));
+        }
+        if let Some(pattern) = &validation.rules.pattern {
+            lines.push(format!("        Pattern = @\"{}\",", pattern));
+        }
+        if let Some(message) = &validation.rules.message {
+            lines.push(format!("        Message = \"{}\"", message));
+        }
+
+        lines.push("    };".into());
+        lines.push("".into());
+    }
+}
+
+/**
+ * Generate modal, toggle, dropdown fields
+ */
+pub fn generate_modal_fields(component: &Component, lines: &mut Vec<Str>) {
+    for modal in &component.use_modal {
+        lines.push(format!("    private ModalState {} = new ModalState();", modal.name));
+        lines.push("".into());
+    }
+}
+
+pub fn generate_toggle_fields(component: &Component, lines: &mut Vec<Str>) {
+    for toggle in &component.use_toggle {
+        lines.push("    [State]".into());
+        lines.push(format!("    private bool {} = {};", toggle.name, toggle.initial_value));
+        lines.push("".into());
+    }
+}
+
+pub fn generate_dropdown_fields(component: &Component, lines: &mut Vec<Str>) {
+    for dropdown in &component.use_dropdown {
+        lines.push(format!("    private DropdownState {} = new DropdownState();", dropdown.name));
+        lines.push("".into());
+    }
+}
+
+/**
+ * Generate pub/sub, task, SignalR, and other fields
+ */
+pub fn generate_pub_sub_fields(component: &Component, lines: &mut Vec<Str>) {
+    if let Some(use_pub) = &component.use_pub {
+        for pub_info in use_pub {
+            let channel_str = pub_info.channel.as_ref().map_or("null".into(), |c| format!("\"{}\"", c));
+            lines.push(format!("    // usePub: {}", pub_info.name));
+            lines.push(format!("    private string {}_channel = {};", pub_info.name, channel_str));
+            lines.push("".into());
+        }
+    }
+
+    if let Some(use_sub) = &component.use_sub {
+        for sub_info in use_sub {
+            let channel_str = sub_info.channel.as_ref().map_or("null".into(), |c| format!("\"{}\"", c));
+            lines.push(format!("    // useSub: {}", sub_info.name));
+            lines.push(format!("    private string {}_channel = {};", sub_info.name, channel_str));
+            lines.push(format!("    private dynamic {}_value = null;", sub_info.name));
+            lines.push("".into());
+        }
+    }
+}
+
+pub fn generate_task_scheduling_fields(component: &Component, lines: &mut Vec<Str>) {
+    if let Some(use_micro_task) = &component.use_micro_task {
+        for i in 0..use_micro_task.len() {
+            lines.push(format!("    // useMicroTask {}", i));
+            lines.push(format!("    private bool _microTaskScheduled_{} = false;", i));
+            lines.push("".into());
+        }
+    }
+
+    if let Some(use_macro_task) = &component.use_macro_task {
+        for i in 0..use_macro_task.len() {
+            let task = &use_macro_task[i];
+            lines.push(format!("    // useMacroTask {} (delay: {}ms)", i, task.delay));
+            lines.push(format!("    private bool _macroTaskScheduled_{} = false;", i));
+            lines.push("".into());
+        }
+    }
+}
+
+pub fn generate_signal_r_fields(component: &Component, lines: &mut Vec<Str>) {
+    if let Some(use_signal_r) = &component.use_signal_r {
+        for signal_r in use_signal_r {
+            let hub_url_str = signal_r.hub_url.as_ref().map_or("null".into(), |url| format!("\"{}\"", url));
+            lines.push(format!("    // useSignalR: {}", signal_r.name));
+            lines.push(format!("    private string {}_hubUrl = {};", signal_r.name, hub_url_str));
+            lines.push(format!("    private bool {}_connected = false;", signal_r.name));
+            lines.push(format!("    private string {}_connectionId = null;", signal_r.name));
+            lines.push(format!("    private string {}_error = null;", signal_r.name));
+            lines.push("".into());
+        }
+    }
+}
+
+pub fn generate_predict_hint_fields(component: &Component, lines: &mut Vec<Str>) {
+    if let Some(use_predict_hint) = &component.use_predict_hint {
+        for i in 0..use_predict_hint.len() {
+            let hint = &use_predict_hint[i];
+            let hint_id_str = hint.hint_id.as_ref().map_or(format!("\"hint_{}\"", i), |id| format!("\"{}\"", id));
+            lines.push(format!("    // usePredictHint: {}", hint_id_str));
+            lines.push(format!("    private string _hintId_{} = {};", i, hint_id_str));
+            lines.push("".into());
+        }
+    }
+}
+
+pub fn generate_client_computed_properties(component: &Component, lines: &mut Vec<Str>) {
+    let client_computed_vars: Vec<_> = component.local_variables.iter()
+        .filter(|v| v.is_client_computed)
+        .collect();
+
+    if client_computed_vars.len() > 0 {
+        lines.push("    // Client-computed properties (external libraries)".into());
+        for client_var in client_computed_vars {
+            let csharp_type = if let Some(init) = &client_var.init {
+                infer_csharp_type_from_init(init)
+            } else {
+                "dynamic".into()
+            };
+            lines.push(format!("    [ClientComputed(\"{}\")]", client_var.name));
+            lines.push(format!("    private {} {} => GetClientState<{}>(\"{}\", default);", csharp_type, client_var.name, csharp_type, client_var.name));
+            lines.push("".into());
+        }
+    }
+}

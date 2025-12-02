@@ -247,7 +247,9 @@ impl SwcEmitter {
         for stmt in &block.stmts {
             match stmt {
                 DecoratedStmt::Let(let_stmt) => {
-                    self.detect_regex_usage_in_expr(&let_stmt.init);
+                    if let Some(ref init) = let_stmt.init {
+                        self.detect_regex_usage_in_expr(init);
+                    }
                 }
                 DecoratedStmt::Expr(expr) => {
                     self.detect_regex_usage_in_expr(expr);
@@ -659,7 +661,26 @@ impl SwcEmitter {
                 self.emit_comment("Exit-hook");
                 self.emit_function_with_visibility(func, true);
             }
+            DecoratedPluginItem::Static(static_decl) => {
+                self.emit_static(static_decl);
+            }
         }
+    }
+
+    fn emit_static(&mut self, static_decl: &super::swc_decorator::DecoratedStaticDecl) {
+        self.emit_indent();
+        if static_decl.is_mut {
+            self.output.push_str("static mut ");
+        } else {
+            self.output.push_str("static ");
+        }
+        self.output.push_str(&static_decl.name);
+        self.output.push_str(": ");
+        let type_str = self.type_to_string_with_lifetime(&static_decl.ty, false);
+        self.output.push_str(&type_str);
+        self.output.push_str(" = ");
+        self.emit_expr(&static_decl.init);
+        self.output.push_str(";\n");
     }
 
     // ========================================================================
@@ -917,8 +938,10 @@ impl SwcEmitter {
                     self.output.push_str("let ");
                 }
                 self.emit_pattern(&let_stmt.pattern);
-                self.output.push_str(" = ");
-                self.emit_expr(&let_stmt.init);
+                if let Some(ref init) = let_stmt.init {
+                    self.output.push_str(" = ");
+                    self.emit_expr(init);
+                }
                 self.output.push_str(";\n");
             }
 
@@ -1015,6 +1038,17 @@ impl SwcEmitter {
                 // This should have been transformed by the rewriter into a Call expression
                 // If we reach here, the rewriter didn't run
                 panic!("CustomPropAssignment should have been rewritten by SwcRewriter");
+            }
+
+            DecoratedStmt::Unsafe(unsafe_block) => {
+                // Emit unsafe block - wraps statements in an unsafe block
+                self.emit_line("unsafe {");
+                self.indent += 1;
+                for stmt in &unsafe_block.stmts {
+                    self.emit_stmt(stmt);
+                }
+                self.indent -= 1;
+                self.emit_line("}");
             }
 
         }
@@ -2066,6 +2100,13 @@ impl SwcEmitter {
                     self.type_to_string(return_type)
                 )
             }
+            Type::RawPointer { mutable, inner } => {
+                format!(
+                    "*{} {}",
+                    if *mutable { "mut" } else { "const" },
+                    self.type_to_string_with_lifetime(inner, add_lifetime)
+                )
+            }
         }
     }
 
@@ -2332,8 +2373,10 @@ impl SwcEmitter {
                 } else {
                     self.output.push_str("/* complex pattern */");
                 }
-                self.output.push_str(" = ");
-                self.emit_parser_expr(&let_stmt.init);
+                if let Some(ref init) = let_stmt.init {
+                    self.output.push_str(" = ");
+                    self.emit_parser_expr(init);
+                }
                 self.output.push_str(";\n");
             }
             Stmt::If(if_stmt) => {

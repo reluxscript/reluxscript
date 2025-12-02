@@ -83,10 +83,18 @@ impl Resolver {
         // Check if it's a built-in module or a file path
         let is_file_module = use_stmt.path.starts_with("./") || use_stmt.path.starts_with("../");
 
+        eprintln!("[RESOLVER] resolve_use: path='{}', is_file_module={}, base_dir={:?}",
+                  use_stmt.path, is_file_module, self.base_dir);
+
         if is_file_module {
             // Load and resolve the module file
+            eprintln!("[RESOLVER] Loading file module: {}", use_stmt.path);
             match self.load_module(&use_stmt.path, use_stmt.span) {
                 Ok(exports) => {
+                    eprintln!("[RESOLVER] Module loaded successfully. Functions: {:?}, Structs: {:?}, Enums: {:?}",
+                              exports.functions.keys().collect::<Vec<_>>(),
+                              exports.structs.keys().collect::<Vec<_>>(),
+                              exports.enums.keys().collect::<Vec<_>>());
                     // If there are specific imports, resolve them
                     if !use_stmt.imports.is_empty() {
                         for import_name in &use_stmt.imports {
@@ -118,6 +126,7 @@ impl Resolver {
                     }
                 }
                 Err(err) => {
+                    eprintln!("[RESOLVER] Error loading module '{}': {}", use_stmt.path, err.message);
                     self.errors.push(err);
                 }
             }
@@ -221,8 +230,26 @@ impl Resolver {
         // Mark as currently resolving
         self.resolving_stack.push(canonical_path.clone());
 
+        // Save current base_dir and update for the loaded module
+        let old_base_dir = std::mem::replace(&mut self.base_dir, resolved_path.parent().unwrap_or(&resolved_path).to_path_buf());
+
+        // First, resolve this module's imports (recursively)
+        for use_stmt in &program.uses {
+            if !use_stmt.deferred {
+                self.resolve_use(use_stmt);
+            }
+        }
+        for use_stmt in &program.uses {
+            if use_stmt.deferred {
+                self.resolve_use_deferred(use_stmt);
+            }
+        }
+
         // Extract exports from the module
         let exports = self.extract_exports(&program);
+
+        // Restore the base_dir
+        self.base_dir = old_base_dir;
 
         // Remove from resolving stack
         self.resolving_stack.pop();
@@ -506,8 +533,10 @@ impl Resolver {
     fn resolve_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::Let(let_stmt) => {
-                // Resolve initializer first
-                self.resolve_expr(&let_stmt.init);
+                // Resolve initializer if present
+                if let Some(ref init) = let_stmt.init {
+                    self.resolve_expr(init);
+                }
 
                 // Check for redefinition in same scope (only for simple identifiers)
                 if let Pattern::Ident(ref name) = let_stmt.pattern {
@@ -636,7 +665,9 @@ impl Resolver {
 
                         // Resolve state variables
                         for let_stmt in &inline.state {
-                            self.resolve_expr(&let_stmt.init);
+                            if let Some(ref init) = let_stmt.init {
+                                self.resolve_expr(init);
+                            }
                             self.resolve_pattern(&let_stmt.pattern);
                             let ty = if let Some(ref type_ann) = let_stmt.ty {
                                 ast_type_to_type_info(type_ann)
@@ -705,6 +736,13 @@ impl Resolver {
                 self.resolve_expr(&assign.node);
                 self.resolve_expr(&assign.value);
                 // TODO: Validate that node is an AST type and property starts with __
+            }
+
+            Stmt::Unsafe(unsafe_block) => {
+                // Resolve statements inside the unsafe block
+                for stmt in &unsafe_block.body.stmts {
+                    self.resolve_stmt(stmt);
+                }
             }
 
         }
@@ -1030,6 +1068,11 @@ impl Resolver {
                 // Resolve the node expression
                 self.resolve_expr(&access.node);
                 // TODO: Validate that property starts with __
+            }
+
+            Expr::Path(_) => {
+                // Path expressions like std::ptr::null are Rust stdlib paths
+                // Don't require resolution - they're compile-time references
             }
 
             Expr::Literal(_) => {}

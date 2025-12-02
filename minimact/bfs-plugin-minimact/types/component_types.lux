@@ -1,0 +1,248 @@
+/// Component Types
+///
+/// Core type definitions for component processing.
+/// These types represent the extracted data from React components.
+
+// =============================================================================
+// Main Component Type
+// =============================================================================
+
+/// Represents a processed React component with all extracted metadata
+pub struct Component {
+    pub name: Str,
+    pub props: Vec<Prop>,
+    pub use_state: Vec<UseStateInfo>,
+    pub use_client_state: Vec<UseStateInfo>,
+    pub use_state_x: Vec<UseStateXInfo>,
+    pub use_effect: Vec<UseEffectInfo>,
+    pub use_ref: Vec<UseRefInfo>,
+    pub use_markdown: Vec<UseMarkdownInfo>,
+    pub use_template: Option<UseTemplateInfo>,
+    pub use_validation: Vec<UseValidationInfo>,
+    pub use_modal: Vec<UseModalInfo>,
+    pub use_toggle: Vec<UseToggleInfo>,
+    pub use_dropdown: Vec<UseDropdownInfo>,
+    pub custom_hooks: Vec<CustomHookInfo>,
+    pub event_handlers: Vec<EventHandler>,
+    pub client_handlers: Vec<ClientHandler>,
+    pub client_effects: Vec<ClientEffect>,
+    pub local_variables: Vec<LocalVariable>,
+    pub helper_functions: Vec<HelperFunction>,
+    pub render_body: Option<Expression>,
+    pub plugin_usages: Vec<PluginUsage>,
+    pub state_types: HashMap<Str, Str>,
+    pub dependencies: HashMap<Str, Vec<Str>>,
+    pub external_imports: HashSet<Str>,
+    pub client_computed_vars: HashSet<Str>,
+    pub server_tasks: Vec<ServerTask>,
+    pub timelines: Vec<Timeline>,
+}
+
+// =============================================================================
+// Props
+// =============================================================================
+
+pub struct Prop {
+    pub name: Str,
+    pub prop_type: Str,
+    pub optional: bool,
+    pub default_value: Option<Str>,
+}
+
+// =============================================================================
+// State Hooks
+// =============================================================================
+
+pub struct UseStateInfo {
+    pub name: Str,
+    pub setter: Str,
+    pub initial_value: Option<Expression>,
+    pub state_type: Str,
+    pub is_client: bool,
+}
+
+pub struct UseStateXInfo {
+    pub name: Str,
+    pub setter: Str,
+    pub projections: Vec<StateProjection>,
+}
+
+pub struct StateProjection {
+    pub name: Str,
+    pub expression: Expression,
+}
+
+// =============================================================================
+// Effect Hooks
+// =============================================================================
+
+pub struct UseEffectInfo {
+    pub callback: Option<Expression>,
+    pub dependencies: Option<Expression>,
+    pub cleanup: Option<Expression>,
+}
+
+// =============================================================================
+// Ref Hooks
+// =============================================================================
+
+pub struct UseRefInfo {
+    pub name: Str,
+    pub initial_value: Option<Expression>,
+    pub ref_type: Str,
+}
+
+// =============================================================================
+// Markdown/Template Hooks
+// =============================================================================
+
+pub struct UseMarkdownInfo {
+    pub name: Str,
+    pub setter: Str,
+    pub initial_value: Str,
+    pub raw_markdown: Str,
+}
+
+pub struct UseTemplateInfo {
+    pub name: Str,
+    pub template_props: HashMap<Str, Str>,
+}
+
+// =============================================================================
+// UI Hooks
+// =============================================================================
+
+pub struct UseValidationInfo {
+    pub name: Str,
+    pub rules: Vec<ValidationRule>,
+}
+
+pub struct ValidationRule {
+    pub field: Str,
+    pub rule_type: Str,
+    pub message: Str,
+}
+
+pub struct UseModalInfo {
+    pub name: Str,
+    pub is_open_name: Str,
+    pub open_fn: Str,
+    pub close_fn: Str,
+}
+
+pub struct UseToggleInfo {
+    pub name: Str,
+    pub initial_value: bool,
+    pub toggle_fn: Str,
+}
+
+pub struct UseDropdownInfo {
+    pub name: Str,
+    pub is_open_name: Str,
+    pub toggle_fn: Str,
+    pub options: Vec<Str>,
+}
+
+// =============================================================================
+// Custom Hooks
+// =============================================================================
+
+pub struct CustomHookInfo {
+    pub name: Str,
+    pub hook_name: Str,
+    pub arguments: Vec<Expression>,
+    pub return_type: Str,
+}
+
+// =============================================================================
+// Event Handlers
+// =============================================================================
+
+pub struct EventHandler {
+    pub name: Str,
+    pub params: Vec<Str>,
+    pub body: Option<BlockStatement>,
+    pub is_async: bool,
+    pub handler_type: Str,
+}
+
+pub struct ClientHandler {
+    pub name: Str,
+    pub params: Vec<Str>,
+    pub body: Option<BlockStatement>,
+    pub is_async: bool,
+}
+
+pub struct ClientEffect {
+    pub callback: Option<Expression>,
+    pub dependencies: Vec<Str>,
+}
+
+// =============================================================================
+// Local Variables and Helper Functions
+// =============================================================================
+
+pub struct LocalVariable {
+    pub name: Str,
+    pub var_type: Str,
+    pub initial_value: Option<Expression>,
+    pub is_const: bool,
+    pub uses_external_lib: bool,
+}
+
+pub struct HelperFunction {
+    pub name: Str,
+    pub params: Vec<FunctionParam>,
+    pub return_type: Str,
+    pub body: Option<BlockStatement>,
+    pub is_async: bool,
+}
+
+pub struct FunctionParam {
+    pub name: Str,
+    pub param_type: Str,
+}
+
+// =============================================================================
+// Plugin Usage
+// =============================================================================
+
+pub struct PluginUsage {
+    pub plugin_name: Str,
+    pub state_bindings: Vec<StateBinding>,
+    pub element_path: Str,
+}
+
+pub struct StateBinding {
+    pub name: Str,
+    pub value: Expression,
+}
+
+// =============================================================================
+// Server Tasks
+// =============================================================================
+
+pub struct ServerTask {
+    pub name: Str,
+    pub task_type: Str,
+    pub params: Vec<FunctionParam>,
+    pub return_type: Str,
+    pub body: Option<BlockStatement>,
+    pub is_paginated: bool,
+}
+
+// =============================================================================
+// Timeline/Animation
+// =============================================================================
+
+pub struct Timeline {
+    pub name: Str,
+    pub keyframes: Vec<TimelineKeyframe>,
+    pub duration: f64,
+    pub easing: Str,
+}
+
+pub struct TimelineKeyframe {
+    pub time: f64,
+    pub properties: HashMap<Str, Str>,
+}

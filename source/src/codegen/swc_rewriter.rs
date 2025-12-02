@@ -146,6 +146,10 @@ impl SwcRewriter {
             DecoratedPluginItem::ExitHook(func) => {
                 DecoratedPluginItem::ExitHook(self.rewrite_fn_decl(func))
             }
+            DecoratedPluginItem::Static(static_decl) => {
+                // Static declarations pass through (init expr could be rewritten if needed)
+                DecoratedPluginItem::Static(static_decl)
+            }
         }
     }
 
@@ -221,9 +225,13 @@ impl SwcRewriter {
     fn rewrite_stmt(&mut self, stmt: DecoratedStmt) -> DecoratedStmt {
         match stmt {
             DecoratedStmt::Let(let_stmt) => {
-                let init = self.rewrite_expr(let_stmt.init);
-                // Apply auto-unwrap to the init expression if it contains narrowed identifiers
-                let init = self.apply_auto_unwrap(init);
+                let init = if let Some(init_expr) = let_stmt.init {
+                    let rewritten = self.rewrite_expr(init_expr);
+                    // Apply auto-unwrap to the init expression if it contains narrowed identifiers
+                    Some(self.apply_auto_unwrap(rewritten))
+                } else {
+                    None
+                };
 
                 DecoratedStmt::Let(DecoratedLetStmt {
                     mutable: let_stmt.mutable,
@@ -342,6 +350,17 @@ impl SwcRewriter {
 
             DecoratedStmt::CustomPropAssignment(assign) => {
                 self.rewrite_custom_prop_assignment(*assign)
+            }
+
+            DecoratedStmt::Unsafe(unsafe_block) => {
+                // Rewrite statements inside the unsafe block
+                let rewritten_stmts = unsafe_block.stmts
+                    .into_iter()
+                    .map(|s| self.rewrite_stmt(s))
+                    .collect();
+                DecoratedStmt::Unsafe(crate::codegen::decorated_ast::DecoratedUnsafeBlock {
+                    stmts: rewritten_stmts,
+                })
             }
 
         }
@@ -3097,7 +3116,7 @@ impl SwcRewriter {
             }
             DecoratedStmt::Let(let_stmt) => {
                 DecoratedStmt::Let(DecoratedLetStmt {
-                    init: self.rewrite_expr_replacing_scrutinee(let_stmt.init, scrutinee_name, binding_name),
+                    init: let_stmt.init.map(|init| self.rewrite_expr_replacing_scrutinee(init, scrutinee_name, binding_name)),
                     ..let_stmt
                 })
             }
@@ -3353,7 +3372,7 @@ impl SwcRewriter {
                 DecoratedStmt::Expr(self.rewrite_expr_replacing_scrutinee_typed(expr, scrutinee_name, binding_name, binding_type))
             }
             DecoratedStmt::Let(mut let_stmt) => {
-                let_stmt.init = self.rewrite_expr_replacing_scrutinee_typed(let_stmt.init, scrutinee_name, binding_name, binding_type);
+                let_stmt.init = let_stmt.init.map(|init| self.rewrite_expr_replacing_scrutinee_typed(init, scrutinee_name, binding_name, binding_type));
                 DecoratedStmt::Let(let_stmt)
             }
             DecoratedStmt::Return(value) => {
@@ -3604,7 +3623,7 @@ impl SwcRewriter {
                 metadata: SwcPatternMetadata::direct(var_name.to_string()),
             },
             ty: None,
-            init: unwrap_expr,
+            init: Some(unwrap_expr),
         })
     }
 

@@ -1,0 +1,359 @@
+/**
+ * Path Assignment Pass for Minimact
+ *
+ * CRITICAL: This is the FIRST PASS that runs before any extraction.
+ * It assigns hex paths to every JSX node by mutating the AST.
+ *
+ * Problem it solves:
+ * - Old system: Each extractor recalculated paths independently
+ * - Result: Path mismatches between template/attribute/handler extractors
+ *
+ * Solution:
+ * - Single pass assigns paths and stores in node.__minimactPath
+ * - All extractors read from node.__minimactPath (no recalculation!)
+ */
+
+use "./hex_path.lux" { HexPathGenerator };
+use parser;
+
+pub struct StructuralChange {
+    pub change_type: Str,
+    pub path: Str,
+    pub vnode: Option<VNode>
+}
+
+pub struct VNode {
+    pub tag: Str,
+    pub key: Str,
+    pub props: Vec<(Str, Str)>,
+    pub children: Vec<VNode>
+}
+
+/**
+ * Assign hex paths to all JSX nodes in tree
+ *
+ * Mutates AST by adding __minimactPath metadata to each node.
+ * This ensures consistent paths across all subsequent extractors.
+ */
+pub fn assign_paths_to_jsx(
+    node: &mut JSXElement,
+    parent_path: &Str,
+    path_gen: &mut HexPathGenerator,
+    previous_sibling_key: Option<Str>,
+    next_sibling_key: Option<Str>,
+    structural_changes: &mut Vec<StructuralChange>,
+    is_hot_reload: bool
+) -> Str {
+    let mut current_path: Str;
+    let mut use_existing_key = false;
+
+    // Check if element already has a key attribute
+    if let Some(key_attr) = find_key_attribute(&node.opening_element) {
+        let existing_key = key_attr.clone();
+
+        // Validate the key: must be valid hex path format AND in correct sort order
+        if is_valid_hex_path(&existing_key) &&
+           is_in_sort_order(&existing_key, &previous_sibling_key, &next_sibling_key) {
+            // Use the existing key as the path
+            current_path = existing_key.clone();
+            use_existing_key = true;
+
+            // Synchronize the path generator's counter with this existing key
+            sync_path_generator_with_key(&current_path, parent_path, path_gen);
+
+            println!("[Path Assignment] ♻️  Using existing key=\"{}\"", current_path);
+        } else if !is_valid_hex_path(&existing_key) {
+            println!("[Path Assignment] ⚠️  Invalid key format \"{}\" - generating new path", existing_key);
+            current_path = String::new();
+        } else {
+            println!("[Path Assignment] ⚠️  Key \"{}\" is out of order - generating half-gap", existing_key);
+            current_path = String::new();
+        }
+    } else {
+        current_path = String::new();
+    }
+
+    // If no valid existing key, generate a new one
+    if !use_existing_key {
+        // If we have previous and next siblings, generate a half-gap between them
+        if let (Some(prev), Some(next)) = (&previous_sibling_key, &next_sibling_key) {
+            current_path = generate_half_gap(prev, next, parent_path);
+            println!("[Path Assignment] ⚡ Generated half-gap key=\"{}\"", current_path);
+        } else {
+            // Normal sequential generation
+            let child_hex = path_gen.next(parent_path);
+            current_path = path_gen.build_path(parent_path, &child_hex);
+        }
+
+        // Track insertion ONLY during hot reload
+        if is_hot_reload {
+            println!("[Hot Reload] 🆕 Insertion detected at path \"{}\"", current_path);
+            if let Some(vnode) = generate_vnode_representation(node, &current_path) {
+                structural_changes.push(StructuralChange {
+                    change_type: "insert".into(),
+                    path: current_path.clone(),
+                    vnode: Some(vnode)
+                });
+            }
+        }
+
+        // Add or update key prop to JSX element
+        add_or_update_key_attribute(&mut node.opening_element, &current_path);
+    }
+
+    // Store path in node metadata
+    // (In actual implementation, this would set node.__minimactPath)
+
+    // Recursively assign paths to children
+    assign_paths_to_children(
+        &mut node.children,
+        &current_path,
+        path_gen,
+        structural_changes,
+        is_hot_reload
+    );
+
+    current_path
+}
+
+/**
+ * Assign paths to JSX children
+ */
+fn assign_paths_to_children(
+    children: &mut Vec<JSXChild>,
+    parent_path: &Str,
+    path_gen: &mut HexPathGenerator,
+    structural_changes: &mut Vec<StructuralChange>,
+    is_hot_reload: bool
+) {
+    let mut previous_key: Option<Str> = None;
+
+    for (i, child) in children.iter_mut().enumerate() {
+        let next_key = if i + 1 < children.len() {
+            get_child_key(&children[i + 1])
+        } else {
+            None
+        };
+
+        if let JSXChild::JSXElement(ref mut elem) = child {
+            let child_path = assign_paths_to_jsx(
+                elem,
+                parent_path,
+                path_gen,
+                previous_key.clone(),
+                next_key,
+                structural_changes,
+                is_hot_reload
+            );
+            previous_key = Some(child_path);
+        }
+    }
+}
+
+/**
+ * Find key attribute in JSX element
+ */
+fn find_key_attribute(opening_element: &JSXOpeningElement) -> Option<Str> {
+    for attr in &opening_element.attributes {
+        if let JSXAttribute::Attribute(a) = attr {
+            if let JSXAttributeName::Identifier(name) = &a.name {
+                if name.name == "key" {
+                    if let Some(JSXAttributeValue::StringLiteral(lit)) = &a.value {
+                        return Some(lit.value.clone());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/**
+ * Add or update key attribute on JSX element
+ */
+fn add_or_update_key_attribute(opening_element: &mut JSXOpeningElement, key: &Str) {
+    // Check if key already exists
+    let mut found = false;
+    for attr in &mut opening_element.attributes {
+        if let JSXAttribute::Attribute(a) = attr {
+            if let JSXAttributeName::Identifier(name) = &a.name {
+                if name.name == "key" {
+                    // Update existing key
+                    a.value = Some(JSXAttributeValue::StringLiteral(StringLiteral {
+                        value: key.clone()
+                    }));
+                    found = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    // If not found, add new key attribute
+    if !found {
+        opening_element.attributes.push(JSXAttribute::Attribute(JSXAttributeNode {
+            name: JSXAttributeName::Identifier(JSXIdentifier {
+                name: "key".into()
+            }),
+            value: Some(JSXAttributeValue::StringLiteral(StringLiteral {
+                value: key.clone()
+            }))
+        }));
+    }
+}
+
+/**
+ * Get key from JSX child if it's an element
+ */
+fn get_child_key(child: &JSXChild) -> Option<Str> {
+    if let JSXChild::JSXElement(elem) = child {
+        find_key_attribute(&elem.opening_element)
+    } else {
+        None
+    }
+}
+
+/**
+ * Check if a string is a valid hex path
+ */
+fn is_valid_hex_path(path: &Str) -> bool {
+    if path.is_empty() {
+        return false;
+    }
+
+    // Valid hex path: empty string OR hex digits separated by colons
+    // Examples: "", "0", "0:1", "0:1:a"
+    for part in path.split(':') {
+        if part.is_empty() {
+            return false;
+        }
+        // Check if all characters are hex digits
+        if !part.chars().all(|c| c.is_ascii_hexdigit()) {
+            return false;
+        }
+    }
+
+    true
+}
+
+/**
+ * Check if key is in correct sort order relative to siblings
+ */
+fn is_in_sort_order(
+    key: &Str,
+    previous_sibling_key: &Option<Str>,
+    next_sibling_key: &Option<Str>
+) -> bool {
+    // Check against previous sibling
+    if let Some(prev) = previous_sibling_key {
+        if key <= prev {
+            return false;
+        }
+    }
+
+    // Check against next sibling
+    if let Some(next) = next_sibling_key {
+        if key >= next {
+            return false;
+        }
+    }
+
+    true
+}
+
+/**
+ * Synchronize path generator counter with existing key
+ */
+fn sync_path_generator_with_key(
+    current_path: &Str,
+    parent_path: &Str,
+    path_gen: &mut HexPathGenerator
+) {
+    // Extract the last segment from the path
+    if let Some(last_colon_idx) = current_path.rfind(':') {
+        let last_segment = &current_path[last_colon_idx + 1..];
+        
+        // Parse the hex value and update the generator's counter
+        if let Ok(hex_value) = usize::from_str_radix(last_segment, 16) {
+            path_gen.sync_counter(parent_path, hex_value);
+        }
+    } else if !current_path.is_empty() {
+        // Single segment path
+        if let Ok(hex_value) = usize::from_str_radix(current_path, 16) {
+            path_gen.sync_counter(parent_path, hex_value);
+        }
+    }
+}
+
+/**
+ * Generate a half-gap key between two sibling keys
+ */
+fn generate_half_gap(prev_key: &Str, next_key: &Str, parent_path: &Str) -> Str {
+    // Parse hex values from the last segments
+    let prev_value = parse_last_hex_segment(prev_key).unwrap_or(0);
+    let next_value = parse_last_hex_segment(next_key).unwrap_or(255);
+
+    // Calculate midpoint
+    let mid_value = (prev_value + next_value) / 2;
+
+    // Build new path
+    if parent_path.is_empty() {
+        format!("{:x}", mid_value)
+    } else {
+        format!("{}:{:x}", parent_path, mid_value)
+    }
+}
+
+/**
+ * Parse the last hex segment from a path
+ */
+fn parse_last_hex_segment(path: &Str) -> Option<usize> {
+    if let Some(last_colon_idx) = path.rfind(':') {
+        let last_segment = &path[last_colon_idx + 1..];
+        usize::from_str_radix(last_segment, 16).ok()
+    } else if !path.is_empty() {
+        usize::from_str_radix(path, 16).ok()
+    } else {
+        None
+    }
+}
+
+/**
+ * Generate VNode representation for structural change tracking
+ */
+fn generate_vnode_representation(node: &JSXElement, path: &Str) -> Option<VNode> {
+    let tag = if let JSXElementName::Identifier(id) = &node.opening_element.name {
+        id.name.clone()
+    } else {
+        return None;
+    };
+
+    let mut props = vec![];
+    for attr in &node.opening_element.attributes {
+        if let JSXAttribute::Attribute(a) = attr {
+            if let JSXAttributeName::Identifier(name) = &a.name {
+                if let Some(JSXAttributeValue::StringLiteral(lit)) = &a.value {
+                    props.push((name.name.clone(), lit.value.clone()));
+                }
+            }
+        }
+    }
+
+    let mut children = vec![];
+    for child in &node.children {
+        if let JSXChild::JSXElement(child_elem) = child {
+            if let Some(child_key) = find_key_attribute(&child_elem.opening_element) {
+                if let Some(child_vnode) = generate_vnode_representation(child_elem, &child_key) {
+                    children.push(child_vnode);
+                }
+            }
+        }
+    }
+
+    Some(VNode {
+        tag,
+        key: path.clone(),
+        props,
+        children
+    })
+}

@@ -162,19 +162,24 @@ impl UnwrapHoister {
                     // Only handle simple identifier patterns for now
                     if let Pattern::Ident(ref name) = let_stmt.pattern {
                         // Check if the init expression has a chain that needs unwrapping
-                        if let Some(analysis) = self.detect_unwrap_chain(&let_stmt.init) {
-                            // Transform into statements with pattern matching
-                            let transformed = self.lower_chain_to_block(
-                                name.clone(),
-                                let_stmt.mutable,
-                                analysis,
-                                let_stmt.span,
-                            );
-                            new_stmts.extend(transformed);
+                        if let Some(ref init) = let_stmt.init {
+                            if let Some(analysis) = self.detect_unwrap_chain(init) {
+                                // Transform into statements with pattern matching
+                                let transformed = self.lower_chain_to_block(
+                                    name.clone(),
+                                    let_stmt.mutable,
+                                    analysis,
+                                    let_stmt.span,
+                                );
+                                new_stmts.extend(transformed);
+                            } else {
+                                // No transformation needed - but still track the type
+                                let init_type = self.infer_expr_type(init);
+                                self.type_env.define(name, init_type);
+                                new_stmts.push(Stmt::Let(let_stmt));
+                            }
                         } else {
-                            // No transformation needed - but still track the type
-                            let init_type = self.infer_expr_type(&let_stmt.init);
-                            self.type_env.define(name, init_type);
+                            // No init - just pass through
                             new_stmts.push(Stmt::Let(let_stmt));
                         }
                     } else {
@@ -490,7 +495,7 @@ impl UnwrapHoister {
                 mutable: false,
                 pattern: Pattern::Ident(temp_name.clone()),
                 ty: Some(Type::Named(unwrap.swc_enum_type.clone())),
-                init: temp_access,
+                init: Some(temp_access),
                 span,
             });
 
@@ -534,10 +539,10 @@ impl UnwrapHoister {
                 pattern: Pattern::Ident(target_var.clone()),
                 ty: None,
                 // Use a placeholder that will be assigned in the if
-                init: Expr::Ident(IdentExpr {
+                init: Some(Expr::Ident(IdentExpr {
                     name: "Default::default()".to_string(),
                     span,
-                }),
+                })),
                 span,
             });
 
@@ -635,14 +640,14 @@ impl UnwrapHoister {
             mutable,
             pattern: Pattern::Ident(target_var),
             ty: None,
-            init: Expr::Member(MemberExpr {
+            init: Some(Expr::Member(MemberExpr {
                 object: Box::new(analysis.base_expr),
                 property: analysis.final_field,
                 optional: false,
                 computed: false,
                 is_path: false,
                 span,
-            }),
+            })),
             span,
         })]
     }

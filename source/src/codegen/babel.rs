@@ -698,6 +698,19 @@ impl BabelGenerator {
                     // Hooks are only valid in plugins, not modules
                     // This should not happen if the parser/semantic analyzer is correct
                 }
+                PluginItem::Static(s) => {
+                    // Generate static variable as module-level let
+                    self.emit_indent();
+                    if s.is_mut {
+                        self.emit("let ");
+                    } else {
+                        self.emit("const ");
+                    }
+                    self.emit(&s.name);
+                    self.emit(" = ");
+                    self.gen_expr(&s.init);
+                    self.emit(";\n");
+                }
             }
         }
 
@@ -867,73 +880,85 @@ impl BabelGenerator {
     fn gen_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::Let(let_stmt) => {
-                // Check if the initializer uses the ? operator (Try expression)
-                if let Expr::Try(inner) = &let_stmt.init {
-                    // Generate proper Result unwrapping in JavaScript
-                    // const result = func();
-                    // if (!result.ok) { return { ok: false, error: result.error }; }
-                    // const varName = result.value;
+                if let Some(ref init) = let_stmt.init {
+                    // Check if the initializer uses the ? operator (Try expression)
+                    if let Expr::Try(inner) = init {
+                        // Generate proper Result unwrapping in JavaScript
+                        // const result = func();
+                        // if (!result.ok) { return { ok: false, error: result.error }; }
+                        // const varName = result.value;
 
-                    let temp_var = "__result";
+                        let temp_var = "__result";
 
-                    // Step 1: Call the function and store in temp variable
-                    self.emit_indent();
-                    self.emit(&format!("const {} = ", temp_var));
-                    self.gen_expr(inner);
-                    self.emit(";\n");
+                        // Step 1: Call the function and store in temp variable
+                        self.emit_indent();
+                        self.emit(&format!("const {} = ", temp_var));
+                        self.gen_expr(inner);
+                        self.emit(";\n");
 
-                    // Step 2: Check if result is error and early return
-                    self.emit_indent();
-                    self.emit(&format!("if (!{}.ok) {{\n", temp_var));
-                    self.indent += 1;
-                    self.emit_indent();
-                    self.emit(&format!("return {{ ok: false, error: {}.error }};\n", temp_var));
-                    self.indent -= 1;
-                    self.emit_indent();
-                    self.emit("}\n");
+                        // Step 2: Check if result is error and early return
+                        self.emit_indent();
+                        self.emit(&format!("if (!{}.ok) {{\n", temp_var));
+                        self.indent += 1;
+                        self.emit_indent();
+                        self.emit(&format!("return {{ ok: false, error: {}.error }};\n", temp_var));
+                        self.indent -= 1;
+                        self.emit_indent();
+                        self.emit("}\n");
 
-                    // Step 3: Extract the value
-                    self.emit_indent();
-                    if let_stmt.mutable {
-                        self.emit("let ");
-                    } else {
-                        self.emit("const ");
-                    }
-                    self.gen_pattern(&let_stmt.pattern);
-                    self.emit(&format!(" = {}.value;\n", temp_var));
-                } else {
-                    // Normal let statement
-                    self.emit_indent();
-                    if let_stmt.mutable {
-                        self.emit("let ");
-                    } else {
-                        self.emit("const ");
-                    }
-                    self.gen_pattern(&let_stmt.pattern);
-                    self.emit(" = ");
-                    self.gen_expr(&let_stmt.init);
-                    self.emit(";\n");
-                }
-
-                // Track var_kind for the new variable (only for simple identifier patterns)
-                // If initializing from another variable, copy its var_kind
-                if let Pattern::Ident(name) = &let_stmt.pattern {
-                    if let Expr::Ident(ident) = &let_stmt.init {
-                        if let Some(var_kind) = self.get_var_kind(&ident.name).cloned() {
-                            self.var_kinds.insert(name.clone(), var_kind);
+                        // Step 3: Extract the value
+                        self.emit_indent();
+                        if let_stmt.mutable {
+                            self.emit("let ");
+                        } else {
+                            self.emit("const ");
                         }
-                    } else if let Expr::Call(call) = &let_stmt.init {
-                        // Check for .clone() calls
-                        if let Expr::Member(mem) = call.callee.as_ref() {
-                            if mem.property == "clone" && call.args.is_empty() {
-                                if let Expr::Ident(obj) = mem.object.as_ref() {
-                                    if let Some(var_kind) = self.get_var_kind(&obj.name).cloned() {
-                                        self.var_kinds.insert(name.clone(), var_kind);
+                        self.gen_pattern(&let_stmt.pattern);
+                        self.emit(&format!(" = {}.value;\n", temp_var));
+                    } else {
+                        // Normal let statement with init
+                        self.emit_indent();
+                        if let_stmt.mutable {
+                            self.emit("let ");
+                        } else {
+                            self.emit("const ");
+                        }
+                        self.gen_pattern(&let_stmt.pattern);
+                        self.emit(" = ");
+                        self.gen_expr(init);
+                        self.emit(";\n");
+                    }
+
+                    // Track var_kind for the new variable (only for simple identifier patterns)
+                    // If initializing from another variable, copy its var_kind
+                    if let Pattern::Ident(name) = &let_stmt.pattern {
+                        if let Expr::Ident(ident) = init {
+                            if let Some(var_kind) = self.get_var_kind(&ident.name).cloned() {
+                                self.var_kinds.insert(name.clone(), var_kind);
+                            }
+                        } else if let Expr::Call(call) = init {
+                            // Check for .clone() calls
+                            if let Expr::Member(mem) = call.callee.as_ref() {
+                                if mem.property == "clone" && call.args.is_empty() {
+                                    if let Expr::Ident(obj) = mem.object.as_ref() {
+                                        if let Some(var_kind) = self.get_var_kind(&obj.name).cloned() {
+                                            self.var_kinds.insert(name.clone(), var_kind);
+                                        }
                                     }
                                 }
                             }
                         }
                     }
+                } else {
+                    // Uninitialized let (let x: Type;)
+                    self.emit_indent();
+                    if let_stmt.mutable {
+                        self.emit("let ");
+                    } else {
+                        self.emit("const ");
+                    }
+                    self.gen_pattern(&let_stmt.pattern);
+                    self.emit(";\n");
                 }
             }
             Stmt::Const(const_stmt) => {
@@ -1262,6 +1287,13 @@ impl BabelGenerator {
                 self.emit(";\n");
             }
 
+            Stmt::Unsafe(unsafe_block) => {
+                // In JS, unsafe blocks just emit their contents (no safety boundary)
+                for stmt in &unsafe_block.body.stmts {
+                    self.gen_stmt(stmt);
+                }
+            }
+
         }
     }
 
@@ -1316,7 +1348,11 @@ impl BabelGenerator {
                             self.emit_indent();
                             self.emit(name);
                             self.emit(": ");
-                            self.gen_expr(&let_stmt.init);
+                            if let Some(ref init) = let_stmt.init {
+                                self.gen_expr(init);
+                            } else {
+                                self.emit("undefined");
+                            }
                             self.emit(",\n");
                         }
                     }
@@ -2725,6 +2761,12 @@ impl BabelGenerator {
                 self.gen_expr(&access.node);
                 self.emit(".");
                 self.emit(&access.property);
+            }
+
+            Expr::Path(path) => {
+                // Path expressions like std::ptr::null don't have a Babel equivalent
+                // Emit as a comment since they're Rust-specific
+                self.emit(&format!("/* {} */undefined", path.segments.join("::")));
             }
         }
     }

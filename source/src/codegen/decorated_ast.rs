@@ -188,6 +188,13 @@ pub enum DecoratedStmt {
     Function(crate::parser::FnDecl), // Nested functions - TODO: Decorate if needed
     Verbatim(crate::parser::VerbatimStmt), // Platform-specific code - no decoration needed
     CustomPropAssignment(Box<DecoratedCustomPropAssignment>),
+    Unsafe(DecoratedUnsafeBlock),
+}
+
+/// Decorated unsafe block
+#[derive(Debug, Clone)]
+pub struct DecoratedUnsafeBlock {
+    pub stmts: Vec<DecoratedStmt>,
 }
 
 /// Decorated let statement
@@ -196,7 +203,7 @@ pub struct DecoratedLetStmt {
     pub mutable: bool,
     pub pattern: DecoratedPattern,
     pub ty: Option<crate::parser::Type>,
-    pub init: DecoratedExpr,
+    pub init: Option<DecoratedExpr>,
 }
 
 /// Decorated const statement

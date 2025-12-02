@@ -150,23 +150,36 @@ impl TypeChecker {
             Stmt::Let(let_stmt) => {
                 // If there's a type annotation, use it as the expected type for bidirectional inference
                 let expected_type = let_stmt.ty.as_ref().map(ast_type_to_type_info);
-                let init_type = self.infer_expr_with_expected(&let_stmt.init, expected_type.as_ref());
+
+                // Infer type from initializer if present
+                let init_type = if let Some(ref init) = let_stmt.init {
+                    Some(self.infer_expr_with_expected(init, expected_type.as_ref()))
+                } else {
+                    None
+                };
 
                 if let Some(declared_type) = expected_type {
-                    if !init_type.is_assignable_to(&declared_type) {
-                        self.errors.push(SemanticError::new(
-                            "RS003",
-                            format!(
-                                "Type mismatch: expected {}, found {}",
-                                declared_type.display_name(),
-                                init_type.display_name()
-                            ),
-                            let_stmt.span,
-                        ));
+                    // Has type annotation
+                    if let Some(ref inferred) = init_type {
+                        if !inferred.is_assignable_to(&declared_type) {
+                            self.errors.push(SemanticError::new(
+                                "RS003",
+                                format!(
+                                    "Type mismatch: expected {}, found {}",
+                                    declared_type.display_name(),
+                                    inferred.display_name()
+                                ),
+                                let_stmt.span,
+                            ));
+                        }
                     }
                     self.define_pattern_in_env(&let_stmt.pattern, declared_type);
+                } else if let Some(inferred) = init_type {
+                    // No type annotation, use inferred type
+                    self.define_pattern_in_env(&let_stmt.pattern, inferred);
                 } else {
-                    self.define_pattern_in_env(&let_stmt.pattern, init_type);
+                    // No type and no init - use Unknown
+                    self.define_pattern_in_env(&let_stmt.pattern, TypeInfo::Unknown);
                 }
             }
 
@@ -449,23 +462,31 @@ impl TypeChecker {
 
                         // Check state variables
                         for let_stmt in &inline.state {
-                            let init_type = self.infer_expr(&let_stmt.init);
+                            let init_type = if let Some(ref init) = let_stmt.init {
+                                Some(self.infer_expr(init))
+                            } else {
+                                None
+                            };
                             if let Some(ref type_ann) = let_stmt.ty {
                                 let declared_type = ast_type_to_type_info(type_ann);
-                                if !init_type.is_assignable_to(&declared_type) {
-                                    self.errors.push(SemanticError::new(
-                                        "RS003",
-                                        format!(
-                                            "Type mismatch: expected {}, found {}",
-                                            declared_type.display_name(),
-                                            init_type.display_name()
-                                        ),
-                                        let_stmt.span,
-                                    ));
+                                if let Some(ref inferred) = init_type {
+                                    if !inferred.is_assignable_to(&declared_type) {
+                                        self.errors.push(SemanticError::new(
+                                            "RS003",
+                                            format!(
+                                                "Type mismatch: expected {}, found {}",
+                                                declared_type.display_name(),
+                                                inferred.display_name()
+                                            ),
+                                            let_stmt.span,
+                                        ));
+                                    }
                                 }
                                 self.define_pattern_in_env(&let_stmt.pattern, declared_type);
+                            } else if let Some(inferred) = init_type {
+                                self.define_pattern_in_env(&let_stmt.pattern, inferred);
                             } else {
-                                self.define_pattern_in_env(&let_stmt.pattern, init_type);
+                                self.define_pattern_in_env(&let_stmt.pattern, TypeInfo::Unknown);
                             }
                         }
 
@@ -520,6 +541,13 @@ impl TypeChecker {
                 let _value_type = self.infer_expr(&assign.value);
                 // TODO: Implement custom property type tracking
                 // For now, we just validate the expressions compile
+            }
+
+            Stmt::Unsafe(unsafe_block) => {
+                // Type check statements inside the unsafe block
+                for stmt in &unsafe_block.body.stmts {
+                    self.check_stmt(stmt);
+                }
             }
 
         }
@@ -950,6 +978,12 @@ impl TypeChecker {
                 // TODO: Track property types and return Option<ActualType>
                 // For now, return Option<Unknown>
                 TypeInfo::Option(Box::new(TypeInfo::Unknown))
+            }
+
+            Expr::Path(_path) => {
+                // Path expressions like std::ptr::null() are Rust stdlib paths
+                // Type depends on the path - for now treat as Unknown
+                TypeInfo::Unknown
             }
         }
     }

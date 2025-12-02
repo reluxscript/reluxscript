@@ -72,8 +72,10 @@ impl OwnershipChecker {
         match stmt {
             Stmt::Let(let_stmt) => {
                 // Check if assigning from a member access without clone
-                self.check_needs_clone(&let_stmt.init, let_stmt.span);
-                self.check_expr(&let_stmt.init);
+                if let Some(ref init) = let_stmt.init {
+                    self.check_needs_clone(init, let_stmt.span);
+                    self.check_expr(init);
+                }
             }
 
             Stmt::Const(const_stmt) => {
@@ -137,8 +139,10 @@ impl OwnershipChecker {
                     crate::parser::TraverseKind::Inline(inline) => {
                         // Check state variables
                         for let_stmt in &inline.state {
-                            self.check_needs_clone(&let_stmt.init, let_stmt.span);
-                            self.check_expr(&let_stmt.init);
+                            if let Some(ref init) = let_stmt.init {
+                                self.check_needs_clone(init, let_stmt.span);
+                                self.check_expr(init);
+                            }
                         }
 
                         // Check methods
@@ -166,6 +170,11 @@ impl OwnershipChecker {
                 // Check ownership on the node and value
                 self.check_expr(&assign.node);
                 self.check_expr(&assign.value);
+            }
+
+            Stmt::Unsafe(unsafe_block) => {
+                // Check ownership inside the unsafe block
+                self.check_block(&unsafe_block.body);
             }
 
         }
@@ -309,6 +318,11 @@ impl OwnershipChecker {
             Expr::CustomPropAccess(access) => {
                 // Check ownership on the node expression
                 self.check_expr(&access.node);
+            }
+
+            Expr::Path(_) => {
+                // Path expressions like std::ptr::null are Rust stdlib references
+                // No ownership checking needed - they're compile-time references
             }
 
             Expr::Literal(_) | Expr::Ident(_) => {}

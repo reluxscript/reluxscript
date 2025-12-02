@@ -583,6 +583,8 @@ impl<'a> Lexer<'a> {
             "let" => TokenKind::Let,
             "const" => TokenKind::Const,
             "mut" => TokenKind::Mut,
+            "static" => TokenKind::Static,
+            "unsafe" => TokenKind::Unsafe,
             "if" => TokenKind::If,
             "else" => TokenKind::Else,
             "for" => TokenKind::For,

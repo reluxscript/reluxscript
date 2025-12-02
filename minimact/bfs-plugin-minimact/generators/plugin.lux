@@ -1,0 +1,168 @@
+/**
+ * Generate C# code for Plugin elements
+ * Transforms <Plugin name="..." state={...} /> to C# PluginNode instances
+ *
+ * Phase 3: Babel Plugin Integration
+ */
+
+use "./expressions.lux" { generate_csharp_expression };
+
+pub struct PluginMetadata {
+    pub plugin_name: Str,
+    pub state_binding: StateBinding,
+    pub version: Option<Str>
+}
+
+pub struct StateBinding {
+    pub binding_type: Str,
+    pub name: Option<Str>,
+    pub binding: Option<Str>,
+    pub properties: Option<Vec<ObjectProperty>>,
+    pub expression: Option<Expression>,
+    pub state_type: Option<Str>
+}
+
+pub struct ObjectProperty {
+    pub key: PropertyKey,
+    pub value: Expression
+}
+
+pub enum PropertyKey {
+    Identifier(Str),
+    Literal(Str)
+}
+
+/**
+ * Generate C# code for a plugin usage
+ */
+pub fn generate_plugin_node(plugin_metadata: &PluginMetadata, component_state: &Component) -> Str {
+    let plugin_name = &plugin_metadata.plugin_name;
+    let state_binding = &plugin_metadata.state_binding;
+    let version = &plugin_metadata.version;
+
+    // Generate state expression
+    let state_code = generate_state_expression(state_binding, component_state);
+
+    // Generate PluginNode constructor call
+    if let Some(v) = version {
+        // Future: Support version-specific plugin loading
+        // For now, version is informational only
+        return format!("new PluginNode(\"{}\", {}) /* v{} */", plugin_name, state_code, v);
+    }
+
+    format!("new PluginNode(\"{}\", {})", plugin_name, state_code)
+}
+
+/**
+ * Generate C# expression for plugin state
+ */
+pub fn generate_state_expression(state_binding: &StateBinding, component_state: &Component) -> Str {
+    match state_binding.binding_type.as_str() {
+        "identifier" => {
+            // Simple identifier: state={currentTime} -> currentTime
+            state_binding.name.clone().unwrap_or("".into())
+        }
+
+        "memberExpression" => {
+            // Member expression: state={this.state.time} -> state.time (remove 'this')
+            state_binding.binding.clone().unwrap_or("".into())
+        }
+
+        "objectExpression" => {
+            // Inline object: state={{ hours: h, minutes: m }}
+            generate_inline_object(state_binding, component_state)
+        }
+
+        "complexExpression" => {
+            // Complex expression: evaluate using expression generator
+            if let Some(expr) = &state_binding.expression {
+                generate_csharp_expression(expr)
+            } else {
+                "null".into()
+            }
+        }
+
+        _ => {
+            panic!("Unknown state binding type: {}", state_binding.binding_type)
+        }
+    }
+}
+
+/**
+ * Generate C# code for inline object expression
+ */
+pub fn generate_inline_object(state_binding: &StateBinding, component_state: &Component) -> Str {
+    if let Some(properties) = &state_binding.properties {
+        if properties.is_empty() {
+            return "new { }".into();
+        }
+
+        let prop_strings: Vec<Str> = properties.iter().map(|prop| {
+            let key = match &prop.key {
+                PropertyKey::Identifier(name) => name.clone(),
+                PropertyKey::Literal(value) => value.clone()
+            };
+            let value = generate_csharp_expression(&prop.value);
+            format!("{} = {}", key, value)
+        }).collect();
+
+        format!("new {{ {} }}", prop_strings.join(", "))
+    } else {
+        "new { }".into()
+    }
+}
+
+/**
+ * Generate using directives needed for plugins
+ */
+pub fn generate_plugin_usings() -> Vec<Str> {
+    vec![
+        "using Minimact.AspNetCore.Core;".into(),
+        "using Minimact.AspNetCore.Plugins;".into()
+    ]
+}
+
+/**
+ * Check if component uses plugins (for conditional using statement inclusion)
+ */
+pub fn uses_plugins(component_state: &Component) -> bool {
+    if let Some(plugin_usages) = &component_state.plugin_usages {
+        plugin_usages.len() > 0
+    } else {
+        false
+    }
+}
+
+/**
+ * Generate comment documenting plugin usage
+ */
+pub fn generate_plugin_comment(plugin_metadata: &PluginMetadata) -> Str {
+    let plugin_name = &plugin_metadata.plugin_name;
+    let state_binding = &plugin_metadata.state_binding;
+    let version = &plugin_metadata.version;
+
+    let version_info = if let Some(v) = version {
+        format!(" (v{})", v)
+    } else {
+        "".into()
+    };
+
+    let state_info = if let Some(state_type) = &state_binding.state_type {
+        format!(" : {}", state_type)
+    } else {
+        "".into()
+    };
+
+    let binding = state_binding.binding.clone().unwrap_or("".into());
+
+    format!("// Plugin: {}{}, State: {}{}", plugin_name, version_info, binding, state_info)
+}
+
+/**
+ * Generate validation code for plugin state (optional, for runtime safety)
+ */
+pub fn generate_plugin_validation(plugin_metadata: &PluginMetadata) -> Option<Str> {
+    // Future enhancement: Generate runtime validation
+    // For now, validation happens in PluginManager
+    None
+}

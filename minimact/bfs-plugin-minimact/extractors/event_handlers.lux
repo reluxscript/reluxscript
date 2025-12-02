@@ -1,0 +1,419 @@
+/**
+ * Event Handlers Extractor
+ */
+
+use "../types/component_types.lux" {
+    Component,
+    EventHandler,
+    ClientHandler
+};
+use "./hooks.lux" {
+    analyze_hook_usage,
+    transform_handler_function
+};
+use codegen;
+
+/**
+ * Detect if handler body is client-only (DOM manipulation, no server state changes)
+ * Client-only patterns:
+ * - e.currentTarget.style.X = value
+ * - e.stopPropagation()
+ * - e.preventDefault()
+ * - element.classList.add/remove/toggle
+ * - element.focus/blur/etc
+ *
+ * Server patterns (NOT client-only):
+ * - setState calls
+ * - Method calls on component
+ * - await expressions
+ */
+pub fn is_client_only_handler(body: &Statement) -> bool {
+    let mut has_client_only_code = false;
+    let mut has_server_code = false;
+
+    fn check_node(
+        node: &Expression,
+        has_client: &mut bool,
+        has_server: &mut bool
+    ) {
+        // Server patterns
+        if let Expression::CallExpression(call) = node {
+            if let Expression::Identifier(callee) = &call.callee {
+                // setState, setXxx calls - SERVER
+                if callee.name == "setState" || callee.name.starts_with("set") {
+                    *has_server = true;
+                }
+            }
+        }
+
+        // await - SERVER
+        if let Expression::AwaitExpression(_) = node {
+            *has_server = true;
+        }
+
+        // Client-only patterns
+        if let Expression::MemberExpression(mem) = node {
+            // e.stopPropagation, e.preventDefault
+            if let Expression::Identifier(prop) = &mem.property {
+                if prop.name == "stopPropagation" || prop.name == "preventDefault" {
+                    *has_client = true;
+                }
+
+                // element.focus, blur, etc
+                if vec!["focus", "blur", "scrollIntoView", "select"].contains(&prop.name.as_str()) {
+                    *has_client = true;
+                }
+
+                // element.classList
+                if prop.name == "classList" {
+                    *has_client = true;
+                }
+            }
+
+            // e.currentTarget.style.X, e.target.style.X
+            if let Expression::MemberExpression(inner) = &mem.object {
+                if let Expression::Identifier(prop) = &inner.property {
+                    if prop.name == "style" {
+                        *has_client = true;
+                    }
+                }
+            }
+        }
+
+        // Assignment to style properties
+        if let Expression::AssignmentExpression(assign) = node {
+            if let Expression::MemberExpression(left) = &assign.left {
+                // Check if assigning to style property
+                if let Expression::MemberExpression(obj) = &left.object {
+                    if let Expression::Identifier(prop) = &obj.property {
+                        if prop.name == "style" {
+                            *has_client = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Recursively check children - would need to traverse all nodes
+        // This is a simplified version
+    }
+
+    // Check the body statement
+    match body {
+        Statement::BlockStatement(block) => {
+            for stmt in &block.body {
+                if let Statement::ExpressionStatement(expr_stmt) = stmt {
+                    check_node(&expr_stmt.expression, &mut has_client_only_code, &mut has_server_code);
+                }
+            }
+        }
+        Statement::ExpressionStatement(expr_stmt) => {
+            check_node(&expr_stmt.expression, &mut has_client_only_code, &mut has_server_code);
+        }
+        _ => {}
+    }
+
+    // Only client-only if it has client code AND no server code
+    has_client_only_code && !has_server_code
+}
+
+/**
+ * Extract event handler name
+ */
+pub fn extract_event_handler(
+    value: &JSXAttributeValue,
+    component: &mut Component
+) -> Str {
+    if let JSXAttributeValue::StringLiteral(lit) = value {
+        return lit.value.clone();
+    }
+
+    if let JSXAttributeValue::JSXExpressionContainer(container) = value {
+        let expr = &container.expression;
+
+        if let Expression::ArrowFunctionExpression(arrow) = expr {
+            // Inline arrow function - extract to named method
+            // Use combined count of both server and client handlers for unique names
+            let client_count = component.client_handlers.len();
+            let total_handlers = component.event_handlers.len() + client_count;
+            let handler_name = format!("Handle{}", total_handlers);
+
+            // Check if the function is async
+            let is_async = arrow.is_async;
+
+            // Detect curried functions (functions that return functions)
+            // Pattern: (e) => (id) => action(id)
+            // This is invalid for event handlers because the returned function is never called
+            if let Expression::ArrowFunctionExpression(_) = &arrow.body {
+                // Generate a handler that throws a helpful error
+                component.event_handlers.push(EventHandler {
+                    name: handler_name.clone(),
+                    body: None,
+                    params: arrow.params.clone(),
+                    captured_params: vec![],
+                    is_async: false,
+                    is_curried_error: true
+                });
+
+                return handler_name;
+            }
+
+            // Simplify common pattern: (e) => func(e.target.value)
+            // Transform to: (value) => func(value)
+            let mut body = arrow.body.clone();
+            let mut params = arrow.params.clone();
+
+            if let Expression::CallExpression(call) = &body {
+                if params.len() == 1 {
+                    if let Pattern::Identifier(event_param) = &params[0] {
+                        let event_name = event_param.name.clone();
+                        let args = &call.arguments;
+
+                        // Check if any argument is e.target.value
+                        let mut transformed_args = vec![];
+                        let mut did_transform = false;
+
+                        for arg in args {
+                            if let Expression::MemberExpression(mem) = arg {
+                                if let Expression::MemberExpression(inner) = &mem.object {
+                                    if let Expression::Identifier(obj) = &inner.object {
+                                        if let Expression::Identifier(target_prop) = &inner.property {
+                                            if let Expression::Identifier(value_prop) = &mem.property {
+                                                if obj.name == event_name &&
+                                                   target_prop.name == "target" &&
+                                                   value_prop.name == "value" {
+                                                    // Replace e.target.value with direct value parameter
+                                                    transformed_args.push(Expression::Identifier(Identifier {
+                                                        name: "value".into()
+                                                    }));
+                                                    did_transform = true;
+                                                    continue;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            transformed_args.push(arg.clone());
+                        }
+
+                        // If we transformed any args, update the body and param name
+                        if did_transform {
+                            body = Expression::CallExpression(CallExpression {
+                                callee: call.callee.clone(),
+                                arguments: transformed_args
+                            });
+                            params = vec![Pattern::Identifier(Identifier {
+                                name: "value".into()
+                            })];
+                        }
+                    }
+                }
+            }
+
+            // Check if we're inside a .map() context and capture those variables
+            let captured_params = if let Some(ctx) = &component.current_map_context {
+                ctx.params.clone()
+            } else {
+                vec![]
+            };
+
+            // Handle parameter destructuring
+            // Convert ({ target: { value } }) => ... into (e) => ... with unpacking in body
+            let has_destructuring = params.iter().any(|p| matches!(p, Pattern::ObjectPattern(_)));
+            let mut processed_body = body;
+            let mut processed_params = params;
+
+            if has_destructuring && params.len() == 1 {
+                if let Pattern::ObjectPattern(obj_pattern) = &params[0] {
+                    // Extract destructured properties
+                    let mut destructuring_statements = vec![];
+                    let event_param = Identifier { name: "e".into() };
+
+                    fn extract_destructured(
+                        pattern: &ObjectPattern,
+                        path: Vec<Str>,
+                        statements: &mut Vec<(Str, Vec<Str>)>
+                    ) {
+                        for prop in &pattern.properties {
+                            if let ObjectProperty::Property(p) = prop {
+                                if let Expression::Identifier(key) = &p.key {
+                                    let key_name = key.name.clone();
+
+                                    if let Pattern::Identifier(value_id) = &p.value {
+                                        // Simple: { value } or { target: { value } }
+                                        let var_name = value_id.name.clone();
+                                        let mut access_path = path.clone();
+                                        access_path.push(key_name);
+                                        statements.push((var_name, access_path));
+                                    } else if let Pattern::ObjectPattern(nested) = &p.value {
+                                        // Nested: { target: { value } }
+                                        let mut new_path = path.clone();
+                                        new_path.push(key_name);
+                                        extract_destructured(nested, new_path, statements);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    extract_destructured(obj_pattern, vec![], &mut destructuring_statements);
+                    processed_params = vec![Pattern::Identifier(event_param.clone())];
+
+                    // Prepend destructuring assignments to body
+                    if destructuring_statements.len() > 0 {
+                        let mut assignments = vec![];
+
+                        for (var_name, access_path) in destructuring_statements {
+                            // Build e.Target.Value access chain
+                            let mut access: Expression = Expression::Identifier(event_param.clone());
+
+                            for key in access_path {
+                                // Capitalize first letter
+                                let capitalized = format!("{}{}",
+                                    key.chars().next().unwrap().to_uppercase(),
+                                    &key[1..]
+                                );
+                                access = Expression::MemberExpression(MemberExpression {
+                                    object: Box::new(access),
+                                    property: Box::new(Expression::Identifier(Identifier {
+                                        name: capitalized
+                                    }))
+                                });
+                            }
+
+                            assignments.push(Statement::VariableDeclaration(VariableDeclaration {
+                                kind: "var".into(),
+                                declarations: vec![VariableDeclarator {
+                                    id: Pattern::Identifier(Identifier { name: var_name }),
+                                    init: Some(access)
+                                }]
+                            }));
+                        }
+
+                        // Wrap body in block statement with destructuring
+                        if let Expression::BlockStatement(block) = &processed_body {
+                            let mut new_body = assignments;
+                            new_body.extend(block.body.clone());
+                            processed_body = Expression::BlockStatement(BlockStatement {
+                                body: new_body
+                            });
+                        } else {
+                            let mut new_body = assignments;
+                            new_body.push(Statement::ExpressionStatement(ExpressionStatement {
+                                expression: processed_body.clone()
+                            }));
+                            processed_body = Expression::BlockStatement(BlockStatement {
+                                body: new_body
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Check if this is a client-only handler
+            let is_client_only = if let Expression::BlockStatement(block) = &processed_body {
+                is_client_only_handler(&Statement::BlockStatement(block.clone()))
+            } else {
+                false
+            };
+
+            // ALWAYS generate client-side handler
+            let arrow_expr = ArrowFunctionExpression {
+                params: processed_params.clone(),
+                body: processed_body.clone(),
+                is_async
+            };
+
+            let hook_calls = analyze_hook_usage(&arrow_expr);
+
+            // Transform to regular function with hook mappings
+            let transformed_function = transform_handler_function(
+                &processed_body,
+                &processed_params,
+                &hook_calls
+            );
+
+            let js_code = codegen::generate(&transformed_function);
+
+            // Add to clientHandlers collection
+            component.client_handlers.push(ClientHandler {
+                name: handler_name.clone(),
+                js_code,
+                hook_calls
+            });
+
+            // ALSO add to eventHandlers if it modifies state (not client-only)
+            if !is_client_only {
+                // Server handler - add to eventHandlers collection
+                component.event_handlers.push(EventHandler {
+                    name: handler_name.clone(),
+                    body: Some(processed_body),
+                    params: processed_params,
+                    captured_params: captured_params.clone(),
+                    is_async,
+                    is_curried_error: false
+                });
+            }
+
+            // Return handler registration string
+            // If there are captured params, append them as colon-separated interpolations
+            // Format: "Handle0:{item}:{index}" - matches client's existing "Method:arg1:arg2" parser
+            if captured_params.len() > 0 {
+                let captured_refs = captured_params.iter()
+                    .map(|p| format!("{{{}}}", p))
+                    .collect::<Vec<_>>()
+                    .join(":");
+                return format!("{}:{}", handler_name, captured_refs);
+            }
+
+            return handler_name;
+        }
+
+        if let Expression::FunctionExpression(func) = expr {
+            // Similar handling for regular function expressions
+            // ... (would need similar logic as above)
+            return "Handle0".into();
+        }
+
+        if let Expression::Identifier(ident) = expr {
+            return ident.name.clone();
+        }
+
+        if let Expression::CallExpression(call) = expr {
+            // () => someMethod() - extract
+            let handler_name = format!("Handle{}", component.event_handlers.len());
+
+            // Check if we're inside a .map() context and capture those variables
+            let captured_params = if let Some(ctx) = &component.current_map_context {
+                ctx.params.clone()
+            } else {
+                vec![]
+            };
+
+            component.event_handlers.push(EventHandler {
+                name: handler_name.clone(),
+                body: Some(Expression::CallExpression(call.clone())),
+                params: vec![],
+                captured_params: captured_params.clone(),
+                is_async: false,
+                is_curried_error: false
+            });
+
+            // Return handler registration string
+            // If there are captured params, append them as colon-separated interpolations
+            // Format: "Handle0:{item}:{index}" - matches client's existing "Method:arg1:arg2" parser
+            if captured_params.len() > 0 {
+                let captured_refs = captured_params.iter()
+                    .map(|p| format!("{{{}}}", p))
+                    .collect::<Vec<_>>()
+                    .join(":");
+                return format!("{}:{}", handler_name, captured_refs);
+            }
+
+            return handler_name;
+        }
+    }
+
+    "UnknownHandler".into()
+}

@@ -1,0 +1,468 @@
+/**
+ * JSX Generators
+ */
+
+use "../utils/helpers.lux" { escape_csharp_string };
+use "../analyzers/detection.lux" { has_spread_props, has_dynamic_children, has_complex_props };
+use "../extractors/event_handlers.lux" { extract_event_handler };
+use "../utils/path_assignment.lux" { get_path_from_node };
+// Note: generate_csharp_expression, generate_runtime_helper_call and generate_jsx_expression will be lazy-loaded to avoid circular dependencies
+
+/**
+ * Generate Fragment
+ */
+pub fn generate_fragment(node: &JSXFragment, component: &mut Component, indent: i32) -> Str {
+    let children = generate_children(&node.children, component, indent);
+    let children_array = children.iter()
+        .map(|c| c.code.clone())
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("new Fragment({})", children_array)
+}
+
+/**
+ * Generate C# for JSX element
+ */
+pub fn generate_jsx_element(node: &JSXNode, component: &mut Component, indent: i32) -> Str {
+    // Lazy load to avoid circular dependencies
+    use "./expressions.lux" { generate_csharp_expression };
+
+    let indent_str = "    ".repeat(indent as usize);
+
+    if let JSXNode::JSXFragment(fragment) = node {
+        return generate_fragment(fragment, component, indent);
+    }
+
+    // Validate that this is actually a JSXElement
+    if let JSXNode::JSXElement(element) = node {
+        let tag_name = &element.opening_element.name.name;
+        let attributes = &element.opening_element.attributes;
+        let children = &element.children;
+
+        // Get hex path from ASX node (assigned by pathAssignment)
+        let hex_path = element.minimact_path.clone().unwrap_or_default();
+
+        // Check if this is a Plugin element
+        if tag_name == "Plugin" {
+            use "./plugin.lux" { generate_plugin_node };
+
+            // Find the matching plugin metadata from component.pluginUsages
+            // Use the plugin index tracker to match plugins in order
+            if component.plugin_render_index.is_none() {
+                component.plugin_render_index = Some(0);
+            }
+
+            let plugin_index = component.plugin_render_index.unwrap();
+            let plugin_metadata = component.plugin_usages.get(plugin_index);
+            component.plugin_render_index = Some(plugin_index + 1);
+
+            if let Some(metadata) = plugin_metadata {
+                return generate_plugin_node(metadata, component);
+            } else {
+                // Fallback if plugin metadata not found (shouldn't happen)
+                println!("[jsx] Plugin metadata not found for <Plugin> element");
+                return "new VText(\"<!-- Plugin not found -->\")".into();
+            }
+        }
+
+        // Check if this is a Component element (Lifted State Pattern)
+        if tag_name == "Component" {
+            return generate_component_wrapper(element, component, indent);
+        }
+
+        // Check if this element has markdown attribute and markdown content
+        let has_markdown_attr = attributes.iter().any(|attr| {
+            if let JSXAttribute::JSXAttribute(a) = attr {
+                a.name.name == "markdown"
+            } else {
+                false
+            }
+        });
+
+        if has_markdown_attr {
+            // Check if child is a markdown state variable
+            if children.len() == 1 {
+                if let JSXChild::JSXExpressionContainer(container) = &children[0] {
+                    if let Expression::Identifier(ident) = &container.expression {
+                        let var_name = &ident.name;
+                        // Check if this is a markdown state variable
+                        if let Some(state_type) = component.state_types.get(var_name) {
+                            if state_type == "markdown" {
+                                // Return DivRawHtml with MarkdownHelper.ToHtml()
+                                return format!("new DivRawHtml(MarkdownHelper.ToHtml({}))", var_name);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Detect if this needs runtime helpers (hybrid approach)
+        let needs_runtime_helper = has_spread_props(attributes) ||
+                                    has_dynamic_children(children) ||
+                                    has_complex_props(attributes);
+
+        if needs_runtime_helper {
+            // Lazy load to avoid circular dependency
+            use "./runtime_helpers.lux" { generate_runtime_helper_call };
+            return generate_runtime_helper_call(tag_name, attributes, children, component, indent);
+        }
+
+        // Direct VNode construction (compile-time approach)
+        // Extract props and event handlers
+        let mut props = vec![];
+        let mut event_handlers = vec![];
+        let mut data_minimact_attrs = vec![];
+
+        for attr in attributes {
+            if let JSXAttribute::JSXAttribute(a) = attr {
+                let name = &a.name.name;
+                let value = &a.value;
+
+                // Skip 'key' attribute - it's only for hot reload detection in .tsx.keys files
+                if name == "key" {
+                    continue;
+                }
+
+                // Convert className to class for HTML compatibility
+                let html_attr_name = if name == "className" {
+                    "class"
+                } else {
+                    name.as_str()
+                };
+
+                if name.starts_with("on") {
+                    // Event handler
+                    let handler_name = extract_event_handler(value, component);
+                    event_handlers.push(format!("[\"{}\"] = \"{}\"", name.to_lowercase(), handler_name));
+                } else if name.starts_with("data-minimact-") {
+                    // Keep minimact attributes as-is
+                    let val = if let Some(JSXAttributeValue::StringLiteral(lit)) = value {
+                        lit.value.clone()
+                    } else if let Some(JSXAttributeValue::JSXExpressionContainer(container)) = value {
+                        generate_csharp_expression(&container.expression)
+                    } else {
+                        "".into()
+                    };
+                    data_minimact_attrs.push(format!("[\"{}\"] = \"{}\"", html_attr_name, val));
+                } else {
+                    // Regular prop
+                    if let Some(JSXAttributeValue::StringLiteral(lit)) = value {
+                        // String literal - use as-is with quotes
+                        props.push(format!("[\"{}\"] = \"{}\"", html_attr_name, escape_csharp_string(&lit.value)));
+                    } else if let Some(JSXAttributeValue::JSXExpressionContainer(container)) = value {
+                        // Special handling for style attribute with object expression
+                        if name == "style" {
+                            if let Expression::ObjectExpression(obj) = &container.expression {
+                                use "../utils/style_converter.lux" { convert_style_object_to_css };
+                                let css_string = convert_style_object_to_css(obj);
+                                props.push(format!("[\"style\"] = \"{}\"", css_string));
+                            } else {
+                                let expr = generate_csharp_expression(&container.expression);
+                                props.push(format!("[\"{}\"] = $\"{{{}}}\"", html_attr_name, expr));
+                            }
+                        } else if name == "ref" {
+                            if let Expression::Identifier(ref_ident) = &container.expression {
+                                // ref attribute - just use the identifier name as a string, no interpolation
+                                let ref_name = &ref_ident.name;
+                                props.push(format!("[\"ref\"] = \"{}\"", ref_name));
+                            } else {
+                                let expr = generate_csharp_expression(&container.expression);
+                                props.push(format!("[\"{}\"] = $\"{{{}}}\"", html_attr_name, expr));
+                            }
+                        } else {
+                            // Expression - wrap in string interpolation
+                            let expr = generate_csharp_expression(&container.expression);
+                            props.push(format!("[\"{}\"] = $\"{{{}}}\"", html_attr_name, expr));
+                        }
+                    } else {
+                        // Fallback
+                        props.push(format!("[\"{}\"] = \"\"", html_attr_name));
+                    }
+                }
+            }
+        }
+
+        // Build props dictionary
+        let mut all_props = vec![];
+        all_props.extend(props);
+        all_props.extend(event_handlers);
+        all_props.extend(data_minimact_attrs);
+
+        let props_str = if !all_props.is_empty() {
+            format!("new Dictionary<string, string> {{ {} }}", all_props.join(", "))
+        } else {
+            "new Dictionary<string, string>()".into()
+        };
+
+        // Generate children
+        let children_code = generate_children(children, component, indent);
+
+        // Build VElement construction with hex path
+        if children_code.is_empty() {
+            format!("new VElement(\"{}\", \"{}\", {})", tag_name, hex_path, props_str)
+        } else if children_code.len() == 1 &&
+                  (children_code[0].child_type == "text" || children_code[0].child_type == "mixed") {
+            format!("new VElement(\"{}\", \"{}\", {}, {})",
+                tag_name, hex_path, props_str, children_code[0].code)
+        } else {
+            // Wrap children appropriately for VNode array
+            let children_array = children_code.iter().map(|c| {
+                match c.child_type.as_str() {
+                    "text" => {
+                        let text_path = c.minimact_path.clone().unwrap_or_default();
+                        format!("new VText({}, \"{}\")", c.code, text_path)
+                    }
+                    "expression" => {
+                        let expr_path = c.minimact_path.clone().unwrap_or_default();
+                        format!("new VText($\"{{({})}}\", \"{}\")", c.code, expr_path)
+                    }
+                    "mixed" => {
+                        let mixed_path = c.minimact_path.clone().unwrap_or_default();
+                        format!("new VText({}, \"{}\")", c.code, mixed_path)
+                    }
+                    _ => c.code.clone()
+                }
+            }).collect::<Vec<_>>().join(",\n" + &indent_str + "    ");
+
+            format!("new VElement(\"{}\", \"{}\", {}, new VNode[]\n{}{{\\n{}    {}\\n{}}})",
+                tag_name, hex_path, props_str, indent_str, indent_str, children_array, indent_str)
+        }
+    } else {
+        panic!("generateJSXElement expects JSXElement or JSXFragment");
+    }
+}
+
+pub struct ChildNode {
+    pub child_type: Str,
+    pub code: Str,
+    pub raw: Option<Str>,
+    pub minimact_path: Option<Str>
+}
+
+/**
+ * Generate children
+ */
+pub fn generate_children(children: &Vec<JSXChild>, component: &mut Component, indent: i32) -> Vec<ChildNode> {
+    let mut result = vec![];
+    use "./expressions.lux" { generate_jsx_expression };
+
+    let mut child_list = vec![];
+
+    for child in children {
+        match child {
+            JSXChild::JSXText(text_node) => {
+                let text = text_node.value.trim();
+                if !text.is_empty() {
+                    child_list.push(ChildNode {
+                        child_type: "text".into(),
+                        code: format!("\"{}\"", escape_csharp_string(&text)),
+                        raw: Some(text.to_string()),
+                        minimact_path: text_node.minimact_path.clone()
+                    });
+                }
+            }
+            JSXChild::JSXElement(element) => {
+                child_list.push(ChildNode {
+                    child_type: "element".into(),
+                    code: generate_jsx_element(&JSXNode::JSXElement(element.clone()), component, indent + 1),
+                    raw: None,
+                    minimact_path: element.minimact_path.clone()
+                });
+            }
+            JSXChild::JSXExpressionContainer(container) => {
+                let expr = &container.expression;
+
+                if matches!(expr, Expression::JSXEmptyExpression(_)) {
+                    continue;
+                }
+
+                if let Expression::Identifier(ident) = expr {
+                    if let Some(custom_hooks) = &component.custom_hooks {
+                        let hook_instance = custom_hooks.iter().find(|h| {
+                            h.ui_var_name.as_ref() == Some(&ident.name)
+                        });
+
+                        if let Some(hook) = hook_instance {
+                            let hex_path = container.minimact_path.clone().unwrap_or_default();
+                            let wrapper_code = generate_custom_hook_wrapper(hook, &hex_path, component, indent);
+                            child_list.push(ChildNode {
+                                child_type: "element".into(),
+                                code: wrapper_code,
+                                raw: None,
+                                minimact_path: container.minimact_path.clone()
+                            });
+                            continue;
+                        }
+                    }
+                }
+
+                let child_type = if is_structural_jsx(expr) { "element" } else { "expression" };
+                child_list.push(ChildNode {
+                    child_type: child_type.into(),
+                    code: generate_jsx_expression(expr, component, indent),
+                    raw: None,
+                    minimact_path: container.minimact_path.clone()
+                });
+            }
+            JSXChild::JSXFragment(fragment) => {
+                child_list.push(ChildNode {
+                    child_type: "element".into(),
+                    code: generate_fragment(fragment, component, indent + 1),
+                    raw: None,
+                    minimact_path: fragment.minimact_path.clone()
+                });
+            }
+            _ => {}
+        }
+    }
+
+    // Second pass: merge consecutive text/expression children
+    let mut i = 0;
+    while i < child_list.len() {
+        let is_text_or_expr = child_list[i].child_type == "text" || child_list[i].child_type == "expression";
+
+        if is_text_or_expr && i + 1 < child_list.len() {
+            let next_is_text_or_expr = child_list[i + 1].child_type == "text" || child_list[i + 1].child_type == "expression";
+
+            if next_is_text_or_expr {
+                let mut mixed_children = vec![child_list[i].clone()];
+                let mut j = i + 1;
+
+                while j < child_list.len() &&
+                      (child_list[j].child_type == "text" || child_list[j].child_type == "expression") {
+                    mixed_children.push(child_list[j].clone());
+                    j += 1;
+                }
+
+                let mut interpolated_code = String::new();
+                for child in &mixed_children {
+                    if child.child_type == "text" {
+                        if let Some(raw) = &child.raw {
+                            interpolated_code.push_str(&escape_csharp_string(raw));
+                        }
+                    } else {
+                        interpolated_code.push_str(&format!("{{({})}}", child.code));
+                    }
+                }
+
+                result.push(ChildNode {
+                    child_type: "mixed".into(),
+                    code: format!("$\"{}\"", interpolated_code),
+                    raw: None,
+                    minimact_path: mixed_children[0].minimact_path.clone()
+                });
+                i = j;
+                continue;
+            }
+        }
+
+        result.push(child_list[i].clone());
+        i += 1;
+    }
+
+    result
+}
+
+fn is_structural_jsx(expr: &Expression) -> bool {
+    matches!(expr, Expression::JSXElement(_) | Expression::JSXFragment(_))
+}
+
+fn generate_custom_hook_wrapper(hook_instance: &CustomHook, hex_path: &Str, component: &Component, indent: i32) -> Str {
+    let namespace = &hook_instance.namespace;
+    let class_name = &hook_instance.class_name;
+    let params = &hook_instance.params;
+
+    let state_code = if !params.is_empty() {
+        let state_entries = params.iter().enumerate()
+            .map(|(index, param_code)| format!("[\"_config.param{}\"] = {}", index, param_code))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("new Dictionary<string, object> {{ {} }}", state_entries)
+    } else {
+        "new Dictionary<string, object>()".into()
+    };
+
+    let indent_str = "  ".repeat(indent as usize);
+
+    format!("new VComponentWrapper\n{}{{\\n{}  ComponentName = \"{}\",\n{}  ComponentType = \"{}\",\n{}  HexPath = \"{}\",\n{}  InitialState = {}\n{}}}",
+        indent_str, indent_str, namespace, indent_str, class_name, indent_str, hex_path, indent_str, state_code, indent_str)
+}
+
+fn generate_component_wrapper(element: &JSXElement, parent_component: &mut Component, indent: i32) -> Str {
+    use "./expressions.lux" { generate_csharp_expression };
+
+    let attributes = &element.opening_element.attributes;
+    let hex_path = element.minimact_path.clone().unwrap_or_default();
+
+    // Extract name attribute
+    let name_attr = attributes.iter().find(|attr| {
+        if let JSXAttribute::JSXAttribute(a) = attr {
+            a.name.name == "name"
+        } else {
+            false
+        }
+    });
+
+    let component_name = if let Some(JSXAttribute::JSXAttribute(attr)) = name_attr {
+        if let Some(JSXAttributeValue::StringLiteral(lit)) = &attr.value {
+            lit.value.clone()
+        } else {
+            panic!("[Lifted State] <Component> name attribute must be a string literal");
+        }
+    } else {
+        panic!("[Lifted State] <Component> element must have a \"name\" attribute");
+    };
+
+    // Extract state attribute
+    let state_attr = attributes.iter().find(|attr| {
+        if let JSXAttribute::JSXAttribute(a) = attr {
+            a.name.name == "state"
+        } else {
+            false
+        }
+    });
+
+    let mut state_code = "new Dictionary<string, object>()".to_string();
+
+    if let Some(JSXAttribute::JSXAttribute(attr)) = state_attr {
+        if let Some(JSXAttributeValue::JSXExpressionContainer(container)) = &attr.value {
+            if let Expression::ObjectExpression(obj) = &container.expression {
+                let properties = obj.properties.iter().filter_map(|prop| {
+                    if let ObjectProperty::Property(p) = prop {
+                        if let Expression::Identifier(key) = &p.key {
+                            let value = generate_csharp_expression(&p.value, parent_component, 0);
+                            return Some(format!("[\"{}\"] = {}", key.name, value));
+                        }
+                    }
+                    None
+                }).collect::<Vec<_>>();
+
+                if !properties.is_empty() {
+                    state_code = format!("new Dictionary<string, object> {{ {} }}", properties.join(", "));
+                }
+            }
+        }
+    }
+
+    // Extract child component
+    let child_components: Vec<_> = element.children.iter()
+        .filter_map(|c| {
+            if let JSXChild::JSXElement(el) = c {
+                Some(el)
+            } else {
+                None
+            }
+        }).collect();
+
+    if child_components.is_empty() || child_components.len() > 1 {
+        panic!("[Lifted State] <Component name=\"{}\"> must have exactly one child element", component_name);
+    }
+
+    let child_tag_name = &child_components[0].opening_element.name.name;
+
+    println!("[Lifted State] ✅ Detected <Component name=\"{}\"> wrapping <{} />", component_name, child_tag_name);
+
+    format!("new VComponentWrapper\n{{\\n    ComponentName = \"{}\",\n    ComponentType = \"{}\",\n    HexPath = \"{}\",\n    InitialState = {},\n    ParentComponent = this\n}}",
+        component_name, child_tag_name, hex_path, state_code)
+}

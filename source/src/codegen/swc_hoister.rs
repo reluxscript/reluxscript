@@ -262,6 +262,12 @@ impl SwcHoister {
                 DecoratedStmt::Loop(self.hoist_block(block))
             }
 
+            DecoratedStmt::Unsafe(unsafe_block) => {
+                DecoratedStmt::Unsafe(crate::codegen::decorated_ast::DecoratedUnsafeBlock {
+                    stmts: unsafe_block.stmts.into_iter().map(|s| self.hoist_stmt(s)).collect(),
+                })
+            }
+
             // Other statements don't contain traverse blocks
             other => other,
         }
@@ -549,11 +555,12 @@ impl SwcHoister {
         // Add state initialization fields
         for let_stmt in state {
             if let Pattern::Ident(name) = &let_stmt.pattern {
-                // Decorate the init expression
-                let mut decorator = crate::codegen::swc_decorator::SwcDecorator::new();
-                let init_expr = decorator.decorate_expr(&let_stmt.init);
-
-                fields.push((name.clone(), init_expr));
+                // Decorate the init expression (if present)
+                if let Some(ref init) = let_stmt.init {
+                    let mut decorator = crate::codegen::swc_decorator::SwcDecorator::new();
+                    let init_expr = decorator.decorate_expr(init);
+                    fields.push((name.clone(), init_expr));
+                }
             }
         }
 
@@ -682,7 +689,7 @@ impl SwcHoister {
                     },
                 },
                 ty: None,
-                init: clone_call,
+                init: Some(clone_call),
             });
 
             (clone_ident, Some(let_stmt))
@@ -843,7 +850,7 @@ impl CaptureTransformer {
                 // Transform the RHS to use self. for captured vars
                 DecoratedStmt::Let(crate::codegen::decorated_ast::DecoratedLetStmt {
                     pattern: let_stmt.pattern,
-                    init: self.transform_expr(let_stmt.init),
+                    init: let_stmt.init.map(|init| self.transform_expr(init)),
                     ty: let_stmt.ty,
                     mutable: let_stmt.mutable,
                 })
@@ -855,6 +862,13 @@ impl CaptureTransformer {
                     else_branch: if_stmt.else_branch.map(|b| self.transform_block(b)),
                     pattern: if_stmt.pattern,
                     if_let_metadata: if_stmt.if_let_metadata,
+                })
+            }
+            DecoratedStmt::Unsafe(unsafe_block) => {
+                DecoratedStmt::Unsafe(crate::codegen::decorated_ast::DecoratedUnsafeBlock {
+                    stmts: unsafe_block.stmts.into_iter()
+                        .map(|s| self.transform_decorated_stmt(s))
+                        .collect(),
                 })
             }
             other => other,

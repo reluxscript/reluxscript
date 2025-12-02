@@ -258,8 +258,10 @@ impl Parser {
                 }
             } else if self.check(TokenKind::Impl) {
                 PluginItem::Impl(self.parse_impl()?)
+            } else if self.check(TokenKind::Static) {
+                PluginItem::Static(self.parse_static()?)
             } else {
-                return Err(self.error("Expected struct, enum, fn, or impl"));
+                return Err(self.error("Expected struct, enum, fn, impl, or static"));
             };
 
             // Apply attributes to struct/enum if present
@@ -439,6 +441,38 @@ impl Parser {
             name,
             variants,
             derives: Vec::new(),  // Will be populated by parse_plugin_body
+            span: start_span,
+        })
+    }
+
+    /// Parse static variable declaration
+    /// `static [mut] NAME: TYPE = EXPR;`
+    fn parse_static(&mut self) -> ParseResult<StaticDecl> {
+        let start_span = self.current_span();
+        self.expect(TokenKind::Static)?;
+
+        // Check for 'mut' keyword
+        let is_mut = self.match_token(TokenKind::Mut);
+
+        // Parse name
+        let name = self.expect_ident()?;
+
+        // Parse type annotation
+        self.expect(TokenKind::Colon)?;
+        let ty = self.parse_type()?;
+
+        // Parse initializer
+        self.expect(TokenKind::Eq)?;
+        let init = self.parse_expr()?;
+
+        // Expect semicolon
+        self.expect(TokenKind::Semicolon)?;
+
+        Ok(StaticDecl {
+            name,
+            ty,
+            init,
+            is_mut,
             span: start_span,
         })
     }
@@ -647,6 +681,25 @@ impl Parser {
 
     /// Parse a type
     fn parse_type(&mut self) -> ParseResult<Type> {
+        // Check for raw pointer: *const T or *mut T
+        if self.match_token(TokenKind::Star) {
+            // Must be followed by 'const' or 'mut'
+            let mutable = if self.check(TokenKind::Const) {
+                self.advance();
+                false
+            } else if self.check(TokenKind::Mut) {
+                self.advance();
+                true
+            } else {
+                return Err(self.error("Expected 'const' or 'mut' after '*' in pointer type"));
+            };
+            let inner = self.parse_type()?;
+            return Ok(Type::RawPointer {
+                mutable,
+                inner: Box::new(inner),
+            });
+        }
+
         // Check for reference
         if self.match_token(TokenKind::Ampersand) {
             let mutable = self.match_token(TokenKind::Mut);
@@ -817,9 +870,22 @@ impl Parser {
             self.parse_continue_stmt()
         } else if self.check(TokenKind::Traverse) {
             self.parse_traverse_stmt()
+        } else if self.check(TokenKind::Unsafe) {
+            self.parse_unsafe_block()
         } else {
             self.parse_expr_stmt()
         }
+    }
+
+    /// Parse unsafe block: `unsafe { ... }`
+    fn parse_unsafe_block(&mut self) -> ParseResult<Stmt> {
+        let start_span = self.current_span();
+        self.expect(TokenKind::Unsafe)?;
+        let body = self.parse_block()?;
+        Ok(Stmt::Unsafe(UnsafeBlock {
+            body,
+            span: start_span,
+        }))
     }
 
     /// Parse let statement
@@ -837,8 +903,16 @@ impl Parser {
             None
         };
 
-        self.expect(TokenKind::Eq)?;
-        let init = self.parse_expr()?;
+        // Initializer is optional only if type is specified: `let x: Type;`
+        // Otherwise `let x = expr;` or `let x: Type = expr;` requires init
+        let init = if self.match_token(TokenKind::Eq) {
+            Some(self.parse_expr()?)
+        } else if ty.is_some() {
+            // Allow uninitialized variables if type is specified (like Rust)
+            None
+        } else {
+            return Err(self.error("Variable declaration requires either type annotation or initializer"));
+        };
         self.expect(TokenKind::Semicolon)?;
 
         Ok(Stmt::Let(LetStmt {
@@ -1746,7 +1820,7 @@ impl Parser {
                         mutable,
                         pattern: Pattern::Ident(name),
                         ty,
-                        init,
+                        init: Some(init),
                         span: let_span,
                     });
                 } else if self.check(TokenKind::Fn) || self.check(TokenKind::Pub) {
@@ -2564,6 +2638,42 @@ impl Parser {
 
         // Identifier or struct init
         if let Some(name) = self.try_expect_ident() {
+            // Check for path expression: std::ptr::null
+            if self.check(TokenKind::ColonColon) {
+                let mut segments = vec![name.clone()];
+                while self.match_token(TokenKind::ColonColon) {
+                    // Allow certain keywords as path segments (e.g., std::ptr::null)
+                    if let Some(segment) = self.try_expect_ident() {
+                        segments.push(segment);
+                    } else if self.match_token(TokenKind::Null) {
+                        segments.push("null".to_string());
+                    } else if self.match_token(TokenKind::Self_) {
+                        segments.push("self".to_string());
+                    } else if self.match_token(TokenKind::SelfType) {
+                        segments.push("Self".to_string());
+                    } else {
+                        return Err(ParseError::new(
+                            "Expected identifier after ::",
+                            self.current_span(),
+                        ));
+                    }
+                }
+                // Check for function call on path: std::ptr::null()
+                if self.check(TokenKind::LParen) {
+                    self.advance(); // consume (
+                    let args = self.parse_args()?;
+                    self.expect(TokenKind::RParen)?;
+                    return Ok(Expr::Call(CallExpr {
+                        callee: Box::new(Expr::Path(PathExpr { segments, span })),
+                        args,
+                        type_args: Vec::new(),
+                        optional: false,
+                        is_macro: false,
+                        span: self.current_span(),
+                    }));
+                }
+                return Ok(Expr::Path(PathExpr { segments, span }));
+            }
             // Check for macro call: identifier!()
             if self.check(TokenKind::Not) && self.peek_ahead(1).map_or(false, |t| t.kind == TokenKind::LParen) {
                 self.advance(); // consume !

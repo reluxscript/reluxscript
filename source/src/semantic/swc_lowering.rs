@@ -49,6 +49,7 @@ impl SwcLowering {
                 }
                 PluginItem::PreHook(func) => self.lower_function(func),
                 PluginItem::ExitHook(func) => self.lower_function(func),
+                PluginItem::Static(_) => {} // Static variables don't need lowering
             }
         }
     }
@@ -66,6 +67,7 @@ impl SwcLowering {
                 }
                 PluginItem::PreHook(func) => self.lower_function(func),
                 PluginItem::ExitHook(func) => self.lower_function(func),
+                PluginItem::Static(_) => {} // Static variables don't need lowering
             }
         }
     }
@@ -121,7 +123,9 @@ impl SwcLowering {
                 }
             }
             Stmt::Let(let_stmt) => {
-                self.lower_expr(&mut let_stmt.init);
+                if let Some(ref mut init) = let_stmt.init {
+                    self.lower_expr(init);
+                }
             }
             Stmt::Expr(expr_stmt) => {
                 self.lower_expr(&mut expr_stmt.expr);
@@ -137,6 +141,10 @@ impl SwcLowering {
             }
             Stmt::Const(_) | Stmt::Loop(_) | Stmt::Function(_) | Stmt::Verbatim(_) | Stmt::CustomPropAssignment(_) => {
                 // These statements don't need lowering or aren't supported yet
+            }
+            Stmt::Unsafe(unsafe_block) => {
+                // Lower statements inside the unsafe block
+                self.lower_block(&mut unsafe_block.body);
             }
         }
     }

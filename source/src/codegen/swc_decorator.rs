@@ -15,6 +15,7 @@
 //! ```
 
 use crate::parser::*;
+use crate::lexer::Span;
 use crate::type_system::{TypeContext, SwcTypeKind};
 use crate::mapping::{get_node_mapping, get_field_mapping};
 use super::type_context::{get_typed_field_mapping, map_reluxscript_to_swc, get_swc_variant_in_context};
@@ -267,6 +268,16 @@ impl SwcDecorator {
             PluginItem::ExitHook(func) => {
                 DecoratedPluginItem::ExitHook(self.decorate_fn_decl(func))
             }
+            PluginItem::Static(static_decl) => {
+                // Static declarations pass through with decorated initializer
+                DecoratedPluginItem::Static(DecoratedStaticDecl {
+                    name: static_decl.name.clone(),
+                    ty: static_decl.ty.clone(),
+                    init: self.decorate_expr(&static_decl.init),
+                    is_mut: static_decl.is_mut,
+                    span: static_decl.span,
+                })
+            }
         }
     }
 
@@ -357,9 +368,14 @@ impl SwcDecorator {
     pub fn decorate_stmt(&mut self, stmt: &Stmt) -> DecoratedStmt {
         match stmt {
             Stmt::Let(let_stmt) => {
-                // First decorate the initializer to get its type
-                let init = self.decorate_expr(&let_stmt.init);
-                let init_type = init.metadata.swc_type.clone();
+                // First decorate the initializer to get its type (if present)
+                let (init, init_type) = if let Some(ref init_expr) = let_stmt.init {
+                    let decorated = self.decorate_expr(init_expr);
+                    let ty = decorated.metadata.swc_type.clone();
+                    (Some(decorated), ty)
+                } else {
+                    (None, "Unknown".to_string())
+                };
 
                 // Use that type for pattern decoration
                 let pattern = self.decorate_pattern_with_context(&let_stmt.pattern, &init_type);
@@ -539,6 +555,14 @@ impl SwcDecorator {
 
             Stmt::CustomPropAssignment(assign) => {
                 self.decorate_custom_prop_assignment(assign)
+            }
+
+            Stmt::Unsafe(unsafe_block) => {
+                // Decorate statements inside the unsafe block
+                let stmts = unsafe_block.body.stmts.iter()
+                    .map(|s| self.decorate_stmt(s))
+                    .collect();
+                DecoratedStmt::Unsafe(DecoratedUnsafeBlock { stmts })
             }
 
         }
@@ -2331,6 +2355,29 @@ impl SwcDecorator {
             Expr::CustomPropAccess(access) => {
                 self.decorate_custom_prop_access(access)
             }
+
+            Expr::Path(path) => {
+                // Path expressions like std::ptr::null() are Rust stdlib paths
+                // Emit them as-is since they're valid Rust code
+                DecoratedExpr::new(
+                    DecoratedExprKind::Ident {
+                        name: path.segments.join("::"),
+                        ident_metadata: SwcIdentifierMetadata {
+                            use_sym: false,
+                            deref_pattern: None,
+                            span: None,
+                        },
+                    },
+                    SwcExprMetadata {
+                        swc_type: "Unknown".to_string(),
+                        is_optional: false,
+                        is_boxed: false,
+                        type_kind: crate::type_system::SwcTypeKind::Unknown,
+                        needs_enum_unwrap: None,
+                        span: None,
+                    },
+                )
+            }
         }
     }
 
@@ -2799,6 +2846,16 @@ pub enum DecoratedPluginItem {
     Impl(DecoratedImplBlock),
     PreHook(DecoratedFnDecl),
     ExitHook(DecoratedFnDecl),
+    Static(DecoratedStaticDecl),
+}
+
+#[derive(Debug, Clone)]
+pub struct DecoratedStaticDecl {
+    pub name: String,
+    pub ty: Type,
+    pub init: DecoratedExpr,
+    pub is_mut: bool,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone)]

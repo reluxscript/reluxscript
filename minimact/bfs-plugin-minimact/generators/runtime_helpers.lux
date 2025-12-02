@@ -1,0 +1,235 @@
+/**
+ * Runtime Helper Generators
+ */
+
+use "../utils/helpers.lux" { escape_csharp_string };
+use "../utils/path_assignment.lux" { get_path_from_node };
+use "../types/component_types.lux" { Component };
+
+// Lazy load to avoid circular dependencies with jsx.lux and expressions.lux
+
+/**
+ * Generate runtime helper call for complex JSX patterns
+ * Uses MinimactHelpers.createElement() for dynamic scenarios
+ */
+pub fn generate_runtime_helper_call(
+    tag_name: &Str,
+    attributes: &Vec<JSXAttribute>,
+    children: &Vec<JSXChild>,
+    component: &Component,
+    indent: i32
+) -> Str {
+    // Lazy load to avoid circular dependency
+    use "./expressions.lux" { generate_csharp_expression, generate_boolean_expression };
+    use "./jsx.lux" { generate_jsx_element };
+
+    let indent_str = "    ".repeat(indent as usize);
+
+    // Build props object
+    let mut props_code = "null".to_string();
+    let mut regular_props = vec![];
+    let mut spread_props = vec![];
+
+    for attr in attributes {
+        if let JSXAttribute::SpreadAttribute(spread) = attr {
+            // Spread operator: {...props}
+            spread_props.push(generate_csharp_expression(&spread.argument));
+        } else if let JSXAttribute::Attribute(attr_node) = attr {
+            let name = &attr_node.name.name;
+            let value = &attr_node.value;
+
+            // Skip 'key' attribute - it's only for hot reload detection in .tsx.keys files
+            if name == "key" {
+                continue;
+            }
+
+            // Convert attribute value to C# expression
+            let prop_value = if let Some(JSXAttributeValue::StringLiteral(lit)) = value {
+                format!("\"{}\"", escape_csharp_string(&lit.value))
+            } else if let Some(JSXAttributeValue::JSXExpressionContainer(container)) = value {
+                // Special handling for style attribute with object expression
+                if name == "style" {
+                    if let Expression::ObjectExpression(obj) = &container.expression {
+                        use "../utils/style_converter.lux" { convert_style_object_to_css };
+                        let css_string = convert_style_object_to_css(obj);
+                        format!("\"{}\"", css_string)
+                    } else {
+                        generate_csharp_expression(&container.expression)
+                    }
+                } else {
+                    generate_csharp_expression(&container.expression)
+                }
+            } else if value.is_none() {
+                "\"true\"".into() // Boolean attribute like <input disabled />
+            } else {
+                // Fallback for other value types
+                "\"\"".into()
+            };
+
+            regular_props.push(format!("{} = {}", name, prop_value));
+        }
+    }
+
+    // Build props with potential spread merging
+    if regular_props.len() > 0 && spread_props.len() > 0 {
+        // Need to merge: ((object)new { prop1 = val1 }).MergeWith((object)spreadObj)
+        // Cast both to object to avoid dynamic dispatch issues
+        let regular_props_obj = format!("new {{ {} }}", regular_props.join(", "));
+        props_code = format!("((object){})", regular_props_obj);
+        for spread_prop in &spread_props {
+            props_code = format!("{}.MergeWith((object){})", props_code, spread_prop);
+        }
+    } else if regular_props.len() > 0 {
+        // Just regular props
+        props_code = format!("new {{ {} }}", regular_props.join(", "));
+    } else if spread_props.len() > 0 {
+        // Just spread props
+        props_code = spread_props[0].clone();
+        for i in 1..spread_props.len() {
+            props_code = format!("((object){}).MergeWith((object){})", props_code, spread_props[i]);
+        }
+    }
+
+    // Build children
+    let mut children_args = vec![];
+    for child in children {
+        if let JSXChild::JSXText(text) = child {
+            let trimmed = text.value.trim();
+            if trimmed.len() > 0 {
+                children_args.push(format!("\"{}\"", escape_csharp_string(trimmed)));
+            }
+        } else if let JSXChild::JSXElement(elem) = child {
+            children_args.push(generate_jsx_element(elem, component, indent + 1));
+        } else if let JSXChild::JSXExpressionContainer(container) = child {
+            let expr = &container.expression;
+
+            // Skip JSX comments (empty expressions like {/* comment */})
+            if let Expression::JSXEmptyExpression(_) = expr {
+                continue; // Don't add to childrenArgs
+            }
+
+            // Handle conditionals with JSX: {condition ? <A/> : <B/>}
+            if let Expression::ConditionalExpression(cond_expr) = expr {
+                let condition = generate_boolean_expression(&cond_expr.test);
+                let consequent = if matches!(&cond_expr.consequent, Expression::JSXElement(_) | Expression::JSXFragment(_)) {
+                    generate_jsx_element(&cond_expr.consequent, component, indent + 1)
+                } else {
+                    generate_csharp_expression(&cond_expr.consequent)
+                };
+
+                // Handle alternate - if null literal, use VNull with path
+                let alternate = if cond_expr.alternate.is_none() || matches!(&cond_expr.alternate, Some(Expression::NullLiteral(_))) {
+                    let expr_path = get_path_from_node(child);
+                    format!("new VNull(\"{}\")", expr_path)
+                } else if let Some(alt) = &cond_expr.alternate {
+                    if matches!(alt, Expression::JSXElement(_) | Expression::JSXFragment(_)) {
+                        generate_jsx_element(alt, component, indent + 1)
+                    } else {
+                        generate_csharp_expression(alt)
+                    }
+                } else {
+                    let expr_path = get_path_from_node(child);
+                    format!("new VNull(\"{}\")", expr_path)
+                };
+
+                children_args.push(format!("({}) ? {} : {}", condition, consequent, alternate));
+            }
+            // Handle logical expressions with JSX: {condition && <Element/>}
+            else if let Expression::LogicalExpression(logical) = expr {
+                if logical.operator == "&&" {
+                    let left = generate_boolean_expression(&logical.left);
+                    let right = if matches!(&logical.right, Expression::JSXElement(_) | Expression::JSXFragment(_)) {
+                        generate_jsx_element(&logical.right, component, indent + 1)
+                    } else {
+                        generate_csharp_expression(&logical.right)
+                    };
+                    let expr_path = get_path_from_node(child);
+                    children_args.push(format!("({}) ? {} : new VNull(\"{}\")", left, right, expr_path));
+                }
+            }
+            // Handle .map() with JSX callback
+            else if let Expression::CallExpression(call) = expr {
+                if let Expression::MemberExpression(mem) = &call.callee {
+                    if let Expression::Identifier(prop) = &mem.property {
+                        if prop.name == "map" {
+                            // Lazy load generateMapExpression
+                            use "./expressions.lux" { generate_map_expression };
+                            children_args.push(generate_map_expression(expr, component, indent));
+                        } else {
+                            // Other method calls - dynamic children (e.g., items.Select(...))
+                            children_args.push(generate_csharp_expression(&container.expression));
+                        }
+                    } else {
+                        // Dynamic children
+                        children_args.push(generate_csharp_expression(&container.expression));
+                    }
+                } else {
+                    // Dynamic children
+                    children_args.push(generate_csharp_expression(&container.expression));
+                }
+            }
+            // Dynamic children (e.g., items.Select(...))
+            else {
+                children_args.push(generate_csharp_expression(&container.expression));
+            }
+        }
+    }
+
+    // Generate the createElement call
+    if children_args.len() == 0 {
+        format!("MinimactHelpers.createElement(\"{}\", {})", tag_name, props_code)
+    } else if children_args.len() == 1 {
+        format!("MinimactHelpers.createElement(\"{}\", {}, {})", tag_name, props_code, children_args[0])
+    } else {
+        let children_str = children_args.join(", ");
+        format!("MinimactHelpers.createElement(\"{}\", {}, {})", tag_name, props_code, children_str)
+    }
+}
+
+/**
+ * Force runtime helper generation for a JSX node (used in conditionals/logical expressions)
+ */
+pub fn generate_runtime_helper_for_jsx_node(
+    node: &Expression,
+    component: &Component,
+    indent: i32
+) -> Str {
+    // Lazy load to avoid circular dependency
+    use "./expressions.lux" { generate_csharp_expression };
+
+    if let Expression::JSXFragment(fragment) = node {
+        // Handle fragments
+        let children = &fragment.children;
+        let mut children_args = vec![];
+        for child in children {
+            if let JSXChild::JSXText(text) = child {
+                let trimmed = text.value.trim();
+                if trimmed.len() > 0 {
+                    children_args.push(format!("\"{}\"", escape_csharp_string(trimmed)));
+                }
+            } else if let JSXChild::JSXElement(elem) = child {
+                children_args.push(generate_runtime_helper_for_jsx_node(&Expression::JSXElement(elem.clone()), component, indent + 1));
+            } else if let JSXChild::JSXExpressionContainer(container) = child {
+                // Skip JSX comments (empty expressions like {/* comment */})
+                if !matches!(&container.expression, Expression::JSXEmptyExpression(_)) {
+                    children_args.push(generate_csharp_expression(&container.expression));
+                }
+            }
+        }
+        if children_args.len() == 0 {
+            return "MinimactHelpers.Fragment()".into();
+        }
+        return format!("MinimactHelpers.Fragment({})", children_args.join(", "));
+    }
+
+    if let Expression::JSXElement(elem) = node {
+        let tag_name = &elem.opening_element.name.name;
+        let attributes = &elem.opening_element.attributes;
+        let children = &elem.children;
+        return generate_runtime_helper_call(tag_name, attributes, children, component, indent);
+    }
+
+    // Fallback for null/undefined nodes
+    let node_path = get_path_from_node(node);
+    format!("new VNull(\"{}\")", node_path)
+}

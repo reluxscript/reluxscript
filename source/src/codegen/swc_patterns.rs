@@ -130,9 +130,6 @@ impl SwcPatternGenerator {
 
     /// Generate a let statement with type awareness
     pub fn gen_let_stmt_typed(&mut self, stmt: &LetStmt) {
-        // Infer the type of the initializer
-        let init_type = self.infer_type(&stmt.init);
-
         self.emit_indent();
         if stmt.mutable {
             self.output.push_str("let mut ");
@@ -143,18 +140,28 @@ impl SwcPatternGenerator {
         // Generate pattern (only simple identifiers supported)
         if let Pattern::Ident(name) = &stmt.pattern {
             self.output.push_str(name);
-            self.output.push_str(" = ");
 
-            // Generate the initializer with type context
-            self.gen_expr_typed(&stmt.init);
-            self.output.push_str(";\n");
+            if let Some(ref init) = stmt.init {
+                // Infer the type of the initializer
+                let init_type = self.infer_type(init);
 
-            // Record the variable's type
-            self.env.define(name, init_type);
+                self.output.push_str(" = ");
+                // Generate the initializer with type context
+                self.gen_expr_typed(init);
+                self.output.push_str(";\n");
+
+                // Record the variable's type
+                self.env.define(name, init_type);
+            } else {
+                // Uninitialized: let x: Type;
+                self.output.push_str(";\n");
+            }
         } else {
             // For complex patterns, just emit a placeholder
             self.output.push_str("_ = ");
-            self.gen_expr_typed(&stmt.init);
+            if let Some(ref init) = stmt.init {
+                self.gen_expr_typed(init);
+            }
             self.output.push_str(";\n");
         }
     }

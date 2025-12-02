@@ -1,0 +1,468 @@
+/**
+ * Method generators for component class
+ * Part 1: Render and Effect methods
+ */
+
+use "../../types/component_types.lux" { Component };
+use "../expressions.lux" { generate_csharp_expression, generate_csharp_statement };
+use "../render_body.lux" { generate_render_body };
+use "./infer_types.lux" { ts_type_to_csharp_type };
+
+/**
+ * Generate render method
+ */
+pub fn generate_render_method(component: &Component, lines: &mut Vec<Str>) {
+    let render_method_name = if component.use_template.is_some() {
+        "RenderContent"
+    } else {
+        "Render"
+    };
+
+    lines.push(format!("    protected override VNode {}()", render_method_name));
+    lines.push("    {".into());
+
+    // Only add StateManager sync if NOT using a template
+    if component.use_template.is_none() {
+        lines.push("        StateManager.SyncMembersToState(this);".into());
+        lines.push("".into());
+    }
+
+    // MVC State local variables
+    if let Some(use_mvc_state) = &component.use_mvc_state {
+        if use_mvc_state.len() > 0 {
+            lines.push("        // MVC State - read from State dictionary".into());
+            for mvc_state in use_mvc_state {
+                let csharp_type = if let Some(t) = &mvc_state.state_type {
+                    if t != "object" { t.clone() } else { "dynamic".into() }
+                } else {
+                    "dynamic".into()
+                };
+                lines.push(format!("        var {} = GetState<{}>(\"{}\");",
+                    mvc_state.name, csharp_type, mvc_state.property_name));
+            }
+            lines.push("".into());
+        }
+    }
+
+    // Local variables (exclude client-computed ones)
+    let regular_local_vars: Vec<_> = component.local_variables.iter()
+        .filter(|v| !v.is_client_computed)
+        .collect();
+
+    for local_var in &regular_local_vars {
+        lines.push(format!("        {} {} = {};",
+            local_var.var_type, local_var.name, local_var.initial_value));
+    }
+    if regular_local_vars.len() > 0 {
+        lines.push("".into());
+    }
+
+    if let Some(render_body) = &component.render_body {
+        let render_code = generate_render_body(render_body, component, 2);
+        lines.push(render_code);
+    } else {
+        lines.push("        return new VText(\"\");".into());
+    }
+
+    lines.push("    }".into());
+}
+
+/**
+ * Generate effect methods (useEffect)
+ */
+pub fn generate_effect_methods(component: &Component, lines: &mut Vec<Str>) {
+    let mut effect_index = 0;
+
+    for effect in &component.use_effect {
+        lines.push("".into());
+
+        // Extract dependency names from array
+        let mut deps = vec![];
+        if let Some(dependencies) = &effect.dependencies {
+            if let Expression::ArrayExpression(arr) = dependencies {
+                for dep in &arr.elements {
+                    if let Expression::Identifier(ident) = dep {
+                        deps.push(ident.name.clone());
+                    }
+                }
+            }
+        }
+
+        // Generate attributes
+        if deps.len() == 0 {
+            if let Some(dependencies) = &effect.dependencies {
+                if let Expression::ArrayExpression(arr) = dependencies {
+                    if arr.elements.len() == 0 {
+                        lines.push("    [OnMounted]".into());
+                    }
+                }
+            }
+        } else if deps.len() > 0 {
+            for dep in &deps {
+                lines.push(format!("    [OnStateChanged(\"{}\")]", dep));
+            }
+        }
+
+        lines.push(format!("    private void Effect_{}()", effect_index));
+        lines.push("    {".into());
+
+        // Extract and convert effect body
+        if let Some(body) = &effect.body {
+            if let Expression::ArrowFunctionExpression(arrow) = body {
+                if let Expression::BlockStatement(block) = &arrow.body {
+                    for stmt in &block.body {
+                        lines.push(format!("        {}", generate_csharp_statement(stmt)));
+                    }
+                } else {
+                    lines.push(format!("        {};", generate_csharp_expression(&arrow.body)));
+                }
+            }
+        }
+
+        lines.push("    }".into());
+        effect_index += 1;
+    }
+}
+
+/**
+ * Generate event handlers
+ */
+pub fn generate_event_handlers(component: &Component, lines: &mut Vec<Str>) {
+    for handler in &component.event_handlers {
+        lines.push("".into());
+
+        // Generate parameter list
+        let params = &handler.params;
+        let mut param_list = vec![];
+
+        for p in params {
+            if let Pattern::Identifier(ident) = p {
+                param_list.push(format!("dynamic {}", ident.name));
+            } else {
+                param_list.push("dynamic arg".into());
+            }
+        }
+
+        // Add captured parameters
+        let captured_params = &handler.captured_params;
+        for p in captured_params {
+            param_list.push(format!("dynamic {}", p));
+        }
+
+        let param_str = param_list.join(", ");
+        let return_type = if handler.is_async { "async Task" } else { "void" };
+
+        lines.push(format!("    public {} {}({})", return_type, handler.name, param_str));
+        lines.push("    {".into());
+
+        // Check if this is a curried function error
+        if handler.is_curried_error {
+            lines.push(format!("        throw new InvalidOperationException("));
+            lines.push(format!("            \"Event handler '{}' returns a function instead of executing an action. \" +", handler.name));
+            lines.push("            \"This is a curried function pattern (e.g., (e) => (id) => action(id)) which is invalid for event handlers. \" +".into());
+            lines.push("            \"The returned function is never called by the event system. \" +".into());
+            lines.push("            \"Fix: Use (e) => action(someValue) or create a properly bound handler.\"".into());
+            lines.push("        );".into());
+        } else if let Some(body) = &handler.body {
+            if let Expression::BlockStatement(block) = body {
+                for statement in &block.body {
+                    let csharp_stmt = generate_csharp_statement(statement);
+                    if !csharp_stmt.is_empty() {
+                        lines.push(format!("        {}", csharp_stmt));
+                    }
+                }
+            } else {
+                let csharp_expr = generate_csharp_expression(body);
+                lines.push(format!("        {};", csharp_expr));
+            }
+        }
+
+        lines.push("    }".into());
+    }
+}
+
+/**
+ * Generate toggle methods
+ */
+pub fn generate_toggle_methods(component: &Component, lines: &mut Vec<Str>) {
+    for toggle in &component.use_toggle {
+        lines.push("".into());
+        lines.push(format!("    private void {}()", toggle.toggle_func));
+        lines.push("    {".into());
+        lines.push(format!("        {} = !{};", toggle.name, toggle.name));
+        lines.push(format!("        SetState(\"{}\", {});", toggle.name, toggle.name));
+        lines.push("    }".into());
+    }
+}
+
+/**
+ * Generate client handlers method
+ */
+pub fn generate_client_handlers_method(component: &Component, lines: &mut Vec<Str>) {
+    if component.client_handlers.len() > 0 {
+        lines.push("".into());
+        lines.push("    /// <summary>".into());
+        lines.push("    /// Returns JavaScript event handlers for client-side execution".into());
+        lines.push("    /// These execute in the browser with bound hook context".into());
+        lines.push("    /// </summary>".into());
+        lines.push("    protected override Dictionary<string, string> GetClientHandlers()".into());
+        lines.push("    {".into());
+        lines.push("        return new Dictionary<string, string>".into());
+        lines.push("        {".into());
+
+        for i in 0..component.client_handlers.len() {
+            let handler = &component.client_handlers[i];
+            let escaped_js = handler.js_code
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\n")
+                .replace("\r", "");
+
+            let comma = if i < component.client_handlers.len() - 1 { "," } else { "" };
+            lines.push(format!("            [\"{}\"] = @\"{}\"{}",
+                handler.name, escaped_js, comma));
+        }
+
+        lines.push("        };".into());
+        lines.push("    }".into());
+    }
+}
+
+/**
+ * Generate client effects method
+ */
+pub fn generate_client_effects_method(component: &Component, lines: &mut Vec<Str>) {
+    if let Some(client_effects) = &component.client_effects {
+        if client_effects.len() > 0 {
+            lines.push("".into());
+            lines.push("    /// <summary>".into());
+            lines.push("    /// Returns JavaScript callbacks for useEffect hooks".into());
+            lines.push("    /// These execute in the browser with bound hook context".into());
+            lines.push("    /// </summary>".into());
+            lines.push("    protected override Dictionary<string, EffectDefinition> GetClientEffects()".into());
+            lines.push("    {".into());
+            lines.push("        return new Dictionary<string, EffectDefinition>".into());
+            lines.push("        {".into());
+
+            for i in 0..client_effects.len() {
+                let effect = &client_effects[i];
+
+                let escaped_js = effect.js_code
+                    .replace("\\", "\\\\")
+                    .replace("\"", "\\\"")
+                    .replace("\n", "\n")
+                    .replace("\r", "");
+
+                let mut deps = vec![];
+                if let Some(dependencies) = &effect.dependencies {
+                    if let Some(elements) = &dependencies.elements {
+                        for dep in elements {
+                            if let Some(name) = &dep.name {
+                                deps.push(format!("\"{}\"", name));
+                            }
+                        }
+                    }
+                }
+                let deps_array = deps.join(", ");
+
+                let comma = if i < client_effects.len() - 1 { "," } else { "" };
+
+                lines.push(format!("            [\"{}\"] = new EffectDefinition", effect.name));
+                lines.push("            {".into());
+                lines.push(format!("                Callback = @\"{}\",", escaped_js));
+                lines.push(format!("                Dependencies = new[] {{ {} }}", deps_array));
+                lines.push(format!("            }{}", comma));
+            }
+
+            lines.push("        };".into());
+            lines.push("    }".into());
+        }
+    }
+}
+
+/**
+ * Generate pub/sub methods
+ */
+pub fn generate_pub_sub_methods(component: &Component, lines: &mut Vec<Str>) {
+    // Pub methods
+    if let Some(use_pub) = &component.use_pub {
+        for pub_info in use_pub {
+            lines.push("".into());
+            lines.push(format!("    // Publish to {}_channel", pub_info.name));
+            lines.push(format!("    private void {}(dynamic value, PubSubOptions? options = null)", pub_info.name));
+            lines.push("    {".into());
+            lines.push(format!("        EventAggregator.Instance.Publish({}_channel, value, options);", pub_info.name));
+            lines.push("    }".into());
+        }
+    }
+
+    // Sub methods
+    if let Some(use_sub) = &component.use_sub {
+        for sub_info in use_sub {
+            lines.push("".into());
+            lines.push(format!("    // Subscribe to {}_channel", sub_info.name));
+            lines.push("    protected override void OnInitialized()".into());
+            lines.push("    {".into());
+            lines.push("        base.OnInitialized();".into());
+            lines.push("        ".into());
+            lines.push(format!("        // Subscribe to {}_channel", sub_info.name));
+            lines.push(format!("        EventAggregator.Instance.Subscribe({}_channel, (msg) => {{", sub_info.name));
+            lines.push(format!("            {}_value = msg.Value;", sub_info.name));
+            lines.push(format!("            SetState(\"{}_value\", {}_value);", sub_info.name, sub_info.name));
+            lines.push("        });".into());
+            lines.push("    }".into());
+        }
+    }
+}
+
+/**
+ * Generate SignalR methods
+ */
+pub fn generate_signal_r_methods(component: &Component, lines: &mut Vec<Str>) {
+    if let Some(use_signal_r) = &component.use_signal_r {
+        for signal_r in use_signal_r {
+            lines.push("".into());
+            lines.push(format!("    // SignalR send method for {}", signal_r.name));
+            lines.push("    // Note: useSignalR is primarily client-side.".into());
+            lines.push("    // Server-side SignalR invocation can use HubContext directly if needed.".into());
+            lines.push(format!("    private async Task {}_send(string methodName, params object[] args)", signal_r.name));
+            lines.push("    {".into());
+            lines.push("        if (HubContext != null && ConnectionId != null)".into());
+            lines.push("        {".into());
+            lines.push("            // Send message to specific client connection".into());
+            lines.push("            await HubContext.Clients.Client(ConnectionId).SendAsync(methodName, args);".into());
+            lines.push("        }".into());
+            lines.push("    }".into());
+        }
+    }
+}
+
+/**
+ * Generate MVC state setters
+ */
+pub fn generate_mvc_state_setters(component: &Component, lines: &mut Vec<Str>) {
+    if let Some(use_mvc_state) = &component.use_mvc_state {
+        for mvc_state in use_mvc_state {
+            if let Some(setter) = &mvc_state.setter {
+                let csharp_type = if let Some(t) = &mvc_state.state_type {
+                    if t != "object" { t.clone() } else { "dynamic".into() }
+                } else {
+                    "dynamic".into()
+                };
+
+                lines.push("".into());
+                lines.push(format!("    private void {}({} value)", setter, csharp_type));
+                lines.push("    {".into());
+                lines.push(format!("        SetState(\"{}\", value);", mvc_state.property_name));
+                lines.push("    }".into());
+            }
+        }
+    }
+}
+
+/**
+ * Generate OnInitialized method for Razor Markdown
+ */
+pub fn generate_on_initialized_method(component: &Component, lines: &mut Vec<Str>) {
+    if let Some(use_razor_markdown) = &component.use_razor_markdown {
+        if use_razor_markdown.len() > 0 {
+            lines.push("".into());
+            lines.push("    protected override void OnInitialized()".into());
+            lines.push("    {".into());
+            lines.push("        base.OnInitialized();".into());
+            lines.push("".into());
+
+            for md in use_razor_markdown {
+                // TODO: Import and use convert_razor_markdown_to_csharp
+                let csharp_markdown = format!("\"{}\"", md.initial_value);
+                lines.push(format!("        {} = {};", md.name, csharp_markdown));
+            }
+
+            lines.push("    }".into());
+        }
+    }
+}
+
+/**
+ * Generate helper functions
+ */
+pub fn generate_helper_functions(component: &Component, lines: &mut Vec<Str>) {
+    // In-component helper functions
+    if let Some(helper_functions) = &component.helper_functions {
+        for func in helper_functions {
+            // Skip custom hooks
+            if let Some(name) = &func.name {
+                if name.starts_with("use") && func.params.len() > 0 {
+                    if let Some(first_param) = func.params.first() {
+                        if let Pattern::Identifier(ident) = first_param {
+                            if ident.name == "namespace" {
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
+
+            lines.push("".into());
+
+            let return_type = if func.is_async {
+                if func.return_type == "void" {
+                    "async Task".into()
+                } else {
+                    format!("async Task<{}>", func.return_type)
+                }
+            } else {
+                func.return_type.clone()
+            };
+
+            let params_str = func.params.iter()
+                .map(|p| {
+                    if let Pattern::Identifier(ident) = p {
+                        format!("dynamic {}", ident.name)
+                    } else {
+                        "dynamic arg".into()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            lines.push(format!("    private {} {}({})",
+                return_type, func.name.as_ref().unwrap_or(&"helper".into()), params_str));
+            lines.push("    {".into());
+
+            if let Some(body) = &func.body {
+                if let Expression::BlockStatement(block) = body {
+                    for statement in &block.body {
+                        let stmt_code = generate_csharp_statement(statement);
+                        lines.push(format!("        {}", stmt_code));
+                    }
+                }
+            }
+
+            lines.push("    }".into());
+        }
+    }
+
+    // Top-level helper functions
+    if let Some(top_level_helpers) = &component.top_level_helper_functions {
+        for helper in top_level_helpers {
+            // Skip custom hooks
+            if let Some(name) = &helper.name {
+                if name.starts_with("use") {
+                    // Skip
+                    continue;
+                }
+            }
+
+            lines.push("".into());
+            lines.push(format!("    // Helper function: {}", helper.name.as_ref().unwrap_or(&"helper".into())));
+
+            // Simplified - would need full type inference
+            lines.push(format!("    private static dynamic {}()",
+                helper.name.as_ref().unwrap_or(&"helper".into())));
+            lines.push("    {".into());
+            lines.push("        return null;".into());
+            lines.push("    }".into());
+        }
+    }
+}

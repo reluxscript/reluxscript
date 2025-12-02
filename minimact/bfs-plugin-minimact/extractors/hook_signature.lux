@@ -1,0 +1,746 @@
+/**
+ * Hook Signature Extractor
+ *
+ * Detects structural changes in hook usage (additions/removals/reordering)
+ * for hot reload instance replacement.
+ */
+
+use fs;
+use json;
+use path;
+use "../types/component_types.lux" { Component };
+
+pub struct HookSignatureEntry {
+    pub hook_type: Str,
+    pub var_name: Option<Str>,
+    pub template_name: Option<Str>,
+    pub field_key: Option<Str>,
+    pub property_name: Option<Str>,
+    pub channel: Option<Str>,
+    pub hub_url: Option<Str>,
+    pub hint_id: Option<Str>,
+    pub runtime: Option<Str>,
+    pub delay: Option<i32>,
+    pub deps_count: Option<i32>,
+    pub is_streaming: Option<bool>,
+    pub index: i32
+}
+
+pub struct HookSignature {
+    pub component_name: Str,
+    pub timestamp: Str,
+    pub hooks: Vec<HookSignatureEntry>
+}
+
+pub enum HookChange {
+    HookAdded {
+        hook_type: Str,
+        var_name: Option<Str>,
+        index: i32
+    },
+    HookRemoved {
+        hook_type: Str,
+        var_name: Option<Str>,
+        index: i32
+    },
+    HookTypeChanged {
+        old_hook_type: Str,
+        new_hook_type: Str,
+        index: i32
+    },
+    HookVariableChanged {
+        hook_type: Str,
+        old_var_name: Str,
+        new_var_name: Str,
+        index: i32
+    },
+    HookPropertyChanged {
+        hook_type: Str,
+        old_property_name: Str,
+        new_property_name: Str,
+        index: i32
+    },
+    HookRuntimeChanged {
+        hook_type: Str,
+        old_runtime: Str,
+        new_runtime: Str,
+        index: i32
+    },
+    HookStreamingChanged {
+        hook_type: Str,
+        old_streaming: bool,
+        new_streaming: bool,
+        index: i32
+    }
+}
+
+/**
+ * Extract hook signature from component
+ *
+ * Returns array of hook metadata for structural change detection
+ */
+pub fn extract_hook_signature(component: &Component) -> Vec<HookSignatureEntry> {
+    let mut hooks = vec![];
+    let mut index = 0;
+
+    // Extract useState
+    for state_info in &component.use_state {
+        hooks.push(HookSignatureEntry {
+            hook_type: "useState".into(),
+            var_name: Some(state_info.name.clone()),
+            template_name: None,
+            field_key: None,
+            property_name: None,
+            channel: None,
+            hub_url: None,
+            hint_id: None,
+            runtime: None,
+            delay: None,
+            deps_count: None,
+            is_streaming: None,
+            index
+        });
+        index += 1;
+    }
+
+    // Extract useClientState
+    for state_info in &component.use_client_state {
+        hooks.push(HookSignatureEntry {
+            hook_type: "useClientState".into(),
+            var_name: Some(state_info.name.clone()),
+            template_name: None,
+            field_key: None,
+            property_name: None,
+            channel: None,
+            hub_url: None,
+            hint_id: None,
+            runtime: None,
+            delay: None,
+            deps_count: None,
+            is_streaming: None,
+            index
+        });
+        index += 1;
+    }
+
+    // Extract useStateX (declarative state projections)
+    if let Some(use_state_x) = &component.use_state_x {
+        for state_info in use_state_x {
+            hooks.push(HookSignatureEntry {
+                hook_type: "useStateX".into(),
+                var_name: Some(state_info.name.clone()),
+                template_name: None,
+                field_key: None,
+                property_name: None,
+                channel: None,
+                hub_url: None,
+                hint_id: None,
+                runtime: None,
+                delay: None,
+                deps_count: None,
+                is_streaming: None,
+                index
+            });
+            index += 1;
+        }
+    }
+
+    // Extract useEffect
+    for effect in &component.use_effect {
+        let deps_count = if let Some(deps) = &effect.dependencies {
+            if let Some(elements) = &deps.elements {
+                Some(elements.len() as i32)
+            } else {
+                Some(-1)
+            }
+        } else {
+            Some(-1) // -1 = no deps array (runs every render)
+        };
+
+        hooks.push(HookSignatureEntry {
+            hook_type: "useEffect".into(),
+            var_name: None,
+            template_name: None,
+            field_key: None,
+            property_name: None,
+            channel: None,
+            hub_url: None,
+            hint_id: None,
+            runtime: None,
+            delay: None,
+            deps_count,
+            is_streaming: None,
+            index
+        });
+        index += 1;
+    }
+
+    // Extract useRef
+    for ref_info in &component.use_ref {
+        hooks.push(HookSignatureEntry {
+            hook_type: "useRef".into(),
+            var_name: Some(ref_info.name.clone()),
+            template_name: None,
+            field_key: None,
+            property_name: None,
+            channel: None,
+            hub_url: None,
+            hint_id: None,
+            runtime: None,
+            delay: None,
+            deps_count: None,
+            is_streaming: None,
+            index
+        });
+        index += 1;
+    }
+
+    // Extract useMarkdown
+    for markdown_info in &component.use_markdown {
+        hooks.push(HookSignatureEntry {
+            hook_type: "useMarkdown".into(),
+            var_name: Some(markdown_info.name.clone()),
+            template_name: None,
+            field_key: None,
+            property_name: None,
+            channel: None,
+            hub_url: None,
+            hint_id: None,
+            runtime: None,
+            delay: None,
+            deps_count: None,
+            is_streaming: None,
+            index
+        });
+        index += 1;
+    }
+
+    // Extract useRazorMarkdown
+    if let Some(use_razor_markdown) = &component.use_razor_markdown {
+        for razor_info in use_razor_markdown {
+            hooks.push(HookSignatureEntry {
+                hook_type: "useRazorMarkdown".into(),
+                var_name: Some(razor_info.name.clone()),
+                template_name: None,
+                field_key: None,
+                property_name: None,
+                channel: None,
+                hub_url: None,
+                hint_id: None,
+                runtime: None,
+                delay: None,
+                deps_count: None,
+                is_streaming: None,
+                index
+            });
+            index += 1;
+        }
+    }
+
+    // Extract useTemplate
+    if let Some(use_template) = &component.use_template {
+        hooks.push(HookSignatureEntry {
+            hook_type: "useTemplate".into(),
+            var_name: None,
+            template_name: Some(use_template.name.clone()),
+            field_key: None,
+            property_name: None,
+            channel: None,
+            hub_url: None,
+            hint_id: None,
+            runtime: None,
+            delay: None,
+            deps_count: None,
+            is_streaming: None,
+            index
+        });
+        index += 1;
+    }
+
+    // Extract useValidation
+    for validation in &component.use_validation {
+        hooks.push(HookSignatureEntry {
+            hook_type: "useValidation".into(),
+            var_name: Some(validation.name.clone()),
+            template_name: None,
+            field_key: Some(validation.field_key.clone()),
+            property_name: None,
+            channel: None,
+            hub_url: None,
+            hint_id: None,
+            runtime: None,
+            delay: None,
+            deps_count: None,
+            is_streaming: None,
+            index
+        });
+        index += 1;
+    }
+
+    // Extract useModal
+    for modal in &component.use_modal {
+        hooks.push(HookSignatureEntry {
+            hook_type: "useModal".into(),
+            var_name: Some(modal.name.clone()),
+            template_name: None,
+            field_key: None,
+            property_name: None,
+            channel: None,
+            hub_url: None,
+            hint_id: None,
+            runtime: None,
+            delay: None,
+            deps_count: None,
+            is_streaming: None,
+            index
+        });
+        index += 1;
+    }
+
+    // Extract useToggle
+    for toggle in &component.use_toggle {
+        hooks.push(HookSignatureEntry {
+            hook_type: "useToggle".into(),
+            var_name: Some(toggle.name.clone()),
+            template_name: None,
+            field_key: None,
+            property_name: None,
+            channel: None,
+            hub_url: None,
+            hint_id: None,
+            runtime: None,
+            delay: None,
+            deps_count: None,
+            is_streaming: None,
+            index
+        });
+        index += 1;
+    }
+
+    // Extract useDropdown
+    for dropdown in &component.use_dropdown {
+        hooks.push(HookSignatureEntry {
+            hook_type: "useDropdown".into(),
+            var_name: Some(dropdown.name.clone()),
+            template_name: None,
+            field_key: None,
+            property_name: None,
+            channel: None,
+            hub_url: None,
+            hint_id: None,
+            runtime: None,
+            delay: None,
+            deps_count: None,
+            is_streaming: None,
+            index
+        });
+        index += 1;
+    }
+
+    // Extract usePub
+    if let Some(use_pub) = &component.use_pub {
+        for pub_info in use_pub {
+            hooks.push(HookSignatureEntry {
+                hook_type: "usePub".into(),
+                var_name: Some(pub_info.name.clone()),
+                template_name: None,
+                field_key: None,
+                property_name: None,
+                channel: Some(pub_info.channel.clone()),
+                hub_url: None,
+                hint_id: None,
+                runtime: None,
+                delay: None,
+                deps_count: None,
+                is_streaming: None,
+                index
+            });
+            index += 1;
+        }
+    }
+
+    // Extract useSub
+    if let Some(use_sub) = &component.use_sub {
+        for sub_info in use_sub {
+            hooks.push(HookSignatureEntry {
+                hook_type: "useSub".into(),
+                var_name: Some(sub_info.name.clone()),
+                template_name: None,
+                field_key: None,
+                property_name: None,
+                channel: Some(sub_info.channel.clone()),
+                hub_url: None,
+                hint_id: None,
+                runtime: None,
+                delay: None,
+                deps_count: None,
+                is_streaming: None,
+                index
+            });
+            index += 1;
+        }
+    }
+
+    // Extract useMicroTask
+    if let Some(use_micro_task) = &component.use_micro_task {
+        for _ in use_micro_task {
+            hooks.push(HookSignatureEntry {
+                hook_type: "useMicroTask".into(),
+                var_name: None,
+                template_name: None,
+                field_key: None,
+                property_name: None,
+                channel: None,
+                hub_url: None,
+                hint_id: None,
+                runtime: None,
+                delay: None,
+                deps_count: None,
+                is_streaming: None,
+                index
+            });
+            index += 1;
+        }
+    }
+
+    // Extract useMacroTask
+    if let Some(use_macro_task) = &component.use_macro_task {
+        for task in use_macro_task {
+            hooks.push(HookSignatureEntry {
+                hook_type: "useMacroTask".into(),
+                var_name: None,
+                template_name: None,
+                field_key: None,
+                property_name: None,
+                channel: None,
+                hub_url: None,
+                hint_id: None,
+                runtime: None,
+                delay: Some(task.delay),
+                deps_count: None,
+                is_streaming: None,
+                index
+            });
+            index += 1;
+        }
+    }
+
+    // Extract useSignalR
+    if let Some(use_signal_r) = &component.use_signal_r {
+        for signal_r in use_signal_r {
+            hooks.push(HookSignatureEntry {
+                hook_type: "useSignalR".into(),
+                var_name: Some(signal_r.name.clone()),
+                template_name: None,
+                field_key: None,
+                property_name: None,
+                channel: None,
+                hub_url: Some(signal_r.hub_url.clone()),
+                hint_id: None,
+                runtime: None,
+                delay: None,
+                deps_count: None,
+                is_streaming: None,
+                index
+            });
+            index += 1;
+        }
+    }
+
+    // Extract usePredictHint
+    if let Some(use_predict_hint) = &component.use_predict_hint {
+        for hint in use_predict_hint {
+            hooks.push(HookSignatureEntry {
+                hook_type: "usePredictHint".into(),
+                var_name: None,
+                template_name: None,
+                field_key: None,
+                property_name: None,
+                channel: None,
+                hub_url: None,
+                hint_id: Some(hint.hint_id.clone()),
+                runtime: None,
+                delay: None,
+                deps_count: None,
+                is_streaming: None,
+                index
+            });
+            index += 1;
+        }
+    }
+
+    // Extract useServerTask
+    if let Some(use_server_task) = &component.use_server_task {
+        for task in use_server_task {
+            hooks.push(HookSignatureEntry {
+                hook_type: "useServerTask".into(),
+                var_name: Some(task.name.clone()),
+                template_name: None,
+                field_key: None,
+                property_name: None,
+                channel: None,
+                hub_url: None,
+                hint_id: None,
+                runtime: Some(task.runtime.clone()),
+                delay: None,
+                deps_count: None,
+                is_streaming: Some(task.is_streaming),
+                index
+            });
+            index += 1;
+        }
+    }
+
+    // Extract usePaginatedServerTask (tracked via paginatedTasks)
+    if let Some(paginated_tasks) = &component.paginated_tasks {
+        for pag_task in paginated_tasks {
+            hooks.push(HookSignatureEntry {
+                hook_type: "usePaginatedServerTask".into(),
+                var_name: Some(pag_task.name.clone()),
+                template_name: None,
+                field_key: None,
+                property_name: None,
+                channel: None,
+                hub_url: None,
+                hint_id: None,
+                runtime: Some(pag_task.runtime.clone()),
+                delay: None,
+                deps_count: None,
+                is_streaming: None,
+                index
+            });
+            index += 1;
+        }
+    }
+
+    // Extract useMvcState
+    if let Some(use_mvc_state) = &component.use_mvc_state {
+        for mvc_state in use_mvc_state {
+            hooks.push(HookSignatureEntry {
+                hook_type: "useMvcState".into(),
+                var_name: Some(mvc_state.name.clone()),
+                template_name: None,
+                field_key: None,
+                property_name: Some(mvc_state.property_name.clone()),
+                channel: None,
+                hub_url: None,
+                hint_id: None,
+                runtime: None,
+                delay: None,
+                deps_count: None,
+                is_streaming: None,
+                index
+            });
+            index += 1;
+        }
+    }
+
+    // Extract useMvcViewModel
+    if let Some(use_mvc_view_model) = &component.use_mvc_view_model {
+        for mvc_view_model in use_mvc_view_model {
+            hooks.push(HookSignatureEntry {
+                hook_type: "useMvcViewModel".into(),
+                var_name: Some(mvc_view_model.name.clone()),
+                template_name: None,
+                field_key: None,
+                property_name: None,
+                channel: None,
+                hub_url: None,
+                hint_id: None,
+                runtime: None,
+                delay: None,
+                deps_count: None,
+                is_streaming: None,
+                index
+            });
+            index += 1;
+        }
+    }
+
+    hooks
+}
+
+/**
+ * Write hook signature to file
+ */
+pub fn write_hook_signature(
+    component_name: &Str,
+    hooks: &Vec<HookSignatureEntry>,
+    input_file_path: &Str
+) -> Result<(), Str> {
+    let signature = HookSignature {
+        component_name: component_name.clone(),
+        timestamp: "2024-01-01T00:00:00Z".into(), // Would use real timestamp
+        hooks: hooks.clone()
+    };
+
+    let output_dir = path::dirname(input_file_path);
+    let signature_file_path = path::join(vec![output_dir, format!("{}.hooks.json", component_name)]);
+
+    let json_str = json::stringify(&signature);
+    fs::write_file(&signature_file_path, json_str)?;
+
+    println!("[Hook Signature] ✅ Wrote {}.hooks.json with {} hooks", component_name, hooks.len());
+
+    Ok(())
+}
+
+/**
+ * Read previous hook signature from file
+ */
+pub fn read_previous_hook_signature(
+    component_name: &Str,
+    input_file_path: &Str
+) -> Option<Vec<HookSignatureEntry>> {
+    let output_dir = path::dirname(input_file_path);
+    let signature_file_path = path::join(vec![output_dir, format!("{}.hooks.json", component_name)]);
+
+    if !fs::exists(&signature_file_path) {
+        return None; // First transpilation
+    }
+
+    let json_str = fs::read_file(&signature_file_path).ok()?;
+    let signature: HookSignature = json::parse(&json_str).ok()?;
+
+    println!("[Hook Signature] 📖 Read {}.hooks.json with {} hooks", component_name, signature.hooks.len());
+
+    Some(signature.hooks)
+}
+
+/**
+ * Compare two hook signatures and detect changes
+ */
+pub fn compare_hook_signatures(
+    previous_hooks: &Vec<HookSignatureEntry>,
+    current_hooks: &Vec<HookSignatureEntry>
+) -> Vec<HookChange> {
+    let mut changes = vec![];
+
+    // Check if hook count changed
+    if previous_hooks.len() != current_hooks.len() {
+        println!("[Hook Changes] Hook count changed: {} → {}", previous_hooks.len(), current_hooks.len());
+    }
+
+    // Compare each hook by index
+    let max_length = if previous_hooks.len() > current_hooks.len() {
+        previous_hooks.len()
+    } else {
+        current_hooks.len()
+    };
+
+    for i in 0..max_length {
+        let prev_hook = previous_hooks.get(i);
+        let curr_hook = current_hooks.get(i);
+
+        if prev_hook.is_none() && curr_hook.is_some() {
+            // Hook added
+            let hook = curr_hook.unwrap();
+            let hook_desc = get_hook_description(hook);
+            println!("[Hook Changes] 🆕 Hook added at index {}: {}", i, hook_desc);
+            changes.push(HookChange::HookAdded {
+                hook_type: hook.hook_type.clone(),
+                var_name: hook.var_name.clone(),
+                index: i as i32
+            });
+        } else if prev_hook.is_some() && curr_hook.is_none() {
+            // Hook removed
+            let hook = prev_hook.unwrap();
+            let hook_desc = get_hook_description(hook);
+            println!("[Hook Changes] 🗑️  Hook removed at index {}: {}", i, hook_desc);
+            changes.push(HookChange::HookRemoved {
+                hook_type: hook.hook_type.clone(),
+                var_name: hook.var_name.clone(),
+                index: i as i32
+            });
+        } else if let (Some(prev), Some(curr)) = (prev_hook, curr_hook) {
+            // Check if hook type changed
+            if prev.hook_type != curr.hook_type {
+                println!("[Hook Changes] 🔄 Hook type changed at index {}: {} → {}", i, prev.hook_type, curr.hook_type);
+                changes.push(HookChange::HookTypeChanged {
+                    old_hook_type: prev.hook_type.clone(),
+                    new_hook_type: curr.hook_type.clone(),
+                    index: i as i32
+                });
+            }
+
+            // Check if variable name changed (for hooks with variables)
+            if let (Some(prev_var), Some(curr_var)) = (&prev.var_name, &curr.var_name) {
+                if prev_var != curr_var {
+                    println!("[Hook Changes] 🔄 Hook variable changed at index {}: {} → {}", i, prev_var, curr_var);
+                    changes.push(HookChange::HookVariableChanged {
+                        hook_type: curr.hook_type.clone(),
+                        old_var_name: prev_var.clone(),
+                        new_var_name: curr_var.clone(),
+                        index: i as i32
+                    });
+                }
+            }
+
+            // Check if property name changed (for useMvcState)
+            if let (Some(prev_prop), Some(curr_prop)) = (&prev.property_name, &curr.property_name) {
+                if prev_prop != curr_prop {
+                    println!("[Hook Changes] 🔄 useMvcState property changed at index {}: {} → {}", i, prev_prop, curr_prop);
+                    changes.push(HookChange::HookPropertyChanged {
+                        hook_type: "useMvcState".into(),
+                        old_property_name: prev_prop.clone(),
+                        new_property_name: curr_prop.clone(),
+                        index: i as i32
+                    });
+                }
+            }
+
+            // Check if runtime changed (for useServerTask/usePaginatedServerTask)
+            if let (Some(prev_runtime), Some(curr_runtime)) = (&prev.runtime, &curr.runtime) {
+                if prev_runtime != curr_runtime {
+                    println!("[Hook Changes] 🔄 {} runtime changed at index {}: {} → {}", curr.hook_type, i, prev_runtime, curr_runtime);
+                    changes.push(HookChange::HookRuntimeChanged {
+                        hook_type: curr.hook_type.clone(),
+                        old_runtime: prev_runtime.clone(),
+                        new_runtime: curr_runtime.clone(),
+                        index: i as i32
+                    });
+                }
+            }
+
+            // Check if streaming changed (for useServerTask)
+            if let (Some(prev_streaming), Some(curr_streaming)) = (prev.is_streaming, curr.is_streaming) {
+                if prev_streaming != curr_streaming {
+                    println!("[Hook Changes] 🔄 useServerTask streaming changed at index {}: {} → {}", i, prev_streaming, curr_streaming);
+                    changes.push(HookChange::HookStreamingChanged {
+                        hook_type: "useServerTask".into(),
+                        old_streaming: prev_streaming,
+                        new_streaming: curr_streaming,
+                        index: i as i32
+                    });
+                }
+            }
+        }
+    }
+
+    changes
+}
+
+/**
+ * Get a human-readable description of a hook
+ */
+fn get_hook_description(hook: &HookSignatureEntry) -> Str {
+    if let Some(var_name) = &hook.var_name {
+        return format!("{} ({})", hook.hook_type, var_name);
+    }
+    if let Some(template_name) = &hook.template_name {
+        return format!("{} ({})", hook.hook_type, template_name);
+    }
+    if let Some(hint_id) = &hook.hint_id {
+        return format!("{} ({})", hook.hook_type, hint_id);
+    }
+    if let Some(field_key) = &hook.field_key {
+        return format!("{} ({})", hook.hook_type, field_key);
+    }
+    if let Some(property_name) = &hook.property_name {
+        return format!("{} ({})", hook.hook_type, property_name);
+    }
+    if let Some(channel) = &hook.channel {
+        return format!("{} ({})", hook.hook_type, channel);
+    }
+    hook.hook_type.clone()
+}
