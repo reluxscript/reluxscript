@@ -792,6 +792,41 @@ impl Parser {
         Ok(Type::Tuple(types))
     }
 
+    /// Parse turbofish type arguments: ::<Type1, Type2, ...>
+    /// Assumes `::` has already been consumed and we're at `<`
+    fn parse_turbofish_type_args(&mut self) -> ParseResult<Vec<Type>> {
+        self.expect(TokenKind::Lt)?;
+
+        let mut type_args = Vec::new();
+
+        // Handle empty turbofish (shouldn't happen but be safe)
+        if self.check(TokenKind::Gt) {
+            self.advance();
+            return Ok(type_args);
+        }
+
+        loop {
+            // Handle wildcard type `_`
+            if self.check_ident("_") {
+                self.advance();
+                type_args.push(Type::Named("_".to_string()));
+            } else {
+                type_args.push(self.parse_type()?);
+            }
+
+            if !self.match_token(TokenKind::Comma) {
+                break;
+            }
+            // Allow trailing comma
+            if self.check(TokenKind::Gt) {
+                break;
+            }
+        }
+
+        self.expect(TokenKind::Gt)?;
+        Ok(type_args)
+    }
+
     /// Parse a block
     fn parse_block(&mut self) -> ParseResult<Block> {
         let start_span = self.current_span();
@@ -1281,7 +1316,44 @@ impl Parser {
     fn parse_expr_no_struct(&mut self) -> ParseResult<Expr> {
         // Parse the expression but stop if we see an identifier followed by {
         // We need to support binary operators like ==, &&, ||
-        self.parse_or_no_struct()
+        self.parse_range_no_struct()
+    }
+
+    /// Parse range expression without struct initialization
+    fn parse_range_no_struct(&mut self) -> ParseResult<Expr> {
+        // Parse the left side (or None for open-start ranges)
+        let start = if self.check(TokenKind::DotDot) {
+            None
+        } else {
+            Some(self.parse_or_no_struct()?)
+        };
+
+        // Check for range operator
+        if self.match_token(TokenKind::DotDot) {
+            let span = self.current_span();
+            // Check for inclusive range (..=)
+            let inclusive = self.match_token(TokenKind::Eq);
+
+            // Parse the end (or None for open-end ranges)
+            // End is optional - check for tokens that indicate end of range context
+            let end = if self.check(TokenKind::LBrace) || self.check(TokenKind::Semicolon)
+                || self.check(TokenKind::Comma) || self.check(TokenKind::RParen)
+                || self.check(TokenKind::RBracket) {
+                None
+            } else {
+                Some(Box::new(self.parse_or_no_struct()?))
+            };
+
+            return Ok(Expr::Range(RangeExpr {
+                start: start.map(Box::new),
+                end,
+                inclusive,
+                span,
+            }));
+        }
+
+        // Not a range, return the expression we parsed
+        start.ok_or_else(|| ParseError::new("Expected expression", self.current_span()))
     }
 
     fn parse_or_no_struct(&mut self) -> ParseResult<Expr> {
@@ -1935,7 +2007,7 @@ impl Parser {
 
     /// Parse assignment expression
     fn parse_assignment(&mut self) -> ParseResult<Expr> {
-        let expr = self.parse_or()?;
+        let expr = self.parse_range()?;
 
         if self.match_token(TokenKind::Eq) {
             let value = self.parse_assignment()?;
@@ -1985,6 +2057,43 @@ impl Parser {
         }
 
         Ok(expr)
+    }
+
+    /// Parse range expression: start..end or start..=end
+    fn parse_range(&mut self) -> ParseResult<Expr> {
+        // Parse the left side (or None for open-start ranges)
+        let start = if self.check(TokenKind::DotDot) {
+            None
+        } else {
+            Some(self.parse_or()?)
+        };
+
+        // Check for range operator
+        if self.match_token(TokenKind::DotDot) {
+            let span = self.current_span();
+            // Check for inclusive range (..=)
+            let inclusive = self.match_token(TokenKind::Eq);
+
+            // Parse the end (or None for open-end ranges like `start..`)
+            // End is optional - check for tokens that indicate end of range context
+            let end = if self.check(TokenKind::LBrace) || self.check(TokenKind::Semicolon)
+                || self.check(TokenKind::Comma) || self.check(TokenKind::RParen)
+                || self.check(TokenKind::RBracket) {
+                None
+            } else {
+                Some(Box::new(self.parse_or()?))
+            };
+
+            return Ok(Expr::Range(RangeExpr {
+                start: start.map(Box::new),
+                end,
+                inclusive,
+                span,
+            }));
+        }
+
+        // Not a range, return the expression we parsed
+        start.ok_or_else(|| ParseError::new("Expected expression", self.current_span()))
     }
 
     /// Parse logical OR
@@ -2179,6 +2288,8 @@ impl Parser {
     /// Parse call/member/index expression
     fn parse_call(&mut self) -> ParseResult<Expr> {
         let mut expr = self.parse_primary()?;
+        // Track pending turbofish type arguments for the next call
+        let mut pending_turbofish: Vec<Type> = Vec::new();
 
         loop {
             // Skip newlines to allow method chaining across lines
@@ -2194,6 +2305,7 @@ impl Parser {
                             if ident.name == "Regex" {
                                 // Parse Regex::method(...) call
                                 expr = self.parse_regex_call(&member.property)?;
+                                pending_turbofish.clear();
                                 continue;
                             }
                         }
@@ -2203,10 +2315,12 @@ impl Parser {
                 let args = self.parse_args()?;
                 self.expect(TokenKind::RParen)?;
                 let span = self.current_span();
+                // Use pending turbofish type args if any
+                let type_args = std::mem::take(&mut pending_turbofish);
                 expr = Expr::Call(CallExpr {
                     callee: Box::new(expr),
                     args,
-                    type_args: Vec::new(),
+                    type_args: type_args.into_iter().map(|t| t.to_ts_type()).collect(),
                     optional: false,
                     is_macro: false,
                     span,
@@ -2305,16 +2419,19 @@ impl Parser {
                 }
             } else if self.match_token(TokenKind::ColonColon) {
                 // Static method call like HashMap::new or Expr::CallExpression
-                // Check for turbofish syntax (not supported)
+                // Or turbofish syntax like .collect::<Vec<_>>()
+
+                // Check for turbofish syntax: ::<Type>
                 if self.check(TokenKind::Lt) {
-                    return Err(self.error("Turbofish syntax (`::<Type>`) is not supported. Use type annotations instead: `let result: Type = expr.method()`"));
+                    // Parse turbofish type arguments
+                    pending_turbofish = self.parse_turbofish_type_args()?;
+                    // After turbofish, expect ( for function call
+                    // The next iteration will handle the LParen
+                    continue;
                 }
 
                 let method = if let Some(ast_type) = self.try_expect_ast_type() {
                     ast_type
-                } else if self.check(TokenKind::Lt) {
-                    // Double-check for < after AST type check failed
-                    return Err(self.error("Turbofish syntax (`::<Type>`) is not supported. Use type annotations instead: `let result: Type = expr.method()`"));
                 } else {
                     self.expect_ident()?
                 };
@@ -2642,9 +2759,11 @@ impl Parser {
             if self.check(TokenKind::ColonColon) {
                 let mut segments = vec![name.clone()];
                 while self.match_token(TokenKind::ColonColon) {
-                    // Allow certain keywords as path segments (e.g., std::ptr::null)
+                    // Allow identifiers, AST types, and certain keywords as path segments
                     if let Some(segment) = self.try_expect_ident() {
                         segments.push(segment);
+                    } else if let Some(ast_type) = self.try_expect_ast_type() {
+                        segments.push(ast_type);
                     } else if self.match_token(TokenKind::Null) {
                         segments.push("null".to_string());
                     } else if self.match_token(TokenKind::Self_) {
@@ -2730,6 +2849,44 @@ impl Parser {
 
         // AST node type as identifier
         if let Some(name) = self.try_expect_ast_type() {
+            // Check for path expression: JSXAttribute::Attribute(...)
+            if self.check(TokenKind::ColonColon) {
+                let mut segments = vec![name.clone()];
+                while self.match_token(TokenKind::ColonColon) {
+                    // Allow identifiers, AST types, and certain keywords as path segments
+                    if let Some(segment) = self.try_expect_ident() {
+                        segments.push(segment);
+                    } else if let Some(ast_type) = self.try_expect_ast_type() {
+                        segments.push(ast_type);
+                    } else if self.match_token(TokenKind::Null) {
+                        segments.push("null".to_string());
+                    } else if self.match_token(TokenKind::Self_) {
+                        segments.push("self".to_string());
+                    } else if self.match_token(TokenKind::SelfType) {
+                        segments.push("Self".to_string());
+                    } else {
+                        return Err(ParseError::new(
+                            "Expected identifier after ::",
+                            self.current_span(),
+                        ));
+                    }
+                }
+                // Check for function call on path: JSXAttribute::Attribute(...)
+                if self.check(TokenKind::LParen) {
+                    self.advance(); // consume (
+                    let args = self.parse_args()?;
+                    self.expect(TokenKind::RParen)?;
+                    return Ok(Expr::Call(CallExpr {
+                        callee: Box::new(Expr::Path(PathExpr { segments, span })),
+                        args,
+                        type_args: Vec::new(),
+                        optional: false,
+                        is_macro: false,
+                        span: self.current_span(),
+                    }));
+                }
+                return Ok(Expr::Path(PathExpr { segments, span }));
+            }
             // Check for struct initialization
             if self.check(TokenKind::LBrace) {
                 return self.parse_struct_init(name, span);

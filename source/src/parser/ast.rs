@@ -211,6 +211,59 @@ pub enum Type {
     },
 }
 
+impl Type {
+    /// Convert ReluxScript Type to TypeScript TsType for turbofish type args
+    pub fn to_ts_type(&self) -> TsType {
+        match self {
+            Type::Primitive(name) => match name.as_str() {
+                "Str" | "String" | "str" => TsType::String,
+                "i32" | "i64" | "u32" | "u64" | "usize" | "isize" | "f32" | "f64" => TsType::Number,
+                "bool" => TsType::Boolean,
+                "()" => TsType::Void,
+                _ => TsType::TypeReference {
+                    name: name.clone(),
+                    type_args: vec![],
+                },
+            },
+            Type::Reference { inner, .. } => inner.to_ts_type(),
+            Type::Container { name, type_args } => TsType::TypeReference {
+                name: name.clone(),
+                type_args: type_args.iter().map(|t| t.to_ts_type()).collect(),
+            },
+            Type::Named(name) => {
+                // Special case: _ is inferred type (for turbofish like collect::<Vec<_>>)
+                if name == "_" {
+                    TsType::Any
+                } else {
+                    TsType::TypeReference {
+                        name: name.clone(),
+                        type_args: vec![],
+                    }
+                }
+            }
+            Type::Array { element } => TsType::Array(Box::new(element.to_ts_type())),
+            Type::Tuple(elements) => TsType::Tuple(elements.iter().map(|t| t.to_ts_type()).collect()),
+            Type::Optional(inner) => {
+                // Optional<T> becomes T | null | undefined in TypeScript
+                TsType::Union(vec![
+                    inner.to_ts_type(),
+                    TsType::Null,
+                    TsType::Undefined,
+                ])
+            }
+            Type::Unit => TsType::Void,
+            Type::FnTrait { params, return_type } => TsType::FunctionType {
+                params: params.iter().map(|t| t.to_ts_type()).collect(),
+                return_type: Box::new(return_type.to_ts_type()),
+            },
+            Type::RawPointer { inner, .. } => {
+                // Raw pointers become the inner type in TypeScript
+                inner.to_ts_type()
+            }
+        }
+    }
+}
+
 // =============================================================================
 // TypeScript AST Types
 // =============================================================================

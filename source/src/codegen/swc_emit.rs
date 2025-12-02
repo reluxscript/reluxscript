@@ -1626,6 +1626,18 @@ impl SwcEmitter {
 
                 self.emit_expr(&call.callee);
 
+                // Emit turbofish type arguments if present: ::<Type1, Type2>
+                if !call.type_args.is_empty() {
+                    self.output.push_str("::<");
+                    for (i, ty) in call.type_args.iter().enumerate() {
+                        if i > 0 {
+                            self.output.push_str(", ");
+                        }
+                        self.emit_ts_type_as_rust(ty);
+                    }
+                    self.output.push('>');
+                }
+
                 // Add ! suffix for macro calls
                 if call.is_macro {
                     self.output.push('!');
@@ -2106,6 +2118,86 @@ impl SwcEmitter {
                     if *mutable { "mut" } else { "const" },
                     self.type_to_string_with_lifetime(inner, add_lifetime)
                 )
+            }
+        }
+    }
+
+    /// Emit a TsType as a Rust type string for turbofish syntax
+    fn emit_ts_type_as_rust(&mut self, ty: &crate::parser::TsType) {
+        use crate::parser::TsType;
+        match ty {
+            TsType::String => self.output.push_str("String"),
+            TsType::Number => self.output.push_str("f64"),
+            TsType::Boolean => self.output.push_str("bool"),
+            TsType::Any => self.output.push('_'),  // Type inference placeholder
+            TsType::Void => self.output.push_str("()"),
+            TsType::Null | TsType::Undefined => self.output.push_str("()"),
+            TsType::Never => self.output.push('!'),
+            TsType::Unknown => self.output.push('_'),
+            TsType::Array(inner) => {
+                self.output.push_str("Vec<");
+                self.emit_ts_type_as_rust(inner);
+                self.output.push('>');
+            }
+            TsType::Tuple(types) => {
+                self.output.push('(');
+                for (i, t) in types.iter().enumerate() {
+                    if i > 0 {
+                        self.output.push_str(", ");
+                    }
+                    self.emit_ts_type_as_rust(t);
+                }
+                self.output.push(')');
+            }
+            TsType::Union(types) => {
+                // For unions, just use the first type (simplification)
+                if !types.is_empty() {
+                    self.emit_ts_type_as_rust(&types[0]);
+                } else {
+                    self.output.push('_');
+                }
+            }
+            TsType::Intersection(types) => {
+                // For intersections, just use the first type (simplification)
+                if !types.is_empty() {
+                    self.emit_ts_type_as_rust(&types[0]);
+                } else {
+                    self.output.push('_');
+                }
+            }
+            TsType::TypeReference { name, type_args } => {
+                // Map common type names
+                let rust_name = match name.as_str() {
+                    "Str" => "String",
+                    "Bool" | "Boolean" => "bool",
+                    _ => name.as_str(),
+                };
+                self.output.push_str(rust_name);
+                if !type_args.is_empty() {
+                    self.output.push('<');
+                    for (i, arg) in type_args.iter().enumerate() {
+                        if i > 0 {
+                            self.output.push_str(", ");
+                        }
+                        self.emit_ts_type_as_rust(arg);
+                    }
+                    self.output.push('>');
+                }
+            }
+            TsType::FunctionType { params, return_type } => {
+                self.output.push_str("fn(");
+                for (i, p) in params.iter().enumerate() {
+                    if i > 0 {
+                        self.output.push_str(", ");
+                    }
+                    self.emit_ts_type_as_rust(p);
+                }
+                self.output.push_str(") -> ");
+                self.emit_ts_type_as_rust(return_type);
+            }
+            TsType::LiteralString(_) | TsType::LiteralNumber(_) | TsType::LiteralBoolean(_) => {
+                // Literal types just use the base type
+                self.output.push('_');
             }
         }
     }

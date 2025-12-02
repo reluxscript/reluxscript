@@ -13,10 +13,10 @@ use "../utils/path_assignment.lux" { get_path_from_node };
  */
 pub fn generate_fragment(node: &JSXFragment, component: &mut Component, indent: i32) -> Str {
     let children = generate_children(&node.children, component, indent);
-    let children_array = children.iter()
+    let codes: Vec<Str> = children.iter()
         .map(|c| c.code.clone())
-        .collect::<Vec<_>>()
-        .join(", ");
+        .collect();
+    let children_array = codes.join(", ");
     format!("new Fragment({})", children_array)
 }
 
@@ -207,7 +207,7 @@ pub fn generate_jsx_element(node: &JSXNode, component: &mut Component, indent: i
                 tag_name, hex_path, props_str, children_code[0].code)
         } else {
             // Wrap children appropriately for VNode array
-            let children_array = children_code.iter().map(|c| {
+            let wrapped_children: Vec<Str> = children_code.iter().map(|c| {
                 match c.child_type.as_str() {
                     "text" => {
                         let text_path = c.minimact_path.clone().unwrap_or_default();
@@ -223,7 +223,8 @@ pub fn generate_jsx_element(node: &JSXNode, component: &mut Component, indent: i
                     }
                     _ => c.code.clone()
                 }
-            }).collect::<Vec<_>>().join(",\n" + &indent_str + "    ");
+            }).collect();
+            let children_array = wrapped_children.join(",\n" + &indent_str + "    ");
 
             format!("new VElement(\"{}\", \"{}\", {}, new VNode[]\n{}{{\\n{}    {}\\n{}}})",
                 tag_name, hex_path, props_str, indent_str, indent_str, children_array, indent_str)
