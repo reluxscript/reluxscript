@@ -2166,10 +2166,13 @@ impl SwcEmitter {
                 }
             }
             TsType::TypeReference { name, type_args } => {
-                // Map common type names
+                // Map common type names to Rust equivalents
                 let rust_name = match name.as_str() {
                     "Str" => "String",
                     "Bool" | "Boolean" => "bool",
+                    "Float" => "f64",
+                    "Int" | "Number" => "i32",
+                    "f32" | "f64" | "i32" | "i64" | "u32" | "u64" | "usize" | "isize" => name.as_str(),
                     _ => name.as_str(),
                 };
                 self.output.push_str(rust_name);

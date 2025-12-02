@@ -1694,20 +1694,48 @@ impl Parser {
                     });
                 } else if self.match_token(TokenKind::ColonColon) {
                     // Path expression like fs::write or HashMap::new
-                    // Check for turbofish syntax (not supported)
+                    // Or turbofish syntax like .parse::<f64>()
                     if self.check(TokenKind::Lt) {
-                        return Err(self.error("Turbofish syntax (`::<Type>`) is not supported. Use type annotations instead: `let result: Type = expr.method()`"));
+                        // Turbofish syntax - parse type args and then expect call
+                        let type_args = self.parse_turbofish_type_args()?;
+                        // Must be followed by function call
+                        if !self.match_token(TokenKind::LParen) {
+                            return Err(self.error("Expected '(' after turbofish type arguments"));
+                        }
+                        let mut args = Vec::new();
+                        if !self.check(TokenKind::RParen) {
+                            loop {
+                                args.push(self.parse_expr()?);
+                                if !self.match_token(TokenKind::Comma) {
+                                    break;
+                                }
+                                if self.check(TokenKind::RParen) {
+                                    break;
+                                }
+                            }
+                        }
+                        self.expect(TokenKind::RParen)?;
+                        let span = self.current_span();
+                        expr = Expr::Call(CallExpr {
+                            callee: Box::new(expr),
+                            args,
+                            type_args: type_args.into_iter().map(|t| t.to_ts_type()).collect(),
+                            optional: false,
+                            is_macro: false,
+                            span,
+                        });
+                    } else {
+                        let method = self.expect_ident()?;
+                        let span = self.current_span();
+                        expr = Expr::Member(MemberExpr {
+                            object: Box::new(expr),
+                            property: method,
+                            optional: false,
+                            computed: false,
+                            is_path: true,
+                            span,
+                        });
                     }
-                    let method = self.expect_ident()?;
-                    let span = self.current_span();
-                    expr = Expr::Member(MemberExpr {
-                        object: Box::new(expr),
-                        property: method,
-                        optional: false,
-                        computed: false,
-                        is_path: true,
-                        span,
-                    });
                 } else {
                     // Don't handle LBrace here - that would be struct init
                     break;
