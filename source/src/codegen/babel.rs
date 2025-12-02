@@ -2641,7 +2641,14 @@ impl BabelGenerator {
             }
             Expr::Closure(closure) => {
                 self.emit("(");
-                self.emit(&closure.params.join(", "));
+                let params_str: Vec<String> = closure.params.iter().map(|p| {
+                    match p {
+                        ClosureParam::Ident(name) => name.clone(),
+                        ClosureParam::Tuple(names) => format!("[{}]", names.join(", ")),
+                        ClosureParam::Typed { name, .. } => name.clone(),
+                    }
+                }).collect();
+                self.emit(&params_str.join(", "));
                 self.emit(") => ");
                 self.gen_expr(&closure.body);
             }

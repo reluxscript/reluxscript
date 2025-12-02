@@ -863,15 +863,32 @@ impl TypeChecker {
 
             Expr::Closure(closure) => {
                 self.env.push_scope();
+                let mut param_count = 0;
                 for param in &closure.params {
-                    let var_type = self.env.fresh_var();
-                    self.env.define(param.clone(), var_type);
+                    match param {
+                        ClosureParam::Ident(name) => {
+                            let var_type = self.env.fresh_var();
+                            self.env.define(name.clone(), var_type);
+                            param_count += 1;
+                        }
+                        ClosureParam::Tuple(names) => {
+                            for name in names {
+                                let var_type = self.env.fresh_var();
+                                self.env.define(name.clone(), var_type);
+                            }
+                            param_count += 1; // Tuple counts as one parameter
+                        }
+                        ClosureParam::Typed { name, ty } => {
+                            self.env.define(name.clone(), ast_type_to_type_info(ty));
+                            param_count += 1;
+                        }
+                    }
                 }
                 let body_type = self.infer_expr(&closure.body);
                 self.env.pop_scope();
 
                 TypeInfo::Function {
-                    params: vec![TypeInfo::Unknown; closure.params.len()],
+                    params: vec![TypeInfo::Unknown; param_count],
                     ret: Box::new(body_type),
                 }
             }

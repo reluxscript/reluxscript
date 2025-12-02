@@ -2984,7 +2984,8 @@ impl Parser {
         let mut params = Vec::new();
         if !self.check(TokenKind::Pipe) {
             loop {
-                params.push(self.expect_ident()?);
+                let param = self.parse_closure_param()?;
+                params.push(param);
                 if !self.match_token(TokenKind::Comma) {
                     break;
                 }
@@ -3005,6 +3006,36 @@ impl Parser {
             body: Box::new(body),
             span,
         }))
+    }
+
+    /// Parse a closure parameter (identifier, tuple pattern, or typed)
+    fn parse_closure_param(&mut self) -> ParseResult<ClosureParam> {
+        // Check for tuple pattern: (a, b)
+        if self.check(TokenKind::LParen) {
+            self.advance(); // consume '('
+            let mut names = Vec::new();
+            if !self.check(TokenKind::RParen) {
+                loop {
+                    names.push(self.expect_ident()?);
+                    if !self.match_token(TokenKind::Comma) {
+                        break;
+                    }
+                }
+            }
+            self.expect(TokenKind::RParen)?;
+            return Ok(ClosureParam::Tuple(names));
+        }
+
+        // Simple identifier or typed parameter
+        let name = self.expect_ident()?;
+
+        // Check for type annotation: x: Type
+        if self.match_token(TokenKind::Colon) {
+            let ty = self.parse_type()?;
+            return Ok(ClosureParam::Typed { name, ty });
+        }
+
+        Ok(ClosureParam::Ident(name))
     }
 
     /// Parse empty closure: || body

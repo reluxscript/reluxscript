@@ -1919,7 +1919,19 @@ impl SwcEmitter {
                     if i > 0 {
                         self.output.push_str(", ");
                     }
-                    self.output.push_str(param);
+                    match param {
+                        ClosureParam::Ident(name) => self.output.push_str(name),
+                        ClosureParam::Tuple(names) => {
+                            self.output.push('(');
+                            self.output.push_str(&names.join(", "));
+                            self.output.push(')');
+                        }
+                        ClosureParam::Typed { name, ty } => {
+                            self.output.push_str(name);
+                            self.output.push_str(": ");
+                            self.output.push_str(&format!("{:?}", ty)); // TODO: proper type emission
+                        }
+                    }
                 }
                 self.output.push('|');
                 self.output.push(' ');

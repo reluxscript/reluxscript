@@ -982,8 +982,22 @@ impl Resolver {
             Expr::Closure(closure) => {
                 self.env.push_scope();
                 for param in &closure.params {
-                    let var_type = self.env.fresh_var();
-                    self.env.define(param.clone(), var_type);
+                    match param {
+                        ClosureParam::Ident(name) => {
+                            let var_type = self.env.fresh_var();
+                            self.env.define(name.clone(), var_type);
+                        }
+                        ClosureParam::Tuple(names) => {
+                            for name in names {
+                                let var_type = self.env.fresh_var();
+                                self.env.define(name.clone(), var_type);
+                            }
+                        }
+                        ClosureParam::Typed { name, .. } => {
+                            let var_type = self.env.fresh_var();
+                            self.env.define(name.clone(), var_type);
+                        }
+                    }
                 }
                 self.resolve_expr(&closure.body);
                 self.env.pop_scope();

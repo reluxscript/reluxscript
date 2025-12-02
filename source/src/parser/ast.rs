@@ -912,9 +912,20 @@ pub enum RegexMethod {
 /// Closure expression
 #[derive(Debug, Clone)]
 pub struct ClosureExpr {
-    pub params: Vec<String>,
+    pub params: Vec<ClosureParam>,
     pub body: Box<Expr>,
     pub span: Span,
+}
+
+/// Closure parameter - can be a simple identifier or a pattern
+#[derive(Debug, Clone)]
+pub enum ClosureParam {
+    /// Simple identifier: |x|
+    Ident(String),
+    /// Tuple destructure: |(a, b)|
+    Tuple(Vec<String>),
+    /// Typed parameter: |x: i32|
+    Typed { name: String, ty: Type },
 }
 
 /// Reference expression
