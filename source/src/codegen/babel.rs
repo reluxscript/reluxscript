@@ -1261,6 +1261,7 @@ impl BabelGenerator {
                 self.gen_expr(&assign.value);
                 self.emit(";\n");
             }
+
         }
     }
 

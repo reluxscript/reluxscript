@@ -1,0 +1,10 @@
+plugin Test {
+    fn test(x: &Option<i32>) {
+        if let Some(a) = x {
+            let _y = a;
+        }
+        else if let Some(b) = x {
+            let _z = b;
+        }
+    }
+}

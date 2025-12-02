@@ -1,0 +1,18 @@
+/// Test file for inline imports
+/// Tests the ability to use imports inside function bodies
+
+plugin TestInlineImports {
+    fn visit_identifier(node: &mut Identifier) {
+        // Inline import to avoid circular dependencies
+        use fs;
+
+        let result = fs::write("test.txt", "hello");
+    }
+
+    fn visit_string_literal(node: &mut StringLiteral) {
+        // Another inline import with named imports
+        use json { parse, stringify };
+
+        let data = stringify(&node.value);
+    }
+}

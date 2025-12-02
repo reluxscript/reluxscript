@@ -1,0 +1,156 @@
+/// Process Component
+///
+/// Main entry point for processing a component function.
+/// Mirrors babel-plugin-minimact/src/processComponent.cjs
+
+// Level 2 imports - dependencies of process_component
+use "./utils/helpers.lux" { get_component_name, is_component_name };
+use "./types/type_conversion.lux" { ts_type_to_csharp_type };
+use "./extractors/hooks.lux" { extract_hook };
+use "./extractors/local_variables.lux" { extract_local_variables };
+use "./analyzers/prop_type_inference.lux" { infer_prop_types };
+use "./analyzers/hook_detector.lux" { is_custom_hook };
+use "./analyzers/hook_analyzer.lux" { analyze_hook };
+use "./utils/hex_path.lux" { HexPathGenerator };
+use "./utils/path_assignment.lux" { assign_paths_to_jsx };
+
+// =============================================================================
+// Data Structures
+// =============================================================================
+
+pub struct ProcessedComponent {
+    pub name: Str,
+    pub props: Vec<PropInfo>,
+    pub use_state: Vec<StateInfo>,
+    pub use_effect: Vec<EffectInfo>,
+    pub use_ref: Vec<RefInfo>,
+    pub event_handlers: Vec<EventHandlerInfo>,
+    pub render_body: Option<Str>,
+}
+
+pub struct PropInfo {
+    pub name: Str,
+    pub prop_type: Str,
+    pub optional: bool,
+}
+
+pub struct StateInfo {
+    pub name: Str,
+    pub setter: Option<Str>,
+    pub initial_value: Str,
+    pub state_type: Str,
+}
+
+pub struct EffectInfo {
+    pub dependencies: Vec<Str>,
+}
+
+pub struct RefInfo {
+    pub name: Str,
+    pub initial_value: Str,
+}
+
+pub struct EventHandlerInfo {
+    pub name: Str,
+    pub params: Vec<Str>,
+}
+
+// =============================================================================
+// Main Function
+// =============================================================================
+
+/// Process a function declaration and extract component info
+pub fn process_component(node: &FunctionDeclaration) -> Option<ProcessedComponent> {
+    // 1. Get component name
+    let name = get_component_name(node)?;
+
+    // 2. Check if it's a custom hook (skip for now)
+    if is_custom_hook(node) {
+        return None;
+    }
+
+    // 3. Validate component name (must be PascalCase)
+    if !is_component_name(&name) {
+        return None;
+    }
+
+    // 4. Initialize component
+    let mut component = ProcessedComponent {
+        name: name.clone(),
+        props: vec![],
+        use_state: vec![],
+        use_effect: vec![],
+        use_ref: vec![],
+        event_handlers: vec![],
+        render_body: None,
+    };
+
+    // 5. Extract props from parameters
+    if !node.params.is_empty() {
+        component.props = extract_props(&node.params[0]);
+    }
+
+    // 6. Extract hooks from body
+    if let Some(ref body) = node.body {
+        extract_hooks_from_body(body, &mut component);
+    }
+
+    Some(component)
+}
+
+/// Extract props from function parameter
+fn extract_props(param: &Pattern) -> Vec<PropInfo> {
+    let mut props = vec![];
+
+    match param {
+        Pattern::ObjectPattern(obj) => {
+            // Destructured props: function Component({ name, age })
+            for prop in &obj.properties {
+                if let Some(key) = get_prop_key(prop) {
+                    let prop_type = infer_prop_types(prop);
+                    props.push(PropInfo {
+                        name: key,
+                        prop_type: prop_type,
+                        optional: is_prop_optional(prop),
+                    });
+                }
+            }
+        },
+        Pattern::Identifier(id) => {
+            // Single props parameter: function Component(props)
+            props.push(PropInfo {
+                name: id.name.clone(),
+                prop_type: "dynamic".into(),
+                optional: false,
+            });
+        },
+        _ => {}
+    }
+
+    props
+}
+
+/// Get property key name (stub)
+fn get_prop_key(prop: &ObjectPatternProperty) -> Option<Str> {
+    // STUB: Extract key from object pattern property
+    None
+}
+
+/// Check if prop is optional (stub)
+fn is_prop_optional(prop: &ObjectPatternProperty) -> bool {
+    // STUB: Check optional annotation
+    false
+}
+
+/// Extract hooks from function body
+fn extract_hooks_from_body(body: &BlockStatement, component: &mut ProcessedComponent) {
+    for stmt in &body.stmts {
+        if let Statement::VariableDeclaration(var_decl) = stmt {
+            for decl in &var_decl.declarations {
+                if let Some(ref init) = decl.init {
+                    extract_hook(init, &decl.id, component);
+                }
+            }
+        }
+    }
+}

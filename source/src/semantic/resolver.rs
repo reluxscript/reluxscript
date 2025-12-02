@@ -45,9 +45,19 @@ impl Resolver {
 
     /// Run name resolution
     pub fn resolve(&mut self, program: &Program) -> Result<(), Vec<SemanticError>> {
-        // Process use statements - define imported modules
+        // Phase 1: Process non-deferred use statements (normal top-level imports)
         for use_stmt in &program.uses {
-            self.resolve_use(use_stmt);
+            if !use_stmt.deferred {
+                self.resolve_use(use_stmt);
+            }
+        }
+
+        // Phase 2: Process deferred use statements (hoisted from inline)
+        // These may form cycles, so we use cycle detection
+        for use_stmt in &program.uses {
+            if use_stmt.deferred {
+                self.resolve_use_deferred(use_stmt);
+            }
         }
 
         match &program.decl {
@@ -138,6 +148,33 @@ impl Resolver {
                 use_stmt.span,
             ));
         }
+    }
+
+    /// Resolve a deferred use statement (hoisted from inline imports)
+    /// These may form cycles, so we handle them specially
+    fn resolve_use_deferred(&mut self, use_stmt: &UseStmt) {
+        let is_file_module = use_stmt.path.starts_with("./") || use_stmt.path.starts_with("../");
+
+        if is_file_module {
+            // For file modules, check if this would create a cycle
+            let resolved_path = self.base_dir.join(&use_stmt.path);
+            let canonical_path = resolved_path.canonicalize().unwrap_or(resolved_path.clone());
+
+            if self.resolving_stack.contains(&canonical_path) {
+                // Cycle detected! For deferred imports, we allow this but just register
+                // the imports as Unknown types (they'll be resolved later in execution)
+                eprintln!("[Resolver] Deferred import cycle detected, allowing: {}", use_stmt.path);
+                for import_name in &use_stmt.imports {
+                    if self.env.lookup(import_name).is_none() {
+                        self.env.define(import_name.clone(), TypeInfo::Unknown);
+                    }
+                }
+                return;
+            }
+        }
+
+        // Not a cycle (or built-in), resolve normally
+        self.resolve_use(use_stmt);
     }
 
     /// Load a module file and extract its exports
@@ -669,6 +706,7 @@ impl Resolver {
                 self.resolve_expr(&assign.value);
                 // TODO: Validate that node is an AST type and property starts with __
             }
+
         }
     }
 

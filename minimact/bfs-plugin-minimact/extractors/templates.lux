@@ -1,0 +1,30 @@
+/// Template Extractor
+///
+/// Extracts template information from JSX for hydration.
+/// Mirrors babel-plugin-minimact/src/extractors/templates.cjs
+
+use "../process_component.lux" { ProcessedComponent };
+
+// =============================================================================
+// Data Structures
+// =============================================================================
+
+pub struct TemplateInfo {
+    pub path: Str,
+    pub template: Str,
+    pub bindings: Vec<Str>,
+}
+
+// =============================================================================
+// Main Function
+// =============================================================================
+
+/// Generate template map JSON from a processed component
+pub fn generate_template_map_json(component: &ProcessedComponent) -> HashMap<Str, TemplateInfo> {
+    let mut templates = HashMap::new();
+
+    // STUB: Extract templates from render body
+    // This will be filled in with actual JSX template extraction
+
+    templates
+}

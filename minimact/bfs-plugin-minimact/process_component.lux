@@ -1,0 +1,271 @@
+/// Process Component
+///
+/// Main entry point for processing a component function.
+/// Mirrors babel-plugin-minimact/src/processComponent.cjs
+
+// =============================================================================
+// Data Structures
+// =============================================================================
+
+pub struct ProcessedComponent {
+    pub name: Str,
+    pub props: Vec<PropInfo>,
+    pub use_state: Vec<StateInfo>,
+    pub use_effect: Vec<EffectInfo>,
+    pub use_ref: Vec<RefInfo>,
+    pub event_handlers: Vec<EventHandlerInfo>,
+    pub render_body: Option<Str>,
+}
+
+pub struct PropInfo {
+    pub name: Str,
+    pub prop_type: Str,
+    pub optional: bool,
+}
+
+pub struct StateInfo {
+    pub name: Str,
+    pub setter: Option<Str>,
+    pub initial_value: Str,
+    pub state_type: Str,
+}
+
+pub struct EffectInfo {
+    pub dependencies: Vec<Str>,
+}
+
+pub struct RefInfo {
+    pub name: Str,
+    pub initial_value: Str,
+}
+
+pub struct EventHandlerInfo {
+    pub name: Str,
+    pub params: Vec<Str>,
+}
+
+// =============================================================================
+// Main Function
+// =============================================================================
+
+/// Process a function declaration and extract component info
+pub fn process_component(node: &FunctionDeclaration) -> Option<ProcessedComponent> {
+    // 1. Get component name
+    let name = get_component_name(node)?;
+
+    // 2. Check if it's a custom hook (skip for now)
+    if is_custom_hook(&name) {
+        return None;
+    }
+
+    // 3. Validate component name (must be PascalCase)
+    if !is_component_name(&name) {
+        return None;
+    }
+
+    // 4. Initialize component
+    let mut component = ProcessedComponent {
+        name: name.clone(),
+        props: vec![],
+        use_state: vec![],
+        use_effect: vec![],
+        use_ref: vec![],
+        event_handlers: vec![],
+        render_body: None,
+    };
+
+    // 5. Extract props from parameters
+    if !node.params.is_empty() {
+        component.props = extract_props(&node.params[0]);
+    }
+
+    // 6. Extract hooks from body
+    if let Some(ref body) = node.body {
+        extract_hooks_from_body(body, &mut component);
+    }
+
+    Some(component)
+}
+
+// =============================================================================
+// Helper Functions (Stubs - Level 2)
+// =============================================================================
+
+/// STUB: Get component name from function declaration
+fn get_component_name(node: &FunctionDeclaration) -> Option<Str> {
+    if let Some(ref id) = node.id {
+        Some(id.name.clone())
+    } else {
+        None
+    }
+}
+
+/// STUB: Check if name starts with "use" (custom hook)
+fn is_custom_hook(name: &Str) -> bool {
+    name.starts_with("use") && name.len() > 3
+}
+
+/// STUB: Check if name is a valid component name (starts with uppercase)
+fn is_component_name(name: &Str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    let first = name.chars().next();
+    if let Some(c) = first {
+        c.is_uppercase()
+    } else {
+        false
+    }
+}
+
+/// STUB: Extract props from function parameter
+fn extract_props(param: &Pattern) -> Vec<PropInfo> {
+    let mut props = vec![];
+
+    match param {
+        Pattern::ObjectPattern(obj) => {
+            // Destructured props: function Component({ name, age })
+            for prop in &obj.properties {
+                if let ObjectPatternProperty::KeyValue(kv) = prop {
+                    if let PropName::Ident(ref key) = kv.key {
+                        props.push(PropInfo {
+                            name: key.name.clone(),
+                            prop_type: "dynamic".into(),
+                            optional: false,
+                        });
+                    }
+                }
+            }
+        },
+        Pattern::Identifier(id) => {
+            // Single props parameter: function Component(props)
+            props.push(PropInfo {
+                name: id.name.clone(),
+                prop_type: "dynamic".into(),
+                optional: false,
+            });
+        },
+        _ => {}
+    }
+
+    props
+}
+
+/// STUB: Extract hooks from function body
+fn extract_hooks_from_body(body: &BlockStatement, component: &mut ProcessedComponent) {
+    for stmt in &body.stmts {
+        if let Statement::VariableDeclaration(var_decl) = stmt {
+            for decl in &var_decl.declarations {
+                if let Some(ref init) = decl.init {
+                    extract_hook(init, &decl.id, component);
+                }
+            }
+        }
+    }
+}
+
+/// STUB: Extract a single hook from call expression
+fn extract_hook(init: &Expression, id: &Pattern, component: &mut ProcessedComponent) {
+    if let Expression::CallExpression(call) = init {
+        if let Expression::Identifier(ref callee) = *call.callee {
+            let hook_name = &callee.name;
+
+            if hook_name == "useState" {
+                extract_use_state(call, id, component);
+            } else if hook_name == "useEffect" {
+                extract_use_effect(call, component);
+            } else if hook_name == "useRef" {
+                extract_use_ref(call, id, component);
+            }
+        }
+    }
+}
+
+/// STUB: Extract useState hook
+fn extract_use_state(call: &CallExpression, id: &Pattern, component: &mut ProcessedComponent) {
+    if let Pattern::ArrayPattern(arr) = id {
+        let name = if arr.elements.len() > 0 {
+            if let Some(Pattern::Identifier(ref ident)) = arr.elements[0] {
+                ident.name.clone()
+            } else {
+                "state".into()
+            }
+        } else {
+            "state".into()
+        };
+
+        let setter = if arr.elements.len() > 1 {
+            if let Some(Pattern::Identifier(ref ident)) = arr.elements[1] {
+                Some(ident.name.clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let initial_value = if !call.arguments.is_empty() {
+            expr_to_string(&call.arguments[0])
+        } else {
+            "null".into()
+        };
+
+        component.use_state.push(StateInfo {
+            name: name,
+            setter: setter,
+            initial_value: initial_value,
+            state_type: "dynamic".into(),
+        });
+    }
+}
+
+/// STUB: Extract useEffect hook
+fn extract_use_effect(call: &CallExpression, component: &mut ProcessedComponent) {
+    let mut deps = vec![];
+
+    if call.arguments.len() > 1 {
+        if let Expression::ArrayExpression(ref arr) = call.arguments[1] {
+            for elem in &arr.elements {
+                if let Some(ref expr) = elem {
+                    deps.push(expr_to_string(expr));
+                }
+            }
+        }
+    }
+
+    component.use_effect.push(EffectInfo {
+        dependencies: deps,
+    });
+}
+
+/// STUB: Extract useRef hook
+fn extract_use_ref(call: &CallExpression, id: &Pattern, component: &mut ProcessedComponent) {
+    let name = if let Pattern::Identifier(ref ident) = id {
+        ident.name.clone()
+    } else {
+        "ref".into()
+    };
+
+    let initial_value = if !call.arguments.is_empty() {
+        expr_to_string(&call.arguments[0])
+    } else {
+        "null".into()
+    };
+
+    component.use_ref.push(RefInfo {
+        name: name,
+        initial_value: initial_value,
+    });
+}
+
+/// STUB: Convert expression to string representation
+fn expr_to_string(expr: &Expression) -> Str {
+    match expr {
+        Expression::StringLiteral(lit) => format!("\"{}\"", lit.value),
+        Expression::NumericLiteral(lit) => format!("{}", lit.value),
+        Expression::BooleanLiteral(lit) => if lit.value { "true".into() } else { "false".into() },
+        Expression::Identifier(id) => id.name.clone(),
+        Expression::NullLiteral(_) => "null".into(),
+        _ => "null".into(),
+    }
+}

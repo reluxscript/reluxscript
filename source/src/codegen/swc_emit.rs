@@ -1016,6 +1016,7 @@ impl SwcEmitter {
                 // If we reach here, the rewriter didn't run
                 panic!("CustomPropAssignment should have been rewritten by SwcRewriter");
             }
+
         }
     }
 

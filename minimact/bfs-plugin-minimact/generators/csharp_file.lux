@@ -1,0 +1,93 @@
+/// C# File Generator
+///
+/// Generates C# class code from a ProcessedComponent.
+/// Mirrors babel-plugin-minimact/src/generators/csharpFile.cjs
+
+use "../process_component.lux" { ProcessedComponent, PropInfo, StateInfo, RefInfo };
+
+// =============================================================================
+// Main Generator Function
+// =============================================================================
+
+/// Generate complete C# file for a component
+pub fn generate_csharp_file(component: &ProcessedComponent) -> Str {
+    let mut builder = CodeBuilder::new();
+
+    // Usings
+    builder.append("using Minimact.Core;");
+    builder.newline();
+    builder.append("using System.Collections.Generic;");
+    builder.newline();
+    builder.newline();
+
+    // Class declaration
+    builder.append(&format!("public class {} : MinimactComponent", component.name));
+    builder.newline();
+    builder.append("{");
+    builder.newline();
+    builder.indent();
+
+    // Generate state fields
+    for state in &component.use_state {
+        builder.append(&format!(
+            "[State] private {} {} = {};",
+            state.state_type,
+            state.name,
+            state.initial_value
+        ));
+        builder.newline();
+    }
+
+    // Generate ref fields
+    for ref_info in &component.use_ref {
+        builder.append(&format!(
+            "[Ref] private object {} = {};",
+            ref_info.name,
+            ref_info.initial_value
+        ));
+        builder.newline();
+    }
+
+    // Generate props as parameters
+    for prop in &component.props {
+        let type_str = if prop.optional {
+            format!("{}?", prop.prop_type)
+        } else {
+            prop.prop_type.clone()
+        };
+        builder.append(&format!(
+            "[Parameter] public {} {} {{ get; set; }}",
+            type_str,
+            prop.name
+        ));
+        builder.newline();
+    }
+
+    builder.newline();
+
+    // Generate Render method
+    builder.append("protected override VNode Render()");
+    builder.newline();
+    builder.append("{");
+    builder.newline();
+    builder.indent();
+
+    if let Some(ref body) = component.render_body {
+        builder.append(body);
+    } else {
+        builder.append("// TODO: Generate VNode from JSX");
+        builder.newline();
+        builder.append("return new VNull();");
+    }
+
+    builder.newline();
+    builder.dedent();
+    builder.append("}");
+    builder.newline();
+
+    builder.dedent();
+    builder.append("}");
+    builder.newline();
+
+    builder.to_string()
+}

@@ -1,0 +1,93 @@
+/// Minimact TSX to C# Transpiler
+///
+/// Main entry point - mirrors babel-plugin-minimact/index.cjs
+/// Uses breadth-first stubbed modules
+
+use fs;
+use json;
+
+// Level 1 imports - direct dependencies of main
+use "./process_component.lux" { process_component, ProcessedComponent };
+use "./generators/csharp_file.lux" { generate_csharp_file };
+use "./extractors/templates.lux" { generate_template_map_json };
+
+writer MinimactTranspiler {
+
+    // =============================================================================
+    // State
+    // =============================================================================
+
+    struct State {
+        components: Vec<ComponentInfo>,
+        hooks: Vec<HookInfo>,
+        templates: HashMap<Str, TemplateInfo>,
+    }
+
+    struct ComponentInfo {
+        name: Str,
+        csharp_code: Str,
+        templates: HashMap<Str, TemplateInfo>,
+        hooks: Vec<HookInfo>,
+    }
+
+    struct HookInfo {
+        name: Str,
+        hook_type: Str,
+    }
+
+    struct TemplateInfo {
+        path: Str,
+        template: Str,
+        bindings: Vec<Str>,
+    }
+
+    // =============================================================================
+    // Lifecycle
+    // =============================================================================
+
+    fn init() -> State {
+        State {
+            components: vec![],
+            hooks: vec![],
+            templates: HashMap::new(),
+        }
+    }
+
+    fn finish(&self) -> Str {
+        let mut output = CodeBuilder::new();
+
+        // Generate C# for each component
+        for component in &self.state.components {
+            output.append(&component.csharp_code);
+            output.newline();
+        }
+
+        output.to_string()
+    }
+
+    // =============================================================================
+    // Visitors
+    // =============================================================================
+
+    pub fn visit_function_declaration(node: &FunctionDeclaration) {
+        // Delegate to process_component module
+        if let Some(component) = process_component(node) {
+            // Generate C# code
+            let csharp_code = generate_csharp_file(&component);
+
+            // Generate templates
+            let templates = generate_template_map_json(&component);
+
+            let info = ComponentInfo {
+                name: component.name.clone(),
+                csharp_code: csharp_code,
+                templates: templates,
+                hooks: vec![],
+            };
+
+            self.state.components.push(info);
+        }
+
+        node.visit_children(self);
+    }
+}

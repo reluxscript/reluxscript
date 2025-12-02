@@ -84,6 +84,9 @@ pub fn analyze_with_base_dir(program: &Program, base_dir: std::path::PathBuf) ->
 
 /// Run the AST lowering pass (transforms matches! and deep chains)
 pub fn lower(program: &mut Program) {
+    // Note: Inline imports are now collected during parsing and added to program.uses
+    // with deferred=true. No separate hoisting pass is needed.
+
     // Pass 1: SWC-specific lowering (matches! → if-let)
     // This must run BEFORE semantic analysis so pattern bindings are visible
     let mut swc_lowering = SwcLowering::new();

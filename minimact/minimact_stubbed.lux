@@ -1,0 +1,269 @@
+/// Minimact TSX to C# Transpiler (Stubbed Version)
+///
+/// This is a stubbed version that compiles. Each stub will be filled in incrementally.
+/// Mirrors the logic of babel-plugin-minimact/src/processComponent.cjs
+
+use fs;
+use json;
+
+writer MinimactTranspiler {
+
+    // =============================================================================
+    // Data Structures
+    // =============================================================================
+
+    struct State {
+        csharp: CodeBuilder,
+        components: Vec<ComponentInfo>,
+        current_component: Option<ComponentInfo>,
+    }
+
+    struct ComponentInfo {
+        name: Str,
+        props: Vec<PropInfo>,
+        use_state: Vec<StateInfo>,
+        use_effect: Vec<EffectInfo>,
+        use_ref: Vec<RefInfo>,
+    }
+
+    struct PropInfo {
+        name: Str,
+        prop_type: Str,
+        optional: bool,
+    }
+
+    struct StateInfo {
+        name: Str,
+        setter: Option<Str>,
+        initial_value: Str,
+        state_type: Str,
+    }
+
+    struct EffectInfo {
+        dependencies: Vec<Str>,
+    }
+
+    struct RefInfo {
+        name: Str,
+        initial_value: Str,
+    }
+
+    // =============================================================================
+    // Writer Lifecycle
+    // =============================================================================
+
+    fn init() -> State {
+        State {
+            csharp: CodeBuilder::new(),
+            components: vec![],
+            current_component: None,
+        }
+    }
+
+    fn finish(&self) -> Str {
+        let mut output = CodeBuilder::new();
+
+        for component in &self.state.components {
+            let code = Self::generate_csharp_class(component);
+            output.append(&code);
+            output.newline();
+        }
+
+        output.to_string()
+    }
+
+    // =============================================================================
+    // Visitor Methods
+    // =============================================================================
+
+    pub fn visit_function_declaration(node: &FunctionDeclaration) {
+        // STUB: Get component name
+        let name = Self::get_component_name(node);
+        if name.is_none() {
+            return;
+        }
+        let component_name = name.unwrap();
+
+        // STUB: Check if it's a valid component (PascalCase)
+        if !Self::is_component_name(&component_name) {
+            return;
+        }
+
+        // Initialize component info
+        let mut component = ComponentInfo {
+            name: component_name.clone(),
+            props: vec![],
+            use_state: vec![],
+            use_effect: vec![],
+            use_ref: vec![],
+        };
+
+        // STUB: Extract props from parameters
+        if !node.params.is_empty() {
+            Self::extract_props(&node.params[0], &mut component);
+        }
+
+        // STUB: Extract hooks from body
+        // Self::extract_hooks(node, &mut component);
+
+        // Store the component
+        self.state.components.push(component);
+
+        node.visit_children(self);
+    }
+
+    // =============================================================================
+    // Stub Helper Functions
+    // =============================================================================
+
+    /// STUB: Get component name from function declaration
+    fn get_component_name(node: &FunctionDeclaration) -> Option<Str> {
+        if let Some(ref id) = node.id {
+            Some(id.name.clone())
+        } else {
+            None
+        }
+    }
+
+    /// STUB: Check if name is a valid component name (starts with uppercase)
+    fn is_component_name(name: &Str) -> bool {
+        if name.is_empty() {
+            return false;
+        }
+        let first = name.chars().next();
+        if let Some(c) = first {
+            c.is_uppercase()
+        } else {
+            false
+        }
+    }
+
+    /// STUB: Escape string for C#
+    fn escape_csharp_string(s: &Str) -> Str {
+        s.replace("\\", "\\\\")
+         .replace("\"", "\\\"")
+         .replace("\n", "\\n")
+         .replace("\r", "\\r")
+         .replace("\t", "\\t")
+    }
+
+    /// STUB: Extract props from function parameter
+    fn extract_props(param: &Pattern, component: &mut ComponentInfo) {
+        // TODO: Handle ObjectPattern for destructured props
+        // TODO: Handle Identifier for props parameter
+        if let Pattern::Identifier(ref id) = param {
+            component.props.push(PropInfo {
+                name: id.name.clone(),
+                prop_type: "dynamic".into(),
+                optional: false,
+            });
+        }
+    }
+
+    /// STUB: Convert expression to C# string
+    fn expr_to_csharp(expr: &Expression) -> Str {
+        match expr {
+            Expression::StringLiteral(lit) => {
+                format!("\"{}\"", Self::escape_csharp_string(&lit.value))
+            },
+            Expression::NumericLiteral(lit) => {
+                format!("{}", lit.value)
+            },
+            Expression::BooleanLiteral(lit) => {
+                if lit.value { "true".into() } else { "false".into() }
+            },
+            Expression::Identifier(id) => {
+                id.name.clone()
+            },
+            _ => "null".into(),
+        }
+    }
+
+    /// STUB: Infer C# type from expression
+    fn infer_type(expr: &Expression) -> Str {
+        match expr {
+            Expression::StringLiteral(_) => "string".into(),
+            Expression::NumericLiteral(_) => "double".into(),
+            Expression::BooleanLiteral(_) => "bool".into(),
+            Expression::ArrayExpression(_) => "List<dynamic>".into(),
+            Expression::ObjectExpression(_) => "Dictionary<string, dynamic>".into(),
+            _ => "dynamic".into(),
+        }
+    }
+
+    // =============================================================================
+    // C# Code Generation
+    // =============================================================================
+
+    /// Generate C# class for a component
+    fn generate_csharp_class(component: &ComponentInfo) -> Str {
+        let mut builder = CodeBuilder::new();
+
+        // Usings
+        builder.append("using Minimact.Core;");
+        builder.newline();
+        builder.append("using System.Collections.Generic;");
+        builder.newline();
+        builder.newline();
+
+        // Class declaration
+        builder.append(&format!("public class {} : MinimactComponent", component.name));
+        builder.newline();
+        builder.append("{");
+        builder.newline();
+        builder.indent();
+
+        // Generate state fields
+        for state in &component.use_state {
+            builder.append(&format!(
+                "[State] private {} {} = {};",
+                state.state_type,
+                state.name,
+                state.initial_value
+            ));
+            builder.newline();
+        }
+
+        // Generate ref fields
+        for ref_info in &component.use_ref {
+            builder.append(&format!(
+                "[Ref] private object {} = {};",
+                ref_info.name,
+                ref_info.initial_value
+            ));
+            builder.newline();
+        }
+
+        // Generate props as parameters
+        for prop in &component.props {
+            builder.append(&format!(
+                "[Parameter] public {} {} {{ get; set; }}",
+                prop.prop_type,
+                prop.name
+            ));
+            builder.newline();
+        }
+
+        builder.newline();
+
+        // Generate Render method
+        builder.append("protected override VNode Render()");
+        builder.newline();
+        builder.append("{");
+        builder.newline();
+        builder.indent();
+        builder.append("// TODO: Generate VNode from JSX");
+        builder.newline();
+        builder.append("return new VNull();");
+        builder.newline();
+        builder.dedent();
+        builder.append("}");
+        builder.newline();
+
+        builder.dedent();
+        builder.append("}");
+        builder.newline();
+
+        builder.to_string()
+    }
+}

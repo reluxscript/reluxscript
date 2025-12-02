@@ -1,0 +1,15 @@
+plugin Test {
+    enum MyPattern {
+        Identifier(Str),
+        Object,
+    }
+
+    fn test(param: &MyPattern) {
+        if let MyPattern::Object = param {
+            let _x = 1;
+        }
+        else if let MyPattern::Identifier(ref id) = param {
+            let _y = id.clone();
+        }
+    }
+}

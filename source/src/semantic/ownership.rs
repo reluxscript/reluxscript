@@ -167,6 +167,7 @@ impl OwnershipChecker {
                 self.check_expr(&assign.node);
                 self.check_expr(&assign.value);
             }
+
         }
     }
 

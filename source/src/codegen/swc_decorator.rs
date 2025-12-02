@@ -540,6 +540,7 @@ impl SwcDecorator {
             Stmt::CustomPropAssignment(assign) => {
                 self.decorate_custom_prop_assignment(assign)
             }
+
         }
     }
 

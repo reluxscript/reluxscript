@@ -343,6 +343,7 @@ impl SwcRewriter {
             DecoratedStmt::CustomPropAssignment(assign) => {
                 self.rewrite_custom_prop_assignment(*assign)
             }
+
         }
     }
 

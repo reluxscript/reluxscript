@@ -23,6 +23,9 @@ pub struct UseStmt {
     /// Specific imports: `use "./helpers.lux" { foo, bar };`
     pub imports: Vec<String>,
 
+    /// Whether this import was hoisted from inside a function body (for circular dependency handling)
+    pub deferred: bool,
+
     pub span: Span,
 }
 

@@ -8,6 +8,8 @@ pub struct Parser {
     tokens: Vec<Token>,
     pos: usize,
     source: String,  // Source code for extracting verbatim blocks
+    /// Inline imports collected from function bodies (hoisted to program level)
+    inline_imports: Vec<UseStmt>,
 }
 
 /// Parse error
@@ -30,11 +32,11 @@ pub type ParseResult<T> = Result<T, ParseError>;
 
 impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self {
-        Self { tokens, pos: 0, source: String::new() }
+        Self { tokens, pos: 0, source: String::new(), inline_imports: Vec::new() }
     }
 
     pub fn new_with_source(tokens: Vec<Token>, source: String) -> Self {
-        Self { tokens, pos: 0, source }
+        Self { tokens, pos: 0, source, inline_imports: Vec::new() }
     }
 
     /// Parse a complete program
@@ -74,6 +76,12 @@ impl Parser {
                 }
                 _ => {}
             }
+        }
+
+        // Add inline imports (collected from function bodies) to uses, marked as deferred
+        for mut inline_import in std::mem::take(&mut self.inline_imports) {
+            inline_import.deferred = true;
+            uses.push(inline_import);
         }
 
         Ok(Program {
@@ -124,6 +132,7 @@ impl Parser {
             path,
             alias,
             imports,
+            deferred: false,  // Top-level imports are not deferred
             span: start_span,
         })
     }
@@ -740,6 +749,13 @@ impl Parser {
             self.skip_newlines();
             if self.check(TokenKind::RBrace) || self.is_at_end() {
                 break;
+            }
+            // Check for inline imports - collect them instead of making a Stmt
+            if self.check(TokenKind::Use) {
+                let use_stmt = self.parse_use_stmt()?;
+                self.inline_imports.push(use_stmt);
+                // Don't add to stmts - it's being hoisted
+                continue;
             }
             stmts.push(self.parse_statement()?);
         }

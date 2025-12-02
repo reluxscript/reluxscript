@@ -521,6 +521,7 @@ impl TypeChecker {
                 // TODO: Implement custom property type tracking
                 // For now, we just validate the expressions compile
             }
+
         }
     }
 
