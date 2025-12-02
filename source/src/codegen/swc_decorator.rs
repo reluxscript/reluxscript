@@ -186,11 +186,21 @@ impl SwcDecorator {
                 self.is_writer = true;
                 DecoratedTopLevelDecl::Writer(self.decorate_writer_decl(writer))
             }
-            TopLevelDecl::Interface(_) | TopLevelDecl::Module(_) => {
-                // For now, pass through undecorated
-                // These don't need SWC-specific decoration
+            TopLevelDecl::Module(module) => {
+                // Decorate module items (functions, structs, enums)
+                self.is_writer = false;
+                DecoratedTopLevelDecl::Module(self.decorate_module_decl(module))
+            }
+            TopLevelDecl::Interface(_) => {
+                // Interfaces don't need decoration
                 DecoratedTopLevelDecl::Undecorated(decl.clone())
             }
+        }
+    }
+
+    fn decorate_module_decl(&mut self, module: &crate::parser::ModuleDecl) -> DecoratedModule {
+        DecoratedModule {
+            items: module.items.iter().map(|item| self.decorate_plugin_item(item)).collect(),
         }
     }
 
@@ -2823,7 +2833,14 @@ pub struct DecoratedProgram {
 pub enum DecoratedTopLevelDecl {
     Plugin(DecoratedPlugin),
     Writer(DecoratedWriter),
+    Module(DecoratedModule),
     Undecorated(TopLevelDecl),
+}
+
+/// A decorated module (standalone file with functions/structs/enums)
+#[derive(Debug, Clone)]
+pub struct DecoratedModule {
+    pub items: Vec<DecoratedPluginItem>,
 }
 
 #[derive(Debug, Clone)]

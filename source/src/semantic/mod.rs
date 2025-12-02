@@ -5,7 +5,7 @@ mod types;
 pub mod hoist_unwraps;
 pub mod swc_lowering;
 
-pub use resolver::Resolver;
+pub use resolver::{Resolver, LoadedModule};
 pub use type_checker::TypeChecker;
 pub use ownership::OwnershipChecker;
 pub use types::{TypeInfo, TypeEnv};
@@ -45,6 +45,8 @@ pub struct SemanticResult {
     pub errors: Vec<SemanticError>,
     pub warnings: Vec<SemanticError>,
     pub type_env: TypeEnv,
+    /// All loaded dependency modules (for multi-file codegen)
+    pub loaded_modules: Vec<LoadedModule>,
 }
 
 /// Run all semantic analysis passes
@@ -75,10 +77,14 @@ pub fn analyze_with_base_dir(program: &Program, base_dir: std::path::PathBuf) ->
     errors.extend(ownership_errors);
     warnings.extend(ownership_warnings);
 
+    // Get loaded modules from the resolver for multi-file codegen
+    let loaded_modules = resolver.get_loaded_programs();
+
     SemanticResult {
         errors,
         warnings,
         type_env: type_checker.into_env(),
+        loaded_modules,
     }
 }
 

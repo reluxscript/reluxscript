@@ -61,13 +61,13 @@ module.exports = function({ types: t }) {
   // Pre-hook
   
   function init() {
-    return { components: [], hooks: [], templates: new Map() };
+    return { components: [], hooks: [], templates: /* HashMap::new */undefined() };
   }
   
   // Exit hook
   
   function finish() {
-    let output = [];
+    let output = /* CodeBuilder::new */undefined();
     for (const component of this.state.components) {
       output.push(component.csharp_code);
       output.push("\n");

@@ -341,8 +341,8 @@ plugin {name} {{
                 return;
             }
 
-            // Generate code (use generate_with_types to get proper SWC mappings)
-            let generated = reluxscript::generate_with_types(&program, result.type_env.clone(), target_enum);
+            // Generate code (use generate_with_types_and_modules to get proper SWC mappings and multi-file output)
+            let generated = reluxscript::generate_with_types_and_modules(&program, result.type_env.clone(), target_enum, &result.loaded_modules);
 
             // Create output directory
             if let Err(e) = fs::create_dir_all(&output) {
@@ -358,6 +358,16 @@ plugin {name} {{
                     std::process::exit(1);
                 }
                 println!("Generated Babel plugin: {:?}", babel_path);
+
+                // Write module files
+                for module_file in &generated.babel_modules {
+                    let module_path = output.join(&module_file.path);
+                    if let Err(e) = fs::write(&module_path, &module_file.content) {
+                        eprintln!("Error writing Babel module {}: {}", module_file.path, e);
+                        std::process::exit(1);
+                    }
+                    println!("  Generated module: {:?}", module_path);
+                }
 
                 // Validate generated JS syntax with node --check
                 let node_check = std::process::Command::new("node")
@@ -389,6 +399,16 @@ plugin {name} {{
                     std::process::exit(1);
                 }
                 println!("Generated SWC plugin: {:?}", swc_path);
+
+                // Write module files
+                for module_file in &generated.swc_modules {
+                    let module_path = output.join(&module_file.path);
+                    if let Err(e) = fs::write(&module_path, &module_file.content) {
+                        eprintln!("Error writing SWC module {}: {}", module_file.path, e);
+                        std::process::exit(1);
+                    }
+                    println!("  Generated module: {:?}", module_path);
+                }
 
                 // Generate a minimal Cargo.toml for validation
                 let cargo_toml_path = output.join("Cargo.toml");

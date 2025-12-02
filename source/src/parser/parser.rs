@@ -238,20 +238,23 @@ impl Parser {
                 PluginItem::Enum(self.parse_enum()?)
             } else if self.check(TokenKind::Pub) {
                 // Handle pub struct, pub enum, pub fn, pub use
-                self.advance(); // consume 'pub'
-                if self.check(TokenKind::Struct) {
+                // Don't consume 'pub' here - let the specific parser handle it
+                if self.peek_next_is(TokenKind::Struct) {
+                    self.advance(); // consume 'pub'
                     PluginItem::Struct(self.parse_struct()?)
-                } else if self.check(TokenKind::Enum) {
+                } else if self.peek_next_is(TokenKind::Enum) {
+                    self.advance(); // consume 'pub'
                     PluginItem::Enum(self.parse_enum()?)
-                } else if self.check(TokenKind::Fn) {
-                    // Check if this is a special hook (pre, exit, or finish)
+                } else if self.peek_next_is(TokenKind::Fn) {
+                    // Don't consume 'pub' - let parse_function handle it
                     let func = self.parse_function()?;
                     match func.name.as_str() {
                         "pre" => PluginItem::PreHook(func),
                         "exit" | "finish" => PluginItem::ExitHook(func),
                         _ => PluginItem::Function(func),
                     }
-                } else if self.check(TokenKind::Use) {
+                } else if self.peek_next_is(TokenKind::Use) {
+                    self.advance(); // consume 'pub'
                     // pub use - re-export
                     let use_stmt = self.parse_use_stmt()?;
                     PluginItem::PubUse(use_stmt)
@@ -3342,6 +3345,10 @@ impl Parser {
 
     fn check(&self, kind: TokenKind) -> bool {
         matches!(self.peek(), Some(t) if std::mem::discriminant(&t.kind) == std::mem::discriminant(&kind))
+    }
+
+    fn peek_next_is(&self, kind: TokenKind) -> bool {
+        matches!(self.peek_ahead(1), Some(t) if std::mem::discriminant(&t.kind) == std::mem::discriminant(&kind))
     }
 
     fn check_ident(&self, name: &str) -> bool {

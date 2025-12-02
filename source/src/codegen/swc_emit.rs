@@ -7,7 +7,7 @@
 //!
 //! The emitter is "dumb" by design - all transformations happened in earlier stages.
 
-use super::swc_decorator::{DecoratedProgram, DecoratedTopLevelDecl, DecoratedPlugin, DecoratedWriter, DecoratedPluginItem, DecoratedFnDecl, DecoratedImplBlock};
+use super::swc_decorator::{DecoratedProgram, DecoratedTopLevelDecl, DecoratedPlugin, DecoratedWriter, DecoratedModule, DecoratedPluginItem, DecoratedFnDecl, DecoratedImplBlock};
 use super::decorated_ast::*;
 use super::swc_metadata::*;
 use crate::parser::*;
@@ -58,6 +58,13 @@ pub struct SwcEmitter {
 
     /// Set of custom types used in custom properties (for CustomPropValue enum)
     custom_prop_types: std::collections::HashSet<String>,
+
+    /// Whether this is a module file (not the main lib.rs)
+    /// If true, use `use crate::...` instead of `mod ...` for imports
+    is_module: bool,
+
+    /// All module names to declare in lib.rs (for multi-file output)
+    all_module_names: std::collections::HashSet<String>,
 }
 
 impl SwcEmitter {
@@ -79,6 +86,54 @@ impl SwcEmitter {
             uses_regex: false,
             uses_custom_props: false,
             custom_prop_types: std::collections::HashSet::new(),
+            is_module: false,
+            all_module_names: std::collections::HashSet::new(),
+        }
+    }
+
+    /// Create new emitter with all module names to declare (for multi-file lib.rs)
+    pub fn new_with_all_modules(all_module_names: std::collections::HashSet<String>) -> Self {
+        Self {
+            output: String::new(),
+            indent: 0,
+            name: String::new(),
+            is_writer: false,
+            uses_hashmap: false,
+            uses_hashset: false,
+            uses_json: false,
+            uses_fs: false,
+            uses_parser: false,
+            uses_codegen: false,
+            uses_codebuilder: false,
+            needs_regex_captures_helper: false,
+            uses_regex: false,
+            uses_custom_props: false,
+            custom_prop_types: std::collections::HashSet::new(),
+            is_module: false,
+            all_module_names,
+        }
+    }
+
+    /// Create new emitter for a module file (uses `use crate::...` instead of `mod ...`)
+    pub fn new_module() -> Self {
+        Self {
+            output: String::new(),
+            indent: 0,
+            name: String::new(),
+            is_writer: false,
+            uses_hashmap: false,
+            uses_hashset: false,
+            uses_json: false,
+            uses_fs: false,
+            uses_parser: false,
+            uses_codegen: false,
+            uses_codebuilder: false,
+            needs_regex_captures_helper: false,
+            uses_regex: false,
+            uses_custom_props: false,
+            custom_prop_types: std::collections::HashSet::new(),
+            is_module: true,
+            all_module_names: std::collections::HashSet::new(),
         }
     }
 
@@ -173,6 +228,26 @@ impl SwcEmitter {
 
                 // Check items in writer body
                 for item in &writer.body {
+                    match item {
+                        DecoratedPluginItem::Function(func) => {
+                            self.detect_regex_usage_in_block(&func.body);
+                        }
+                        DecoratedPluginItem::PreHook(func) => {
+                            self.detect_regex_usage_in_block(&func.body);
+                        }
+                        DecoratedPluginItem::ExitHook(func) => {
+                            self.detect_regex_usage_in_block(&func.body);
+                        }
+                        DecoratedPluginItem::Struct(struct_decl) => {
+                            self.detect_hashmap_hashset_in_struct(struct_decl);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            DecoratedTopLevelDecl::Module(module) => {
+                // Scan module items for usage
+                for item in &module.items {
                     match item {
                         DecoratedPluginItem::Function(func) => {
                             self.detect_regex_usage_in_block(&func.body);
@@ -307,6 +382,11 @@ impl SwcEmitter {
                             self.uses_hashmap = true; // Custom props use HashMap
                         }
                     }
+                } else if let DecoratedExprKind::Ident { name, .. } = &call.callee.kind {
+                    // Check for CodeBuilder::new() call (path-qualified calls become single ident)
+                    if name == "CodeBuilder::new" || name == "CodeBuilder" {
+                        self.uses_codebuilder = true;
+                    }
                 }
 
                 self.detect_regex_usage_in_expr(&call.callee);
@@ -391,6 +471,21 @@ impl SwcEmitter {
 
     /// Emit user module imports (from use statements)
     fn emit_user_imports(&mut self, uses: &[crate::parser::UseStmt]) {
+        // In lib.rs with multi-file output, first emit ALL module declarations
+        if !self.is_module && !self.all_module_names.is_empty() {
+            let mut sorted_names: Vec<_> = self.all_module_names.iter().cloned().collect();
+            sorted_names.sort();
+            for module_name in &sorted_names {
+                // Handle Rust keywords - "mod" is a reserved keyword
+                if module_name == "mod" {
+                    self.emit_line("mod r#mod;");
+                } else {
+                    self.emit_line(&format!("mod {};", module_name));
+                }
+            }
+            self.emit_line("");
+        }
+
         if uses.is_empty() {
             return;
         }
@@ -404,20 +499,45 @@ impl SwcEmitter {
                 // e.g., "../utils/types.lux" -> "types" (just use the filename)
                 let module_name = self.extract_module_name_from_path(&use_stmt.path);
 
-                // Emit mod declaration
-                self.emit_line(&format!("mod {};", module_name));
-
-                // Emit use statement for imports
-                if !use_stmt.imports.is_empty() {
-                    // Named imports: use helpers::{get_component_name, escape_string};
-                    let imports = use_stmt.imports.join(", ");
-                    self.emit_line(&format!("use {}::{{{}}};", module_name, imports));
-                } else if let Some(alias) = &use_stmt.alias {
-                    // Aliased import: use helpers as h;
-                    self.emit_line(&format!("use {} as {};", module_name, alias));
+                // Handle Rust keywords
+                let rust_module_name = if module_name == "mod" {
+                    "r#mod".to_string()
                 } else {
-                    // Full import: use helpers;
-                    self.emit_line(&format!("use {};", module_name));
+                    module_name.clone()
+                };
+
+                if self.is_module {
+                    // In a module file, don't emit mod declarations - use crate:: paths
+                    // The mod declarations are only in lib.rs
+                    if !use_stmt.imports.is_empty() {
+                        // Named imports: use crate::helpers::{get_component_name, escape_string};
+                        let imports = use_stmt.imports.join(", ");
+                        self.emit_line(&format!("use crate::{}::{{{}}};", rust_module_name, imports));
+                    } else if let Some(alias) = &use_stmt.alias {
+                        // Aliased import: use crate::helpers as h;
+                        self.emit_line(&format!("use crate::{} as {};", rust_module_name, alias));
+                    } else {
+                        // Full import: use crate::helpers;
+                        self.emit_line(&format!("use crate::{};", rust_module_name));
+                    }
+                } else {
+                    // In lib.rs without all_module_names, emit mod declarations inline
+                    if self.all_module_names.is_empty() {
+                        self.emit_line(&format!("mod {};", rust_module_name));
+                    }
+
+                    // Emit use statement for imports
+                    if !use_stmt.imports.is_empty() {
+                        // Named imports: use helpers::{get_component_name, escape_string};
+                        let imports = use_stmt.imports.join(", ");
+                        self.emit_line(&format!("use {}::{{{}}};", rust_module_name, imports));
+                    } else if let Some(alias) = &use_stmt.alias {
+                        // Aliased import: use helpers as h;
+                        self.emit_line(&format!("use {} as {};", rust_module_name, alias));
+                    } else {
+                        // Full import: use helpers;
+                        self.emit_line(&format!("use {};", rust_module_name));
+                    }
                 }
             }
             // Skip built-in modules - they're handled by detect_imports
@@ -451,10 +571,125 @@ impl SwcEmitter {
                 self.is_writer = true;
                 self.emit_writer(writer);
             }
-            DecoratedTopLevelDecl::Undecorated(_) => {
+            DecoratedTopLevelDecl::Module(module) => {
+                self.is_writer = false;
+                self.emit_module(module);
+            }
+            DecoratedTopLevelDecl::Undecorated(top_level) => {
+                self.emit_undecorated(top_level);
+            }
+        }
+    }
+
+    /// Emit a decorated module (standalone file with functions/structs/enums)
+    fn emit_module(&mut self, module: &DecoratedModule) {
+        for item in &module.items {
+            self.emit_plugin_item(item);
+        }
+    }
+
+    /// Emit an undecorated top-level declaration (Module)
+    fn emit_undecorated(&mut self, decl: &crate::parser::TopLevelDecl) {
+        use crate::parser::{TopLevelDecl, PluginItem};
+
+        match decl {
+            TopLevelDecl::Module(module) => {
+                // Emit each item in the module
+                for item in &module.items {
+                    self.emit_module_item(item);
+                }
+            }
+            _ => {
                 self.emit_line("// Undecorated top-level declaration (not yet supported)");
             }
         }
+    }
+
+    /// Emit a module item (for Module top-level declarations)
+    fn emit_module_item(&mut self, item: &crate::parser::PluginItem) {
+        use crate::parser::{PluginItem, EnumVariantFields};
+
+        match item {
+            PluginItem::Function(func) => {
+                // Emit as pub fn for module exports
+                self.emit_module_function(func);
+            }
+            PluginItem::Struct(struct_decl) => {
+                // Emit struct with pub visibility
+                self.emit_line("#[derive(Clone, Debug)]");
+                self.emit_line(&format!("pub struct {} {{", struct_decl.name));
+                self.indent += 1;
+                for field in &struct_decl.fields {
+                    let rust_type = self.type_to_string(&field.ty);
+                    self.emit_line(&format!("pub {}: {},", field.name, rust_type));
+                }
+                self.indent -= 1;
+                self.emit_line("}");
+                self.emit_line("");
+            }
+            PluginItem::Enum(enum_decl) => {
+                // Emit enum with pub visibility
+                self.emit_line("#[derive(Clone, Debug)]");
+                self.emit_line(&format!("pub enum {} {{", enum_decl.name));
+                self.indent += 1;
+                for variant in &enum_decl.variants {
+                    match &variant.fields {
+                        EnumVariantFields::Tuple(types) => {
+                            let type_strs: Vec<_> = types.iter().map(|t| self.type_to_string(t)).collect();
+                            self.emit_line(&format!("{}({}),", variant.name, type_strs.join(", ")));
+                        }
+                        EnumVariantFields::Struct(fields) => {
+                            self.emit_line(&format!("{} {{", variant.name));
+                            self.indent += 1;
+                            for (name, ty) in fields {
+                                let rust_type = self.type_to_string(ty);
+                                self.emit_line(&format!("{}: {},", name, rust_type));
+                            }
+                            self.indent -= 1;
+                            self.emit_line("},");
+                        }
+                        EnumVariantFields::Unit => {
+                            self.emit_line(&format!("{},", variant.name));
+                        }
+                    }
+                }
+                self.indent -= 1;
+                self.emit_line("}");
+                self.emit_line("");
+            }
+            _ => {
+                // Skip other items for now
+            }
+        }
+    }
+
+    /// Emit a function from a module (with pub visibility)
+    fn emit_module_function(&mut self, func: &crate::parser::FnDecl) {
+        // Build function signature
+        let mut params = Vec::new();
+        for param in &func.params {
+            let rust_type = self.type_to_string(&param.ty);
+            params.push(format!("{}: {}", param.name, rust_type));
+        }
+
+        let return_type = if let Some(ref ret_ty) = func.return_type {
+            format!(" -> {}", self.type_to_string(ret_ty))
+        } else {
+            String::new()
+        };
+
+        // Emit function header with pub
+        let pub_kw = if func.is_pub { "pub " } else { "" };
+        self.emit_line(&format!("{}fn {}({}){} {{", pub_kw, func.name, params.join(", "), return_type));
+        self.indent += 1;
+
+        // Emit function body - for now just emit a todo!() since we can't easily
+        // emit decorated function bodies from undecorated AST
+        self.emit_line("todo!(\"Module function body not yet implemented\")");
+
+        self.indent -= 1;
+        self.emit_line("}");
+        self.emit_line("");
     }
 
     fn emit_plugin(&mut self, plugin: &DecoratedPlugin) {

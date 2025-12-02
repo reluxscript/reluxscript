@@ -16,12 +16,23 @@ struct ModuleExports {
     enums: HashMap<String, TypeInfo>,
 }
 
+/// A loaded module with its path and parsed program
+#[derive(Debug, Clone)]
+pub struct LoadedModule {
+    /// The canonical path to the module file
+    pub path: PathBuf,
+    /// The parsed program AST
+    pub program: Program,
+}
+
 /// Name resolver - resolves all identifiers and builds the type environment
 pub struct Resolver {
     env: TypeEnv,
     errors: Vec<SemanticError>,
     /// Cache of loaded modules (path -> exports)
     module_cache: HashMap<PathBuf, ModuleExports>,
+    /// Cache of loaded module programs (path -> program) for codegen
+    program_cache: HashMap<PathBuf, Program>,
     /// Track which modules are currently being resolved (for circular dependency detection)
     resolving_stack: Vec<PathBuf>,
     /// Base directory for resolving relative imports
@@ -38,6 +49,7 @@ impl Resolver {
             env: TypeEnv::new(),
             errors: Vec::new(),
             module_cache: HashMap::new(),
+            program_cache: HashMap::new(),
             resolving_stack: Vec::new(),
             base_dir,
         }
@@ -72,6 +84,17 @@ impl Resolver {
         } else {
             Err(std::mem::take(&mut self.errors))
         }
+    }
+
+    /// Get all loaded module programs (for codegen to generate multi-file output)
+    pub fn get_loaded_programs(&self) -> Vec<LoadedModule> {
+        self.program_cache
+            .iter()
+            .map(|(path, program)| LoadedModule {
+                path: path.clone(),
+                program: program.clone(),
+            })
+            .collect()
     }
 
     /// Resolve a use statement
@@ -248,6 +271,9 @@ impl Resolver {
         // This allows circular dependencies to find the exports
         let exports = self.extract_exports(&program);
         self.module_cache.insert(canonical_path.clone(), exports.clone());
+
+        // Also cache the program AST for codegen to use later
+        self.program_cache.insert(canonical_path.clone(), program.clone());
 
         // Save current base_dir and update for the loaded module
         let old_base_dir = std::mem::replace(&mut self.base_dir, resolved_path.parent().unwrap_or(&resolved_path).to_path_buf());

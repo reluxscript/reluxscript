@@ -5,30 +5,189 @@
 use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
+use std::collections::HashMap;
+use serde::{Serialize, Deserialize};
+use serde_json;
+use std::fs;
+use std::path::Path;
 
-pub struct TestTurbofish {
+mod arrays;
+mod calls;
+mod classification;
+mod component_types;
+mod csharp_file;
+mod dependencies;
+mod detection;
+mod event_handlers;
+mod expressions;
+mod functions;
+mod helpers;
+mod hex_path;
+mod hook_detector;
+mod hooks;
+mod identifiers;
+mod jsx;
+mod literals;
+mod local_variables;
+mod r#mod;
+mod new_expressions;
+mod objects;
+mod operators;
+mod path_assignment;
+mod plugin;
+mod process_component;
+mod prop_type_inference;
+mod props;
+mod runtime_helpers;
+mod style_converter;
+mod templates;
+mod type_conversion;
+mod use_state_x;
+
+use process_component::{process_component, ProcessedComponent};
+use csharp_file::{generate_csharp_file};
+use templates::{generate_template_map_json};
+
+#[derive(Clone, Debug)]
+struct ComponentInfo {
+    name: String,
+    csharp_code: String,
+    templates: HashMap<String, TemplateInfo>,
+    hooks: Vec<HookInfo>,
 }
 
-impl VisitMut for TestTurbofish {
-    fn visit_mut_ident(&mut self, node: &mut Ident) {
-        let x = "42";
-        match x.parse::<Float>() {
-            Ok(num) => {
-                let _y = num.to_string();
+#[derive(Clone, Debug)]
+struct HookInfo {
+    name: String,
+    hook_type: String,
+}
+
+#[derive(Clone, Debug)]
+struct TemplateInfo {
+    path: String,
+    template: String,
+    bindings: Vec<String>,
+}
+
+pub struct MinimactTranspiler {
+    output: String,
+    indent_level: usize,
+    components: Vec<ComponentInfo>,
+    hooks: Vec<HookInfo>,
+    templates: HashMap<String, TemplateInfo>,
+}
+
+impl Visit for MinimactTranspiler {}
+
+impl MinimactTranspiler {
+    pub fn new() -> Self {
+        Self {
+            output: String::new(),
+            indent_level: 0,
+            components: Vec::new(),
+            hooks: Vec::new(),
+            templates: HashMap::new(),
+        }
+    }
+    
+    fn append(&mut self, s: &str) {
+        self.output.push_str(s);
+    }
+    
+    fn append_line(&mut self, s: &str) {
+        for _ in 0..self.indent_level {
+            self.output.push_str("    ");
+        }
+        self.output.push_str(s);
+        self.output.push('\n');
+    }
+    
+    fn indent(&mut self) {
+        self.indent_level += 1;
+    }
+    
+    fn dedent(&mut self) {
+        if self.indent_level > 0 {
+            self.indent_level -= 1;
+        }
+    }
+    
+    fn newline(&mut self) {
+        self.output.push('\n');
+    }
+    
+    pub fn to_string(&self) -> String {
+        self.output.clone()
+    }
+    
+    // Exit-hook
+    pub fn finish(&mut self) -> String {
+        let mut output = CodeBuilder::new();
+        for component in &self.components {
+            output.append(&component.csharp_code);
+            output.newline();
+        }
+        output.to_string()
+    }
+    
+    fn visit_mut_fn_decl(&mut self, node: &FnDecl) {
+        match process_component(node) {
+            Some(component) => {
+                let csharp_code = generate_csharp_file(&component);
+                let templates = generate_template_map_json(&component);
+                let info = ComponentInfo { name: component.name.to_string(), csharp_code: csharp_code, templates: templates, hooks: vec![] };
+                self.components.push(info)
             }
             _ => {}
         }
-        let items = vec!["a", "b", "c"];
-        let result = items.iter().map(|s| s.to_uppercase()).collect::<Vec<String>>();
-        let _joined = result.join(", ");
+        node.visit_children_with(self);
     }
     
 }
 
-impl TestTurbofish {
-    pub fn new() -> Self {
-        Self {}
-    }
-    
+// CodeBuilder type for code generation
+struct CodeBuilder {
+    buffer: String,
+    indent_level: usize,
+    indent_string: String,
 }
 
+impl CodeBuilder {
+    fn new() -> Self {
+        Self {
+            buffer: String::new(),
+            indent_level: 0,
+            indent_string: "    ".to_string(),
+        }
+    }
+    
+    fn append(&mut self, s: &str) {
+        self.buffer.push_str(s);
+    }
+    
+    fn append_line(&mut self, s: &str) {
+        for _ in 0..self.indent_level {
+            self.buffer.push_str(&self.indent_string);
+        }
+        self.buffer.push_str(s);
+        self.buffer.push('\n');
+    }
+    
+    fn newline(&mut self) {
+        self.buffer.push('\n');
+    }
+    
+    fn indent(&mut self) {
+        self.indent_level += 1;
+    }
+    
+    fn dedent(&mut self) {
+        if self.indent_level > 0 {
+            self.indent_level -= 1;
+        }
+    }
+    
+    fn to_string(self) -> String {
+        self.buffer
+    }
+}

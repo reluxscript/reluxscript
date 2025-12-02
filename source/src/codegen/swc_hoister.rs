@@ -8,7 +8,7 @@
 //! Pipeline position: Decorator → Rewriter → **Hoister** → Emitter
 
 use crate::codegen::swc_decorator::{
-    DecoratedProgram, DecoratedTopLevelDecl, DecoratedPlugin, DecoratedWriter,
+    DecoratedProgram, DecoratedTopLevelDecl, DecoratedPlugin, DecoratedWriter, DecoratedModule,
     DecoratedPluginItem, DecoratedFnDecl, DecoratedImplBlock,
 };
 use crate::codegen::decorated_ast::{
@@ -116,6 +116,9 @@ impl SwcHoister {
             DecoratedTopLevelDecl::Writer(writer) => {
                 DecoratedTopLevelDecl::Writer(self.hoist_writer(writer))
             }
+            DecoratedTopLevelDecl::Module(module) => {
+                DecoratedTopLevelDecl::Module(self.hoist_module(module))
+            }
             other => other,
         };
 
@@ -123,6 +126,36 @@ impl SwcHoister {
             uses: program.uses,
             decl: new_decl,
         }
+    }
+
+    fn hoist_module(&mut self, module: DecoratedModule) -> DecoratedModule {
+        let mut new_items = Vec::new();
+
+        // Process items and hoist functions
+        for item in module.items {
+            match item {
+                DecoratedPluginItem::Function(func) => {
+                    let new_func = self.hoist_function(func);
+                    new_items.push(DecoratedPluginItem::Function(new_func));
+                }
+                other => new_items.push(other),
+            }
+        }
+
+        // Prepend hoisted structs and impls
+        let mut final_items = Vec::new();
+
+        for hoisted_struct in std::mem::take(&mut self.hoisted_structs) {
+            final_items.push(DecoratedPluginItem::Struct(hoisted_struct));
+        }
+
+        for hoisted_impl in std::mem::take(&mut self.hoisted_impls) {
+            final_items.push(DecoratedPluginItem::Impl(hoisted_impl));
+        }
+
+        final_items.extend(new_items);
+
+        DecoratedModule { items: final_items }
     }
 
     /// Hoist inline visitors from a plugin

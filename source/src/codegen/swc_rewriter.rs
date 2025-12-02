@@ -18,7 +18,7 @@ use crate::lexer::Span;
 use super::decorated_ast::*;
 use super::swc_metadata::*;
 use crate::type_system::SwcTypeKind;
-use super::swc_decorator::{DecoratedProgram, DecoratedTopLevelDecl, DecoratedPlugin, DecoratedWriter, DecoratedPluginItem, DecoratedFnDecl, DecoratedImplBlock};
+use super::swc_decorator::{DecoratedProgram, DecoratedTopLevelDecl, DecoratedPlugin, DecoratedWriter, DecoratedModule, DecoratedPluginItem, DecoratedFnDecl, DecoratedImplBlock};
 
 /// SwcRewriter transforms DecoratedAST → DecoratedAST
 /// All semantic transformations happen here, not in codegen
@@ -74,10 +74,29 @@ impl SwcRewriter {
                 self.is_writer = true;
                 DecoratedTopLevelDecl::Writer(self.rewrite_writer(writer))
             }
+            DecoratedTopLevelDecl::Module(module) => {
+                self.is_writer = false;
+                DecoratedTopLevelDecl::Module(self.rewrite_module(module))
+            }
             DecoratedTopLevelDecl::Undecorated(decl) => {
                 // Pass through undecorated nodes unchanged
                 DecoratedTopLevelDecl::Undecorated(decl)
             }
+        }
+    }
+
+    fn rewrite_module(&mut self, module: DecoratedModule) -> DecoratedModule {
+        // Collect helper function names
+        self.helper_functions.clear();
+        for item in &module.items {
+            if let DecoratedPluginItem::Function(func) = item {
+                self.helper_functions.push(func.name.clone());
+            }
+        }
+
+        // Rewrite items
+        DecoratedModule {
+            items: module.items.into_iter().map(|item| self.rewrite_plugin_item(item)).collect(),
         }
     }
 

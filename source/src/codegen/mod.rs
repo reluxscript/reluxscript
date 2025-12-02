@@ -34,11 +34,23 @@ pub enum Target {
     Both,
 }
 
+/// A generated file with path and content
+#[derive(Debug, Clone)]
+pub struct GeneratedFile {
+    /// Relative path for the file (e.g., "lib.rs" or "process_component.rs")
+    pub path: String,
+    /// Generated code content
+    pub content: String,
+}
+
 /// Result of code generation
 #[derive(Debug)]
 pub struct GeneratedCode {
     pub babel: Option<String>,
     pub swc: Option<String>,
+    /// Additional generated files (for multi-file output)
+    pub babel_modules: Vec<GeneratedFile>,
+    pub swc_modules: Vec<GeneratedFile>,
 }
 
 /// Generate code for the given target(s)
@@ -63,7 +75,7 @@ pub fn generate(program: &crate::parser::Program, target: Target) -> GeneratedCo
         None
     };
 
-    GeneratedCode { babel, swc }
+    GeneratedCode { babel, swc, babel_modules: vec![], swc_modules: vec![] }
 }
 
 /// Generate code with semantic type information (for better type inference)
@@ -72,13 +84,75 @@ pub fn generate_with_types(
     type_env: crate::semantic::TypeEnv,
     target: Target,
 ) -> GeneratedCode {
+    generate_with_types_and_modules(program, type_env, target, &[])
+}
+
+/// Generate code with semantic type information and loaded modules (for multi-file output)
+pub fn generate_with_types_and_modules(
+    program: &crate::parser::Program,
+    type_env: crate::semantic::TypeEnv,
+    target: Target,
+    loaded_modules: &[crate::semantic::LoadedModule],
+) -> GeneratedCode {
+    let mut babel_modules = Vec::new();
+    let mut swc_modules = Vec::new();
+
     let babel = if target == Target::Babel || target == Target::Both {
-        Some(BabelGenerator::new().generate(program))
+        // Generate main file
+        let main = BabelGenerator::new().generate(program);
+
+        // Generate code for each loaded module
+        for module in loaded_modules {
+            let content = BabelGenerator::new().generate(&module.program);
+            // Get filename from path (e.g., "process_component.lux" -> "process_component.js")
+            let filename = module.path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("module");
+            babel_modules.push(GeneratedFile {
+                path: format!("{}.js", filename),
+                content,
+            });
+        }
+
+        Some(main)
     } else {
         None
     };
 
     let swc = if target == Target::Swc || target == Target::Both {
+        // Collect ALL unique module names from main program AND all loaded modules
+        // These all need to be declared in lib.rs for Rust's module system
+        let mut all_module_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        // Helper to extract module names from use statements
+        fn extract_module_names(uses: &[crate::parser::UseStmt]) -> Vec<String> {
+            uses.iter()
+                .filter(|u| u.path.starts_with("./") || u.path.starts_with("../"))
+                .map(|u| {
+                    let path = u.path.replace(".lux", "").replace(".rsc", "");
+                    path.split('/').last().unwrap_or(&path).to_string()
+                })
+                .collect()
+        }
+
+        // Collect from main program
+        for name in extract_module_names(&program.uses) {
+            all_module_names.insert(name);
+        }
+
+        // Collect from all loaded modules
+        for module in loaded_modules {
+            // Add this module itself
+            if let Some(name) = module.path.file_stem().and_then(|s| s.to_str()) {
+                all_module_names.insert(name.to_string());
+            }
+            // Add modules this module imports
+            for name in extract_module_names(&module.program.uses) {
+                all_module_names.insert(name);
+            }
+        }
+
         // NEW 4-STAGE PIPELINE: Decorate (with types) → Rewrite → Hoist → Emit
         let mut decorator = SwcDecorator::with_semantic_types(type_env.clone());
         let decorated_program = decorator.decorate_program(program);
@@ -86,14 +160,43 @@ pub fn generate_with_types(
         let mut rewriter = SwcRewriter::new();
         let rewritten_program = rewriter.rewrite_program(decorated_program);
 
-        let mut hoister = SwcHoister::new(type_env);
+        let mut hoister = SwcHoister::new(type_env.clone());
         let hoisted_program = hoister.hoist_program(rewritten_program);
 
-        let mut emitter = SwcEmitter::new();
-        Some(emitter.emit_program(&hoisted_program))
+        // Use new_with_all_modules to inject all module declarations into lib.rs
+        let mut emitter = SwcEmitter::new_with_all_modules(all_module_names.clone());
+        let main = emitter.emit_program(&hoisted_program);
+
+        // Generate code for each loaded module
+        for module in loaded_modules {
+            let mut mod_decorator = SwcDecorator::with_semantic_types(type_env.clone());
+            let mod_decorated = mod_decorator.decorate_program(&module.program);
+
+            let mut mod_rewriter = SwcRewriter::new();
+            let mod_rewritten = mod_rewriter.rewrite_program(mod_decorated);
+
+            let mut mod_hoister = SwcHoister::new(type_env.clone());
+            let mod_hoisted = mod_hoister.hoist_program(mod_rewritten);
+
+            // Use new_module() for module files - emits `use crate::...` instead of `mod ...`
+            let mut mod_emitter = SwcEmitter::new_module();
+            let content = mod_emitter.emit_program(&mod_hoisted);
+
+            // Get filename from path (e.g., "process_component.lux" -> "process_component.rs")
+            let filename = module.path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("module");
+            swc_modules.push(GeneratedFile {
+                path: format!("{}.rs", filename),
+                content,
+            });
+        }
+
+        Some(main)
     } else {
         None
     };
 
-    GeneratedCode { babel, swc }
+    GeneratedCode { babel, swc, babel_modules, swc_modules }
 }
