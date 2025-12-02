@@ -6,7 +6,7 @@ use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 
-fn generate_unary_expression(node: &UnaryExpr, generate_csharp_expression: F, in_interpolation: bool) -> String {
+pub fn generate_unary_expression(node: &UnaryExpr, generate_csharp_expression: F, in_interpolation: bool) -> String {
     let argument = generate_csharp_expression(&node.argument, in_interpolation);
     let operator = &node.operator;
     format!("{}{}", operator, argument)
@@ -29,7 +29,7 @@ fn get_precedence(op: &str) -> i32 {
     }
 }
 
-fn generate_binary_expression(node: &BinExpr, generate_csharp_expression: F) -> String {
+pub fn generate_binary_expression(node: &BinExpr, generate_csharp_expression: F) -> String {
     let current_precedence = Self::get_precedence(&node.operator);
     let mut left = generate_csharp_expression(&node.left, false);
     match node.left {
@@ -65,7 +65,7 @@ fn generate_binary_expression(node: &BinExpr, generate_csharp_expression: F) -> 
     format!("{} {} {}", left, operator, right)
 }
 
-fn generate_logical_expression(node: &BinExpr, generate_csharp_expression: F) -> String {
+pub fn generate_logical_expression(node: &BinExpr, generate_csharp_expression: F) -> String {
     let left = generate_csharp_expression(&node.left, false);
     let right = generate_csharp_expression(&node.right, false);
     match node.operator.as_str() {
@@ -104,14 +104,14 @@ fn generate_logical_expression(node: &BinExpr, generate_csharp_expression: F) ->
     }
 }
 
-fn generate_conditional_expression(node: &CondExpr, generate_csharp_expression: F) -> String {
+pub fn generate_conditional_expression(node: &CondExpr, generate_csharp_expression: F) -> String {
     let test = generate_csharp_expression(&node.test, false);
     let consequent = generate_csharp_expression(&node.consequent, false);
     let alternate = generate_csharp_expression(&node.alternate, false);
     format!("({}) ? {} : {}", test, consequent, alternate)
 }
 
-fn generate_assignment_expression(node: &AssignExpr, generate_csharp_expression: F, in_interpolation: bool) -> String {
+pub fn generate_assignment_expression(node: &AssignExpr, generate_csharp_expression: F, in_interpolation: bool) -> String {
     let left = generate_csharp_expression(&node.left, in_interpolation);
     let right = generate_csharp_expression(&node.right, in_interpolation);
     let operator = &node.operator;

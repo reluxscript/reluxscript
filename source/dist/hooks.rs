@@ -13,7 +13,7 @@ use crate::expressions::{generate_csharp_expression};
 use crate::type_conversion::{infer_type, ts_type_to_csharp_type};
 use crate::use_state_x::{extract_use_state_x};
 
-fn extract_hook(call_expr: &CallExpr, component: &mut Component) {
+pub fn extract_hook(call_expr: &CallExpr, component: &mut Component) {
     match &call_expr.callee {
         Expr::Ident(callee) => {
             let hook_name = &callee.sym.to_string();
@@ -110,7 +110,7 @@ fn extract_hook(call_expr: &CallExpr, component: &mut Component) {
     }
 }
 
-fn extract_use_state(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component, hook_type: &str) {
+pub fn extract_use_state(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component, hook_type: &str) {
     match &parent.name {
         Pat::Array(array_pattern) => {
             let elements = &array_pattern.elems;
@@ -179,7 +179,7 @@ fn extract_use_state(call_expr: &CallExpr, parent: &VarDeclarator, component: &m
     }
 }
 
-fn extract_use_protected_state(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
+pub fn extract_use_protected_state(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
     match &parent.name {
         Pat::Array(array_pattern) => {
             let elements = &array_pattern.elems;
@@ -244,7 +244,7 @@ fn extract_use_protected_state(call_expr: &CallExpr, parent: &VarDeclarator, com
     }
 }
 
-fn extract_use_effect(call_expr: &CallExpr, component: &mut Component) {
+pub fn extract_use_effect(call_expr: &CallExpr, component: &mut Component) {
     let callback = call_expr.args.get(0);
     let dependencies = call_expr.args.get(1);
     component.use_effect.push(UseEffectInfo { body: callback.cloned(), dependencies: dependencies.cloned() });
@@ -260,7 +260,7 @@ fn extract_use_effect(call_expr: &CallExpr, component: &mut Component) {
     }
 }
 
-fn extract_use_ref(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
+pub fn extract_use_ref(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
     match &parent.name {
         Pat::Ident(id) => {
             let ref_name = match id {
@@ -283,7 +283,7 @@ fn extract_use_ref(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut
     }
 }
 
-fn extract_use_markdown(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
+pub fn extract_use_markdown(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
     match &parent.name {
         Pat::Array(array_pattern) => {
             let elements = &array_pattern.elems;
@@ -318,7 +318,7 @@ fn extract_use_markdown(call_expr: &CallExpr, parent: &VarDeclarator, component:
     }
 }
 
-fn extract_use_razor_markdown(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
+pub fn extract_use_razor_markdown(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
     match &parent.name {
         Pat::Array(array_pattern) => {
             let elements = &array_pattern.elems;
@@ -358,7 +358,7 @@ fn extract_use_razor_markdown(call_expr: &CallExpr, parent: &VarDeclarator, comp
     }
 }
 
-fn extract_use_template(call_expr: &CallExpr, component: &mut Component) {
+pub fn extract_use_template(call_expr: &CallExpr, component: &mut Component) {
     let template_name_arg = call_expr.args.get(0);
     let template_props_arg = call_expr.args.get(1);
     match template_name_arg {
@@ -410,7 +410,7 @@ fn extract_use_template(call_expr: &CallExpr, component: &mut Component) {
     }
 }
 
-fn extract_use_validation(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
+pub fn extract_use_validation(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
     match &parent.name {
         Pat::Ident(id) => {
             let field_name = match id {
@@ -487,7 +487,7 @@ fn extract_use_validation(call_expr: &CallExpr, parent: &VarDeclarator, componen
     }
 }
 
-fn extract_use_modal(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
+pub fn extract_use_modal(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
     match &parent.name {
         Pat::Ident(id) => {
             let modal_name = match id {
@@ -504,7 +504,7 @@ fn extract_use_modal(call_expr: &CallExpr, parent: &VarDeclarator, component: &m
     }
 }
 
-fn extract_use_toggle(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
+pub fn extract_use_toggle(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
     match &parent.name {
         Pat::Array(array_pattern) => {
             let elements = &array_pattern.elems;
@@ -539,7 +539,7 @@ fn extract_use_toggle(call_expr: &CallExpr, parent: &VarDeclarator, component: &
     }
 }
 
-fn extract_use_dropdown(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
+pub fn extract_use_dropdown(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
     match &parent.name {
         Pat::Ident(id) => {
             let dropdown_name = match id {
@@ -569,7 +569,7 @@ fn extract_use_dropdown(call_expr: &CallExpr, parent: &VarDeclarator, component:
     }
 }
 
-fn extract_use_pub(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
+pub fn extract_use_pub(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
     match &parent.name {
         Pat::Ident(id) => {
             let pub_name = match id {
@@ -592,7 +592,7 @@ fn extract_use_pub(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut
     }
 }
 
-fn extract_use_sub(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
+pub fn extract_use_sub(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
     match &parent.name {
         Pat::Ident(id) => {
             let sub_name = match id {
@@ -617,12 +617,12 @@ fn extract_use_sub(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut
     }
 }
 
-fn extract_use_micro_task(call_expr: &CallExpr, component: &mut Component) {
+pub fn extract_use_micro_task(call_expr: &CallExpr, component: &mut Component) {
     let callback = call_expr.args.get(0);
     component.use_micro_task.push(UseMicroTaskInfo { body: callback.cloned() });
 }
 
-fn extract_use_macro_task(call_expr: &CallExpr, component: &mut Component) {
+pub fn extract_use_macro_task(call_expr: &CallExpr, component: &mut Component) {
     let callback = call_expr.args.get(0);
     let delay_arg = call_expr.args.get(1);
     let delay = if delay_arg {
@@ -633,7 +633,7 @@ fn extract_use_macro_task(call_expr: &CallExpr, component: &mut Component) {
     component.use_macro_task.push(UseMacroTaskInfo { body: callback.cloned(), delay: delay });
 }
 
-fn extract_use_signal_r(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
+pub fn extract_use_signal_r(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
     match &parent.name {
         Pat::Ident(id) => {
             let signal_r_name = match id {
@@ -658,7 +658,7 @@ fn extract_use_signal_r(call_expr: &CallExpr, parent: &VarDeclarator, component:
     }
 }
 
-fn extract_use_predict_hint(call_expr: &CallExpr, component: &mut Component) {
+pub fn extract_use_predict_hint(call_expr: &CallExpr, component: &mut Component) {
     let hint_id_arg = call_expr.args.get(0);
     let predicted_state = call_expr.args.get(1);
     let hint_id = if hint_id_arg {
@@ -669,7 +669,7 @@ fn extract_use_predict_hint(call_expr: &CallExpr, component: &mut Component) {
     component.use_predict_hint.push(UsePredictHintInfo { hint_id: hint_id, predicted_state: predicted_state.cloned() });
 }
 
-fn extract_use_server_task(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
+pub fn extract_use_server_task(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
     match &parent.name {
         Pat::Ident(id) => {
             let task_name = match id {
@@ -786,7 +786,7 @@ fn extract_use_server_task(call_expr: &CallExpr, parent: &VarDeclarator, compone
     }
 }
 
-fn extract_use_paginated_server_task(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
+pub fn extract_use_paginated_server_task(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
     match &parent.name {
         Pat::Ident(id) => {
             let task_name = match id {
@@ -899,7 +899,7 @@ fn extract_use_paginated_server_task(call_expr: &CallExpr, parent: &VarDeclarato
     }
 }
 
-fn extract_use_mvc_state(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
+pub fn extract_use_mvc_state(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
     match &parent.name {
         Pat::Array(array_pattern) => {
             let elements = &array_pattern.elems;
@@ -953,7 +953,7 @@ fn extract_use_mvc_state(call_expr: &CallExpr, parent: &VarDeclarator, component
     }
 }
 
-fn extract_use_mvc_view_model(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
+pub fn extract_use_mvc_view_model(call_expr: &CallExpr, parent: &VarDeclarator, component: &mut Component) {
     match &parent.name {
         Pat::Ident(id) => {
             let view_model_var_name = match id {
@@ -1074,12 +1074,12 @@ fn extract_custom_hook_call(call_expr: &CallExpr, parent: &VarDeclarator, compon
     }
 }
 
-fn analyze_hook_usage(callback: &Expr) -> Vec<String> {
+pub fn analyze_hook_usage(callback: &Expr) -> Vec<String> {
     let mut hooks = HashSet::new();
     hooks.into_iter().collect()
 }
 
-fn transform_effect_callback(callback: &Expr, hook_calls: &Vec<String>) -> FnExpr {
+pub fn transform_effect_callback(callback: &Expr, hook_calls: &Vec<String>) -> FnExpr {
     let (params, function_body, is_async) = match callback {
         Expr::Arrow(arrow) => {
             {
@@ -1111,7 +1111,7 @@ fn transform_effect_callback(callback: &Expr, hook_calls: &Vec<String>) -> FnExp
     FunctionExpression { params: params, body: BlockStatement { body: new_body_statements }, is_async: is_async, is_generator: false }
 }
 
-fn transform_handler_function(body: &Expr, params: &Vec<Pat>, hook_calls: &Vec<String>) -> FnExpr {
+pub fn transform_handler_function(body: &Expr, params: &Vec<Pat>, hook_calls: &Vec<String>) -> FnExpr {
     let body_statements = if body {
         block.body.clone()
     } else {

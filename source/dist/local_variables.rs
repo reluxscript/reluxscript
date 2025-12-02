@@ -10,7 +10,7 @@ use crate::expressions::{generate_csharp_expression};
 use crate::type_conversion::{ts_type_to_csharp_type};
 use crate::component_types::{Component, LocalVariable, EventHandler};
 
-fn uses_external_library(node: &Expr, external_imports: &Vec<String>, visited: &mut Vec<usize>) -> bool {
+pub fn uses_external_library(node: &Expr, external_imports: &Vec<String>, visited: &mut Vec<usize>) -> bool {
     let node_id = 0;
     if visited.contains(&node_id) {
         return false;
@@ -152,7 +152,7 @@ fn uses_external_library_stmt(stmt: &Statement, external_imports: &Vec<String>, 
     }
 }
 
-fn extract_local_variables(declarations: &Vec<VarDeclarator>, component: &mut Component) {
+pub fn extract_local_variables(declarations: &Vec<VarDeclarator>, component: &mut Component) {
     for declarator in declarations {
         match &declarator.init {
             Some(init) => {

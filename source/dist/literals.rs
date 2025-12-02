@@ -8,7 +8,7 @@ use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 
 use crate::helpers::{escape_csharp_string};
 
-fn generate_string_literal(node: &String, in_interpolation: bool) -> String {
+pub fn generate_string_literal(node: &String, in_interpolation: bool) -> String {
     let escaped = escape_csharp_string(&node.value);
     if in_interpolation {
         format!("\\\"{}\\\"", escaped)
@@ -17,11 +17,11 @@ fn generate_string_literal(node: &String, in_interpolation: bool) -> String {
     }
 }
 
-fn generate_numeric_literal(node: &Number) -> String {
+pub fn generate_numeric_literal(node: &Number) -> String {
     node.value.to_string()
 }
 
-fn generate_boolean_literal(node: &bool) -> String {
+pub fn generate_boolean_literal(node: &bool) -> String {
     if node.value {
         "true".to_string()
     } else {
@@ -29,7 +29,7 @@ fn generate_boolean_literal(node: &bool) -> String {
     }
 }
 
-fn generate_null_literal(node: &Null) -> String {
+pub fn generate_null_literal(node: &Null) -> String {
     let node_path = if node.extra_data.get("__minimactPath") {
         path.clone()
     } else {
@@ -38,7 +38,7 @@ fn generate_null_literal(node: &Null) -> String {
     format!("new VNull(\"{}\")", node_path)
 }
 
-fn generate_template_literal(node: &Tpl, generate_csharp_expression: F) -> String {
+pub fn generate_template_literal(node: &Tpl, generate_csharp_expression: F) -> String {
     if node.expressions.is_empty() {
         match node.quasis.first() {
             Some(first_quasi) => {

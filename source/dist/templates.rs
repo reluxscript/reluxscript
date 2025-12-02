@@ -15,7 +15,7 @@ struct TemplateInfo {
     bindings: Vec<String>,
 }
 
-fn generate_template_map_json(component: &ProcessedComponent) -> HashMap<String, TemplateInfo> {
+pub fn generate_template_map_json(component: &ProcessedComponent) -> HashMap<String, TemplateInfo> {
     let mut templates = HashMap::new();
     templates
 }

@@ -8,7 +8,7 @@ use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 
 use crate::component_types::{Component};
 
-fn generate_component(component: &Component) -> Vec<String> {
+pub fn generate_component(component: &Component) -> Vec<String> {
     let mut lines = vec![];
     lines.push(format!("public partial class {} : MinimactComponent", component.name));
     lines.push("{".into());

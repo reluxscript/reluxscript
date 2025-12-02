@@ -6,7 +6,7 @@ use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 
-fn generate_array_expression(node: &ArrayLit, generate_csharp_expression: F) -> String {
+pub fn generate_array_expression(node: &ArrayLit, generate_csharp_expression: F) -> String {
     let has_spread = node.elems.iter().any(|e| /* complex expr */);
     if has_spread {
         let mut parts = vec![];

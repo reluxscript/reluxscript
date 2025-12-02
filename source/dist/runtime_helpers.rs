@@ -15,7 +15,7 @@ use crate::style_converter::{convert_style_object_to_css};
 use crate::expressions::{generate_map_expression};
 use crate::expressions::{generate_csharp_expression};
 
-fn generate_runtime_helper_call(tag_name: &String, attributes: &Vec<JSXAttr>, children: &Vec<JSXChild>, component: &Component, indent: i32) -> String {
+pub fn generate_runtime_helper_call(tag_name: &String, attributes: &Vec<JSXAttr>, children: &Vec<JSXChild>, component: &Component, indent: i32) -> String {
     let indent_str = "    ".repeat(indent);
     let mut props_code = "null".to_string();
     let mut regular_props = vec![];
@@ -207,7 +207,7 @@ fn generate_runtime_helper_call(tag_name: &String, attributes: &Vec<JSXAttr>, ch
     }
 }
 
-fn generate_runtime_helper_for_jsx_node(node: &Expr, component: &Component, indent: i32) -> String {
+pub fn generate_runtime_helper_for_jsx_node(node: &Expr, component: &Component, indent: i32) -> String {
     match node {
         Expr::JSXFragment(fragment) => {
             let children = &fragment.children;

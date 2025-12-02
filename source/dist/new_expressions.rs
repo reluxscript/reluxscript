@@ -6,7 +6,7 @@ use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 
-fn generate_new_expression(node: &NewExpr, generate_csharp_expression: F) -> String {
+pub fn generate_new_expression(node: &NewExpr, generate_csharp_expression: F) -> String {
     match node.callee {
         Expr::Ident(callee_id) => {
             if ((&*callee_id.sym.to_string() == "Promise") && !node.args.is_empty()) {

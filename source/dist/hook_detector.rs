@@ -6,7 +6,7 @@ use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 
-fn is_custom_hook(node: &Statement) -> bool {
+pub fn is_custom_hook(node: &Statement) -> bool {
     match node {
         Decl::Fn(func) => {
             {
@@ -82,7 +82,7 @@ fn is_custom_hook_arrow(name: &String, params: &Vec<Pat>) -> bool {
     Self::is_namespace_parameter(&params[0])
 }
 
-fn is_namespace_parameter(param: &Pat) -> bool {
+pub fn is_namespace_parameter(param: &Pat) -> bool {
     match param {
         Pat::Ident(id) => {
             {
@@ -119,7 +119,7 @@ fn is_namespace_parameter(param: &Pat) -> bool {
     }
 }
 
-fn get_hook_name(node: &Statement) -> Option<String> {
+pub fn get_hook_name(node: &Statement) -> Option<String> {
     match node {
         Decl::Fn(func) => {
             {
@@ -155,7 +155,7 @@ struct HookParameter {
     default_value: Option<Expression>,
 }
 
-fn get_hook_parameters(node: &Statement) -> Vec<HookParameter> {
+pub fn get_hook_parameters(node: &Statement) -> Vec<HookParameter> {
     let params = match node {
         Decl::Fn(func) => {
             {
@@ -239,7 +239,7 @@ fn extract_parameter_info(param: &Pat) -> HookParameter {
     }
 }
 
-fn extract_type_string(type_node: &TSType) -> String {
+pub fn extract_type_string(type_node: &TSType) -> String {
     match type_node {
         TsType::TsKeywordType => {
             "string"
@@ -277,7 +277,7 @@ fn extract_type_string(type_node: &TSType) -> String {
     }
 }
 
-fn get_hook_body(node: &Statement) -> Option<BlockStmt> {
+pub fn get_hook_body(node: &Statement) -> Option<BlockStmt> {
     match node {
         Decl::Fn(func) => {
             {

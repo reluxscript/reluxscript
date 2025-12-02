@@ -12,7 +12,7 @@ struct Dependency {
     dep_type: String,
 }
 
-fn classify_node(deps: &HashSet<Dependency>) -> String {
+pub fn classify_node(deps: &HashSet<Dependency>) -> String {
     if deps.is_empty() {
         return "static".to_string();
     }
@@ -30,11 +30,11 @@ fn classify_node(deps: &HashSet<Dependency>) -> String {
     "hybrid"
 }
 
-fn is_static(deps: &HashSet<Dependency>) -> bool {
+pub fn is_static(deps: &HashSet<Dependency>) -> bool {
     deps.is_empty()
 }
 
-fn is_hybrid(deps: &HashSet<Dependency>) -> bool {
+pub fn is_hybrid(deps: &HashSet<Dependency>) -> bool {
     (Self::classify_node(deps) == "hybrid")
 }
 

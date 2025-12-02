@@ -6,7 +6,7 @@ use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 
-fn camel_to_kebab(s: &String) -> String {
+pub fn camel_to_kebab(s: &String) -> String {
     let mut result = String::new();
     for ch in s.chars() {
         if ch.is_uppercase() {
@@ -19,7 +19,7 @@ fn camel_to_kebab(s: &String) -> String {
     result
 }
 
-fn convert_style_value(value: &Expr) -> String {
+pub fn convert_style_value(value: &Expr) -> String {
     match value {
         Lit::Str(str_lit) => {
             {
@@ -44,7 +44,7 @@ fn convert_style_value(value: &Expr) -> String {
     }
 }
 
-fn convert_style_object_to_css(object_expr: &ObjectLit) -> Result<String, String> {
+pub fn convert_style_object_to_css(object_expr: &ObjectLit) -> Result<String, String> {
     let mut css_properties = vec![];
     for prop in &object_expr.properties {
         match prop {

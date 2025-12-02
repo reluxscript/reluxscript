@@ -102,7 +102,7 @@ struct ParamInfo {
     param_type: String,
 }
 
-fn process_component(node: &FnDecl) -> Option<ProcessedComponent> {
+pub fn process_component(node: &FnDecl) -> Option<ProcessedComponent> {
     let name = get_component_name(node, None)?;
     if Self::is_custom_hook_by_name(&name) {
         return None;

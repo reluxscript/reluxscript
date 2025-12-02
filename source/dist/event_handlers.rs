@@ -11,7 +11,7 @@ use swc_ecma_codegen::{Emitter, text_writer::JsWriter, Config as CodegenConfig, 
 use crate::component_types::{Component, EventHandler, ClientHandler};
 use crate::hooks::{analyze_hook_usage, transform_handler_function};
 
-fn is_client_only_handler(body: &Statement) -> bool {
+pub fn is_client_only_handler(body: &Statement) -> bool {
     let mut has_client_only_code = false;
     let mut has_server_code = false;
     // Nested function: check_node
@@ -41,7 +41,7 @@ fn is_client_only_handler(body: &Statement) -> bool {
     (has_client_only_code && !has_server_code)
 }
 
-fn extract_event_handler(value: &JSXAttributeValue, component: &mut Component) -> String {
+pub fn extract_event_handler(value: &JSXAttributeValue, component: &mut Component) -> String {
     match value {
         Lit::Str(lit) => {
             return String::from_utf8_lossy(lit.value.as_bytes()).clone();

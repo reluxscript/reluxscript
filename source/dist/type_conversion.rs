@@ -6,7 +6,7 @@ use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 
-fn ts_type_to_csharp_type(ts_type: &TSType) -> String {
+pub fn ts_type_to_csharp_type(ts_type: &TSType) -> String {
     match ts_type {
         TsType::TsKeywordType => {
             "string"
@@ -84,7 +84,7 @@ fn ts_type_to_csharp_type(ts_type: &TSType) -> String {
     }
 }
 
-fn infer_type(node: &Expr) -> String {
+pub fn infer_type(node: &Expr) -> String {
     match node {
         Lit::Str(_) => {
             "string"

@@ -453,6 +453,7 @@ impl SwcHoister {
                         ],
                         return_type: None,
                         body: method_body,
+                        is_pub: false, // Impl methods aren't pub
                     };
 
                     impl_methods.push(impl_method);

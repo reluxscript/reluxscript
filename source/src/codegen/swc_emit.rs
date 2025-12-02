@@ -1048,7 +1048,7 @@ impl SwcEmitter {
     // ========================================================================
 
     fn emit_function(&mut self, func: &DecoratedFnDecl) {
-        self.emit_function_with_visibility(func, false);
+        self.emit_function_with_visibility(func, func.is_pub);
     }
 
     fn emit_function_with_visibility(&mut self, func: &DecoratedFnDecl, is_public: bool) {

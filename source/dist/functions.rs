@@ -6,7 +6,7 @@ use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 
-fn generate_function_expression(node: &FnExpr, generate_csharp_expression: F, generate_csharp_statement: G) -> String {
+pub fn generate_function_expression(node: &FnExpr, generate_csharp_expression: F, generate_csharp_statement: G) -> String {
     let params = node.function.params.iter().map(|p| /* complex expr */).collect();
     let params_string = if (node.function.params.len() == 1) {
         params.join(", ")
@@ -29,7 +29,7 @@ fn generate_function_expression(node: &FnExpr, generate_csharp_expression: F, ge
     format!("{} => {}", params_string, body)
 }
 
-fn generate_arrow_function_expression(node: &ArrowExpr, generate_csharp_expression: F, generate_csharp_statement: G) -> String {
+pub fn generate_arrow_function_expression(node: &ArrowExpr, generate_csharp_expression: F, generate_csharp_statement: G) -> String {
     let params = node.function.params.iter().map(|p| /* complex expr */).collect();
     let params_string = if (node.function.params.len() == 1) {
         params.join(", ")

@@ -26,7 +26,7 @@ struct VNode {
     children: Vec<VNode>,
 }
 
-fn assign_paths_to_jsx(node: &mut JSXElement, parent_path: &String, path_gen: &mut HexPathGenerator, previous_sibling_key: Option<String>, next_sibling_key: Option<String>, structural_changes: &mut Vec<StructuralChange>, is_hot_reload: bool) -> String {
+pub fn assign_paths_to_jsx(node: &mut JSXElement, parent_path: &String, path_gen: &mut HexPathGenerator, previous_sibling_key: Option<String>, next_sibling_key: Option<String>, structural_changes: &mut Vec<StructuralChange>, is_hot_reload: bool) -> String {
     let mut current_path;
     let mut use_existing_key = false;
     match Self::find_key_attribute(&node.opening_element) {
@@ -287,11 +287,11 @@ fn generate_vnode_representation(node: &JSXElement, path: &String) -> Option<VNo
     Some(VNode { tag: tag, key: path.clone(), props: props, children: children })
 }
 
-fn get_path_from_node(node: &Expr) -> String {
+pub fn get_path_from_node(node: &Expr) -> String {
     "".into()
 }
 
-fn get_path_segments_from_node(node: &Expr) -> Vec<String> {
+pub fn get_path_segments_from_node(node: &Expr) -> Vec<String> {
     vec![]
 }
 

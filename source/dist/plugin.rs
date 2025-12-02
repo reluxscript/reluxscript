@@ -36,7 +36,7 @@ enum PropertyKey {
     Literal(String),
 }
 
-fn generate_plugin_node(plugin_metadata: &PluginMetadata, component_state: &Component) -> String {
+pub fn generate_plugin_node(plugin_metadata: &PluginMetadata, component_state: &Component) -> String {
     let plugin_name = &plugin_metadata.plugin_name;
     let state_binding = &plugin_metadata.state_binding;
     let version = &plugin_metadata.version;
@@ -50,7 +50,7 @@ fn generate_plugin_node(plugin_metadata: &PluginMetadata, component_state: &Comp
     format!("new PluginNode(\"{}\", {})", plugin_name, state_code)
 }
 
-fn generate_state_expression(state_binding: &StateBinding, component_state: &Component) -> String {
+pub fn generate_state_expression(state_binding: &StateBinding, component_state: &Component) -> String {
     match state_binding.binding_type.as_str() {
         "identifier" => {
             {
@@ -87,7 +87,7 @@ fn generate_state_expression(state_binding: &StateBinding, component_state: &Com
     }
 }
 
-fn generate_inline_object(state_binding: &StateBinding, component_state: &Component) -> String {
+pub fn generate_inline_object(state_binding: &StateBinding, component_state: &Component) -> String {
     match &state_binding.properties {
         Some(properties) => {
             if properties.is_empty() {
@@ -106,11 +106,11 @@ fn generate_inline_object(state_binding: &StateBinding, component_state: &Compon
     }
 }
 
-fn generate_plugin_usings() -> Vec<String> {
+pub fn generate_plugin_usings() -> Vec<String> {
     vec!["using Minimact.AspNetCore.Core;".into(), "using Minimact.AspNetCore.Plugins;".into()]
 }
 
-fn uses_plugins(component_state: &Component) -> bool {
+pub fn uses_plugins(component_state: &Component) -> bool {
     match &component_state.plugin_usages {
         Some(plugin_usages) => {
             (plugin_usages.len() > 0)
@@ -121,7 +121,7 @@ fn uses_plugins(component_state: &Component) -> bool {
     }
 }
 
-fn generate_plugin_comment(plugin_metadata: &PluginMetadata) -> String {
+pub fn generate_plugin_comment(plugin_metadata: &PluginMetadata) -> String {
     let plugin_name = &plugin_metadata.plugin_name;
     let state_binding = &plugin_metadata.state_binding;
     let version = &plugin_metadata.version;
@@ -139,7 +139,7 @@ fn generate_plugin_comment(plugin_metadata: &PluginMetadata) -> String {
     format!("// Plugin: {}{}, State: {}{}", plugin_name, version_info, binding, state_info)
 }
 
-fn generate_plugin_validation(plugin_metadata: &PluginMetadata) -> Option<String> {
+pub fn generate_plugin_validation(plugin_metadata: &PluginMetadata) -> Option<String> {
     None
 }
 

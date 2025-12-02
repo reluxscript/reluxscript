@@ -30,7 +30,7 @@ struct ReturnValueMetadata {
     value_type: String,
 }
 
-fn generate_identifier(node: &Ident, current_component: Option<&ComponentMetadata>) -> String {
+pub fn generate_identifier(node: &Ident, current_component: Option<&ComponentMetadata>) -> String {
     if (node.sym.to_string() == "state") {
         Self::console_warn("[Babel Plugin] Naked state reference detected (should be state.key or state[\"key\"])");
         return "State".to_string();
@@ -72,7 +72,7 @@ fn generate_identifier(node: &Ident, current_component: Option<&ComponentMetadat
     node.sym.to_string()
 }
 
-fn generate_member_expression(node: &MemberExpr, generate_csharp_expression: F, in_interpolation: bool) -> String {
+pub fn generate_member_expression(node: &MemberExpr, generate_csharp_expression: F, in_interpolation: bool) -> String {
     match node.obj {
         Expr::Ident(id) => {
             if (&*id.sym.to_string() == "state") {
@@ -155,7 +155,7 @@ fn generate_member_expression(node: &MemberExpr, generate_csharp_expression: F, 
     format!("{}{}", object, property)
 }
 
-fn generate_optional_member_expression(node: &OptionalMemberExpression, generate_csharp_expression: F, in_interpolation: bool) -> String {
+pub fn generate_optional_member_expression(node: &OptionalMemberExpression, generate_csharp_expression: F, in_interpolation: bool) -> String {
     let object = generate_csharp_expression(&*node.obj, in_interpolation);
     let property_name = if node.prop {
         Some(id.sym.to_string())

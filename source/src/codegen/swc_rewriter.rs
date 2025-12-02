@@ -182,6 +182,7 @@ impl SwcRewriter {
             params: func.params,
             return_type: func.return_type,
             body: self.rewrite_block(func.body),
+            is_pub: func.is_pub,
         }
     }
 

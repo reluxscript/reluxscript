@@ -130,7 +130,7 @@ impl MinimactTranspiler {
         output.to_string()
     }
     
-    fn visit_mut_fn_decl(&mut self, node: &FnDecl) {
+    pub fn visit_mut_fn_decl(&mut self, node: &FnDecl) {
         match process_component(node) {
             Some(component) => {
                 let csharp_code = generate_csharp_file(&component);

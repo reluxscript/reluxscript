@@ -362,6 +362,7 @@ impl SwcDecorator {
             params: swc_params,
             return_type: func.return_type.as_ref().map(|ty| self.map_type_to_swc(ty)),
             body: decorated_body,
+            is_pub: func.is_pub,
         }
     }
 
@@ -2886,6 +2887,7 @@ pub struct DecoratedFnDecl {
     pub params: Vec<Param>,
     pub return_type: Option<Type>,
     pub body: DecoratedBlock,
+    pub is_pub: bool,
 }
 
 #[derive(Debug, Clone)]

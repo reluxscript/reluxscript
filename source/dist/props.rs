@@ -12,7 +12,7 @@ struct PropInfo {
     prop_type: String,
 }
 
-fn extract_props(params: &Vec<Pat>) -> Vec<PropInfo> {
+pub fn extract_props(params: &Vec<Pat>) -> Vec<PropInfo> {
     let mut props = vec![];
     for param in params {
         match param {

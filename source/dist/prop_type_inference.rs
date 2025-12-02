@@ -18,7 +18,7 @@ struct PropUsage {
 }
 
 impl PropUsage {
-    fn new() -> PropUsage {
+    pub fn new() -> PropUsage {
         PropUsage { used_as_boolean: false, used_as_number: false, used_as_string: false, used_as_array: false, used_as_object: false, has_array_methods: false, has_number_operations: false }
     }
     
@@ -35,7 +35,7 @@ struct Component {
     props: Vec<Prop>,
 }
 
-fn infer_prop_types(component: &mut Component, body: &Statement) {
+pub fn infer_prop_types(component: &mut Component, body: &Statement) {
     let mut prop_usage = HashMap::new();
     for prop in &component.props {
         prop_usage.insert(prop.name.to_string(), PropUsage::new());

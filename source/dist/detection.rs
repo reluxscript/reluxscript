@@ -6,7 +6,7 @@ use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 
-fn has_spread_props(attributes: &Vec<JSXAttr>) -> bool {
+pub fn has_spread_props(attributes: &Vec<JSXAttr>) -> bool {
     for attr in attributes {
         match &attr {
             JSXAttribute::SpreadAttribute(attr) => {
@@ -18,7 +18,7 @@ fn has_spread_props(attributes: &Vec<JSXAttr>) -> bool {
     false
 }
 
-fn has_dynamic_children(children: &Vec<JSXChild>) -> bool {
+pub fn has_dynamic_children(children: &Vec<JSXChild>) -> bool {
     for child in children {
         match child {
             JSXChild::ExpressionContainer(container) => {
@@ -77,7 +77,7 @@ fn has_dynamic_children(children: &Vec<JSXChild>) -> bool {
     false
 }
 
-fn has_complex_props(attributes: &Vec<JSXAttr>) -> bool {
+pub fn has_complex_props(attributes: &Vec<JSXAttr>) -> bool {
     for attr in attributes {
         match attr {
             JSXAttribute::Attribute(jsx_attr) => {

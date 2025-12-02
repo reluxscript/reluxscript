@@ -41,7 +41,7 @@ fn convert_string_to_bool(csharp_test: &String, original_test_node: &Expr) -> St
     format!("MinimactHelpers.ToBool({})", csharp_test)
 }
 
-fn generate_boolean_expression(expr: &Expr) -> String {
+pub fn generate_boolean_expression(expr: &Expr) -> String {
     let generated = Self::generate_csharp_expression(expr, false);
     match expr {
         Expr::Member(mem) => {
@@ -65,7 +65,7 @@ fn generate_boolean_expression(expr: &Expr) -> String {
     generated
 }
 
-fn generate_jsx_expression(expr: &Expr, component: &Component, indent: i32) -> String {
+pub fn generate_jsx_expression(expr: &Expr, component: &Component, indent: i32) -> String {
     let deps = analyze_dependencies(expr, component);
     let zone = classify_node(&deps);
     if (zone == "hybrid") {
@@ -153,7 +153,7 @@ fn generate_jsx_expression(expr: &Expr, component: &Component, indent: i32) -> S
     Self::generate_csharp_expression(expr, false)
 }
 
-fn generate_conditional(node: &CondExpr, component: &Component, indent: i32) -> String {
+pub fn generate_conditional(node: &CondExpr, component: &Component, indent: i32) -> String {
     let indent_str = "    ".repeat(indent);
     let condition = Self::generate_csharp_expression(&node.test, false);
     let consequent = generate_jsx_element(&node.consequent, component, indent);
@@ -161,14 +161,14 @@ fn generate_conditional(node: &CondExpr, component: &Component, indent: i32) -> 
     format!("{}return {}\n{}    ? {}\n{}    : {};", indent_str, condition, indent_str, consequent, indent_str, alternate)
 }
 
-fn generate_short_circuit(node: &BinExpr, component: &Component, indent: i32) -> String {
+pub fn generate_short_circuit(node: &BinExpr, component: &Component, indent: i32) -> String {
     let indent_str = "    ".repeat(indent);
     let condition = Self::generate_csharp_expression(&node.left, false);
     let element = generate_jsx_element(&node.right, component, indent);
     format!("{}if ({})\n{}{{\n{}    return {};\n{}}}\n{}return new VText(\"\");", indent_str, condition, indent_str, indent_str, element, indent_str, indent_str)
 }
 
-fn generate_map_expression(node: &Expr, component: &mut Component, indent: i32) -> String {
+pub fn generate_map_expression(node: &Expr, component: &mut Component, indent: i32) -> String {
     match node {
         Expr::Call(call) => {
             let indent_str = "    ".repeat(indent);
@@ -361,7 +361,7 @@ fn generate_map_expression(node: &Expr, component: &mut Component, indent: i32) 
     "/* invalid map */".into()
 }
 
-fn generate_csharp_statement(node: &Statement) -> String {
+pub fn generate_csharp_statement(node: &Statement) -> String {
     match node {
         Stmt::Expr(expr_stmt) => {
             {
@@ -514,7 +514,7 @@ fn generate_csharp_statement(node: &Statement) -> String {
     }
 }
 
-fn generate_csharp_expression(node: &Expr, in_interpolation: bool) -> String {
+pub fn generate_csharp_expression(node: &Expr, in_interpolation: bool) -> String {
     match node {
         Lit::Str(lit) => {
             {
@@ -664,7 +664,7 @@ fn generate_csharp_expression(node: &Expr, in_interpolation: bool) -> String {
     }
 }
 
-fn generate_attribute_value(value: &JSXAttributeValue) -> String {
+pub fn generate_attribute_value(value: &JSXAttributeValue) -> String {
     match value {
         Lit::Str(lit) => {
             {
@@ -682,11 +682,11 @@ fn generate_attribute_value(value: &JSXAttributeValue) -> String {
     }
 }
 
-fn generate_hybrid_expression(expr: &Expr, component: &Component, deps: &Dependencies, indent: i32) -> String {
+pub fn generate_hybrid_expression(expr: &Expr, component: &Component, deps: &Dependencies, indent: i32) -> String {
     format!("new VText({})", Self::generate_csharp_expression(expr, false))
 }
 
-fn set_current_component(component: &Component) {
+pub fn set_current_component(component: &Component) {
     unsafe {
         CURRENT_COMPONENT = Some(component);
     }

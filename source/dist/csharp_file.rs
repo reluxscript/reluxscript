@@ -15,7 +15,7 @@ struct GeneratorState {
     namespace: Option<String>,
 }
 
-fn generate_csharp_file(components: &Vec<Component>, state: &GeneratorState) -> String {
+pub fn generate_csharp_file(components: &Vec<Component>, state: &GeneratorState) -> String {
     let mut lines = vec![];
     let has_plugins = components.iter().any(|c| uses_plugins(c));
     lines.push("using Minimact.AspNetCore.Core;".into());

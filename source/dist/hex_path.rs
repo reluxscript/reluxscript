@@ -14,15 +14,15 @@ struct HexPathGenerator {
 }
 
 impl HexPathGenerator {
-    fn new(gap: i32) -> HexPathGenerator {
+    pub fn new(gap: i32) -> HexPathGenerator {
         HexPathGenerator { gap: gap, counters: HashMap::new() }
     }
     
-    fn default() -> HexPathGenerator {
+    pub fn default() -> HexPathGenerator {
         HexPathGenerator::new(268435456)
     }
     
-    fn next(&mut self, parent_path: &mut String) -> String {
+    pub fn next(&mut self, parent_path: &mut String) -> String {
         let counter = self.counters.get(parent_path).unwrap_or(&0);
         let new_counter = (counter + 1);
         self.counters.insert(parent_path.clone(), new_counter);
@@ -34,7 +34,7 @@ impl HexPathGenerator {
         trim_trailing_zeros(&hex_value)
     }
     
-    fn build_path(&mut self, parent_path: &mut String, child_hex: &mut String) -> String {
+    pub fn build_path(&mut self, parent_path: &mut String, child_hex: &mut String) -> String {
         if parent_path.is_empty() {
             child_hex.clone()
         } else {
@@ -42,11 +42,11 @@ impl HexPathGenerator {
         }
     }
     
-    fn parse_path(&mut self, path: &mut String) -> Vec<String> {
+    pub fn parse_path(&mut self, path: &mut String) -> Vec<String> {
         path.split(".").map(|s| s.to_string()).collect()
     }
     
-    fn get_depth(&mut self, path: &mut String) -> i32 {
+    pub fn get_depth(&mut self, path: &mut String) -> i32 {
         if path.is_empty() {
             0
         } else {
@@ -54,7 +54,7 @@ impl HexPathGenerator {
         }
     }
     
-    fn get_parent_path(&mut self, path: &mut String) -> Option<String> {
+    pub fn get_parent_path(&mut self, path: &mut String) -> Option<String> {
         match path.rfind(".") {
             Some(last_dot_index) => {
                 if (last_dot_index > 0) {
@@ -69,20 +69,20 @@ impl HexPathGenerator {
         }
     }
     
-    fn is_ancestor_of(&mut self, ancestor_path: &mut String, descendant_path: &mut String) -> bool {
+    pub fn is_ancestor_of(&mut self, ancestor_path: &mut String, descendant_path: &mut String) -> bool {
         let prefix = format!("{}.", ancestor_path);
         descendant_path.starts_with(&prefix)
     }
     
-    fn reset(&mut self, parent_path: &mut String) {
+    pub fn reset(&mut self, parent_path: &mut String) {
         self.counters.remove(parent_path);
     }
     
-    fn reset_all(&mut self) {
+    pub fn reset_all(&mut self) {
         self.counters.clear();
     }
     
-    fn generate_path_between(path1: &String, path2: &String) -> String {
+    pub fn generate_path_between(path1: &String, path2: &String) -> String {
         let segments1 = path1.split(".").map(|s| s.to_string()).collect();
         let segments2 = path2.split(".").map(|s| s.to_string()).collect();
         let mut common_length = 0;
@@ -110,7 +110,7 @@ impl HexPathGenerator {
         }
     }
     
-    fn has_sufficient_gap(path1: &String, path2: &String, min_gap: i32) -> bool {
+    pub fn has_sufficient_gap(path1: &String, path2: &String, min_gap: i32) -> bool {
         let seg1_str = path1.split(".").last().unwrap_or("0");
         let seg2_str = path2.split(".").last().unwrap_or("0");
         let seg1 = Number::from_str_radix(seg1_str, 16).unwrap_or(0);

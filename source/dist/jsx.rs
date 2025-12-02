@@ -17,14 +17,14 @@ use crate::style_converter::{convert_style_object_to_css};
 use crate::expressions::{generate_jsx_expression};
 use crate::expressions::{generate_csharp_expression};
 
-fn generate_fragment(node: &JSXFragment, component: &mut Component, indent: i32) -> String {
+pub fn generate_fragment(node: &JSXFragment, component: &mut Component, indent: i32) -> String {
     let children = Self::generate_children(&node.children, component, indent);
     let codes = children.iter().map(|c| c.code.clone()).collect();
     let children_array = codes.join(", ");
     format!("new Fragment({})", children_array)
 }
 
-fn generate_jsx_element(node: &JSXNode, component: &mut Component, indent: i32) -> String {
+pub fn generate_jsx_element(node: &JSXNode, component: &mut Component, indent: i32) -> String {
     let indent_str = "    ".repeat(indent);
     match node {
         Expr::JSXFragment(fragment) => {
@@ -210,7 +210,7 @@ struct ChildNode {
     minimact_path: Option<String>,
 }
 
-fn generate_children(children: &Vec<JSXChild>, component: &mut Component, indent: i32) -> Vec<ChildNode> {
+pub fn generate_children(children: &Vec<JSXChild>, component: &mut Component, indent: i32) -> Vec<ChildNode> {
     let mut result = vec![];
     let mut child_list = vec![];
     for child in children {

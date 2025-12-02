@@ -18,7 +18,7 @@ struct ComponentState {
     state_types: HashMap<String, String>,
 }
 
-fn analyze_dependencies(jsx_expr: &Expr, component: &ComponentState) -> HashSet<Dependency> {
+pub fn analyze_dependencies(jsx_expr: &Expr, component: &ComponentState) -> HashSet<Dependency> {
     let mut deps = HashSet::new();
     Self::walk_expression(jsx_expr, component, &mut deps);
     deps

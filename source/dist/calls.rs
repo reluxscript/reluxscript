@@ -8,11 +8,11 @@ use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 
 use crate::component_types::{Component};
 
-fn generate_call_expression(expr: &CallExpr, component: &Component) -> String {
+pub fn generate_call_expression(expr: &CallExpr, component: &Component) -> String {
     "/* call expression */".into()
 }
 
-fn generate_optional_call_expression(expr: &OptionalCallExpression, component: &Component) -> String {
+pub fn generate_optional_call_expression(expr: &OptionalCallExpression, component: &Component) -> String {
     "/* optional call expression */".into()
 }
 

@@ -44,7 +44,7 @@ struct UseStateXInfo {
     sync: String,
 }
 
-fn extract_use_state_x(call_expr: &CallExpr, declarator: &VarDeclarator, component: &mut Component) {
+pub fn extract_use_state_x(call_expr: &CallExpr, declarator: &VarDeclarator, component: &mut Component) {
     match &declarator.name {
         Pat::Array(array_pattern) => {
             let elements = &array_pattern.elems;

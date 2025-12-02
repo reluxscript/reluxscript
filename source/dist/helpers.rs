@@ -6,11 +6,11 @@ use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 
-fn escape_csharp_string(s: &String) -> String {
+pub fn escape_csharp_string(s: &String) -> String {
     s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
 }
 
-fn get_component_name(node: &FnDecl, parent: Option<&Statement>) -> Option<String> {
+pub fn get_component_name(node: &FnDecl, parent: Option<&Statement>) -> Option<String> {
     match node.ident {
         Some(id) => {
             return Some(id.name.clone());
@@ -64,7 +64,7 @@ fn get_component_name(node: &FnDecl, parent: Option<&Statement>) -> Option<Strin
     None
 }
 
-fn is_component_name(name: &String) -> bool {
+pub fn is_component_name(name: &String) -> bool {
     if name.is_empty() {
         return false;
     }

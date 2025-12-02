@@ -6,7 +6,7 @@ use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 
-fn generate_object_expression(node: &ObjectLit, generate_csharp_expression: F) -> String {
+pub fn generate_object_expression(node: &ObjectLit, generate_csharp_expression: F) -> String {
     let has_hyphenated_keys = node.properties.iter().any(|prop| {
         if prop {
             let key = /* complex expr */;
