@@ -757,6 +757,8 @@ impl SwcEmitter {
     }
 
     fn emit_enum(&mut self, enum_decl: &EnumDecl) {
+        // User-defined enums need Clone + Debug for use in structs with those derives
+        self.emit_line("#[derive(Clone, Debug)]");
         self.emit_line(&format!("enum {} {{", enum_decl.name));
         self.indent += 1;
 

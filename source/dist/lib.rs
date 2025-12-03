@@ -7,6 +7,7 @@ use swc_ecma_ast::*;
 use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 use std::collections::{HashMap, HashSet};
 
+#[derive(Clone, Debug)]
 enum BindingType {
     Simple(String),
     Complex {
