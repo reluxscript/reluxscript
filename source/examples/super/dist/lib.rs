@@ -118,8 +118,8 @@ impl VisitMut for KitchenSink {
     }
     
     fn visit_mut_var_decl(&mut self, node: &mut VarDecl) {
-        for declarator in &node.declarations {
-            match declarator.id {
+        for declarator in &node.decls {
+            match declarator.name {
                 Pat::Array(array_pattern) => {
                     {
                         match array_pattern.elements.get(0) {
@@ -140,8 +140,8 @@ impl VisitMut for KitchenSink {
                     }
                 }
             }
-            match declarator.init {
-                Some(init) => {
+            match &*declarator.init.as_ref() {
+                Option::Some(init) => {
                     match init {
                         Expr::Arrow(arrow) => {
                             {

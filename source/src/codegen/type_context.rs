@@ -843,6 +843,17 @@ pub fn get_typed_field_mapping(parent_swc_type: &str, field: &str) -> Option<Typ
             write_conversion: "",
         }),
 
+        // VarDecl fields
+        ("VariableDeclaration", "declarations") | ("VarDecl", "declarations") => Some(TypedFieldMapping {
+            reluxscript_field: "declarations",
+            swc_field: "decls",
+            needs_deref: false,
+            result_type_rs: "Vec<VarDeclarator>",
+            result_type_swc: "Vec<VarDeclarator>",
+            read_conversion: "",
+            write_conversion: "",
+        }),
+
         // VariableDeclarator fields
         ("VariableDeclarator", "id") | ("VarDeclarator", "id") => Some(TypedFieldMapping {
             reluxscript_field: "id",
