@@ -1014,6 +1014,7 @@ impl SwcRewriter {
         // NOTE: Auto-unwrap is applied selectively in Let statements, not here
         let expr = self.apply_iterator_methods(expr);
         let expr = self.apply_string_literal_conversion(expr);
+        let expr = self.apply_radix_to_string(expr);  // Transform .to_string(radix) to format!
         // TODO Phase 4: Apply nested member unwrapping
         // let expr = self.apply_member_unwrapping(expr);
 
@@ -3865,5 +3866,80 @@ impl SwcRewriter {
             code,
             span: Span::new(0, 0, 0, 0),
         })
+    }
+
+    /// Transform `.to_string(radix)` calls to `format!("{:x}", value)` etc.
+    /// In Rust, `to_string()` takes no arguments. For radix conversion, we need format!.
+    fn apply_radix_to_string(&mut self, expr: DecoratedExpr) -> DecoratedExpr {
+        use crate::parser::Literal;
+
+        // Check if this is a call expression
+        if let DecoratedExprKind::Call(ref call) = expr.kind {
+            // Check if callee is a member access with property "to_string"
+            if let DecoratedExprKind::Member { ref object, ref property, .. } = call.callee.kind {
+                if property == "to_string" && call.args.len() == 1 {
+                    // Check if the argument is a numeric literal (the radix)
+                    // Literal can be Int or Float
+                    let radix_opt = match &call.args[0].kind {
+                        DecoratedExprKind::Literal(Literal::Int(n)) => Some(*n as i32),
+                        DecoratedExprKind::Literal(Literal::Float(n)) => Some(*n as i32),
+                        _ => None,
+                    };
+
+                    if let Some(radix_int) = radix_opt {
+                        // Determine the format specifier based on radix
+                        let format_spec = match radix_int {
+                            2 => "{:b}",   // binary
+                            8 => "{:o}",   // octal
+                            16 => "{:x}",  // hex lowercase
+                            _ => {
+                                // For other radixes, we can't use format! directly
+                                // Return as-is and let it error (unsupported)
+                                return expr;
+                            }
+                        };
+
+                        // Create format!("{:x}", object) macro call
+                        let default_metadata = SwcExprMetadata {
+                            needs_enum_unwrap: None,
+                            swc_type: "String".to_string(),
+                            is_boxed: false,
+                            is_optional: false,
+                            type_kind: crate::type_system::SwcTypeKind::Unknown,
+                            span: None,
+                            needs_to_string: false,
+                        };
+
+                        return DecoratedExpr {
+                            kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                                callee: DecoratedExpr {
+                                    kind: DecoratedExprKind::Ident {
+                                        name: "format".to_string(),
+                                        ident_metadata: SwcIdentifierMetadata::name(),
+                                    },
+                                    metadata: default_metadata.clone(),
+                                },
+                                args: vec![
+                                    // First arg: format string
+                                    DecoratedExpr {
+                                        kind: DecoratedExprKind::Literal(Literal::String(format_spec.to_string())),
+                                        metadata: default_metadata.clone(),
+                                    },
+                                    // Second arg: the value to format
+                                    (**object).clone(),
+                                ],
+                                type_args: vec![],
+                                optional: false,
+                                is_macro: true,
+                                span: call.span,
+                            })),
+                            metadata: expr.metadata,
+                        };
+                    }
+                }
+            }
+        }
+
+        expr
     }
 }

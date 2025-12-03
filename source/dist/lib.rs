@@ -323,7 +323,7 @@ impl VisitMut for KitchenSink {
         let diff = ((self.state.count - 10)).abs();
         let num = 3.14;
         let fractional = num.fract();
-        let hex_str = self.state.count.to_string(16);
+        let hex_str = format!("{:x}", self.state.count);
         let formatted = format!("{:08x}", self.state.count);
     }
     
