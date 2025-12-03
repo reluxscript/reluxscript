@@ -1137,7 +1137,16 @@ impl Parser {
             (Some(pat), expr)
         } else {
             // Use parse_expr_no_struct to avoid ambiguity with block
-            (None, self.parse_expr_no_struct()?)
+            let expr = self.parse_expr_no_struct()?;
+
+            // Check for C#-style is pattern: `if expr is Pattern binding`
+            // Desugars to: `if let Pattern(binding) = expr`
+            if self.match_token(TokenKind::Is) {
+                let is_pat = self.parse_is_pattern()?;
+                (Some(is_pat), expr)
+            } else {
+                (None, expr)
+            }
         };
 
         let then_branch = self.parse_block()?;
@@ -1210,8 +1219,8 @@ impl Parser {
 
     /// Parse match scrutinee (expression that doesn't consume {)
     fn parse_match_scrutinee(&mut self) -> ParseResult<Expr> {
-        // Use parse_or_no_struct to avoid consuming { as struct init
-        self.parse_or_no_struct()
+        // Use parse_null_coalesce_no_struct to avoid consuming { as struct init
+        self.parse_null_coalesce_no_struct()
     }
 
     /// Parse match arm
@@ -1272,6 +1281,45 @@ impl Parser {
         }
 
         Ok(base_pattern)
+    }
+
+    /// Parse C#-style `is` pattern
+    /// Syntax: `expr is Type::Variant binding` or `expr is Type::Variant`
+    /// Desugars to a Variant pattern with optional binding
+    fn parse_is_pattern(&mut self) -> ParseResult<Pattern> {
+        // Parse the type path: Expression::Identifier or just Identifier
+        let type_name = if let Some(ast_type) = self.try_expect_ast_type() {
+            ast_type
+        } else {
+            self.expect_ident()?
+        };
+
+        // Check for :: to get variant
+        let full_name = if self.match_token(TokenKind::ColonColon) {
+            let variant = if let Some(ast_type) = self.try_expect_ast_type() {
+                ast_type
+            } else {
+                self.expect_ident()?
+            };
+            format!("{}::{}", type_name, variant)
+        } else {
+            type_name
+        };
+
+        // Check for optional binding identifier (not followed by {)
+        // If we see an identifier that's not followed by { or |, it's a binding
+        let inner = if let Some(binding) = self.try_expect_ident() {
+            // This is a binding like `id` in `expr is Identifier id`
+            Pattern::Ident(binding)
+        } else {
+            // No binding, use wildcard
+            Pattern::Wildcard
+        };
+
+        Ok(Pattern::Variant {
+            name: full_name,
+            inner: Some(Box::new(inner)),
+        })
     }
 
     /// Parse a single pattern (not including OR)
@@ -1482,7 +1530,7 @@ impl Parser {
         let start = if self.check(TokenKind::DotDot) {
             None
         } else {
-            Some(self.parse_or_no_struct()?)
+            Some(self.parse_null_coalesce_no_struct()?)
         };
 
         // Check for range operator
@@ -1498,7 +1546,7 @@ impl Parser {
                 || self.check(TokenKind::RBracket) {
                 None
             } else {
-                Some(Box::new(self.parse_or_no_struct()?))
+                Some(Box::new(self.parse_null_coalesce_no_struct()?))
             };
 
             let range_path = self.path_with("range");
@@ -1513,6 +1561,26 @@ impl Parser {
 
         // Not a range, return the expression we parsed
         start.ok_or_else(|| ParseError::new("Expected expression", self.current_span()))
+    }
+
+    /// Parse null-coalescing operator (??) - lowest precedence binary op
+    fn parse_null_coalesce_no_struct(&mut self) -> ParseResult<Expr> {
+        let mut expr = self.parse_or_no_struct()?;
+
+        while self.match_token(TokenKind::QuestionQuestion) {
+            let right = self.parse_or_no_struct()?;
+            let span = self.current_span();
+            let bin_path = self.path_with("null_coalesce");
+            expr = Expr::Binary(BinaryExpr {
+                op: BinaryOp::NullCoalesce,
+                left: Box::new(expr),
+                right: Box::new(right),
+                span,
+                path: bin_path,
+            });
+        }
+
+        Ok(expr)
     }
 
     fn parse_or_no_struct(&mut self) -> ParseResult<Expr> {
@@ -2310,7 +2378,7 @@ impl Parser {
         let start = if self.check(TokenKind::DotDot) {
             None
         } else {
-            Some(self.parse_or()?)
+            Some(self.parse_null_coalesce()?)
         };
 
         // Check for range operator
@@ -2326,7 +2394,7 @@ impl Parser {
                 || self.check(TokenKind::RBracket) {
                 None
             } else {
-                Some(Box::new(self.parse_or()?))
+                Some(Box::new(self.parse_null_coalesce()?))
             };
 
             let range_path = self.path_with("range");
@@ -2341,6 +2409,26 @@ impl Parser {
 
         // Not a range, return the expression we parsed
         start.ok_or_else(|| ParseError::new("Expected expression", self.current_span()))
+    }
+
+    /// Parse null-coalescing operator (??) - lowest precedence binary op
+    fn parse_null_coalesce(&mut self) -> ParseResult<Expr> {
+        let mut expr = self.parse_or()?;
+
+        while self.match_token(TokenKind::QuestionQuestion) {
+            let right = self.parse_or()?;
+            let span = self.current_span();
+            let bin_path = self.path_with("null_coalesce");
+            expr = Expr::Binary(BinaryExpr {
+                op: BinaryOp::NullCoalesce,
+                left: Box::new(expr),
+                right: Box::new(right),
+                span,
+                path: bin_path,
+            });
+        }
+
+        Ok(expr)
     }
 
     /// Parse logical OR
@@ -2893,11 +2981,27 @@ impl Parser {
             return Ok(Expr::Block(block));
         }
 
-        // Parenthesized expression, tuple, or unit literal ()
+        // Parenthesized expression, tuple, unit literal, or C#-style multi-param arrow closure
         if self.match_token(TokenKind::LParen) {
-            // Check for unit literal ()
+            // Check for unit literal () or zero-param arrow closure () => expr
             if self.check(TokenKind::RParen) {
                 self.advance();
+                // Check for C#-style zero-param arrow closure: () => expr
+                if self.check(TokenKind::DDArrow) {
+                    self.advance(); // consume =>
+                    let body = if self.check(TokenKind::LBrace) {
+                        let block = self.parse_block()?;
+                        Expr::Block(block)
+                    } else {
+                        self.parse_expr()?
+                    };
+                    return Ok(Expr::Closure(ClosureExpr {
+                        params: vec![],
+                        body: Box::new(body),
+                        span,
+                        path: self.path_with("closure"),
+                    }));
+                }
                 return Ok(Expr::Literal(Literal::Unit));
             }
             // Check for closure: |params| expr
@@ -2905,8 +3009,85 @@ impl Parser {
                 return self.parse_closure(span);
             }
 
-            // Parse first expression
+            // Try to parse as a list of identifiers for potential arrow closure
+            // Save position in case we need to backtrack
+            let saved_pos = self.pos;
+            let mut ident_names: Vec<String> = Vec::new();
+            let mut is_all_idents = true;
+
+            // First, try to collect identifiers
+            if let Some(first_ident) = self.try_expect_ident() {
+                ident_names.push(first_ident);
+
+                // Collect more identifiers separated by commas
+                while self.check(TokenKind::Comma) {
+                    self.advance(); // consume comma
+                    if let Some(next_ident) = self.try_expect_ident() {
+                        ident_names.push(next_ident);
+                    } else {
+                        is_all_idents = false;
+                        break;
+                    }
+                }
+
+                // Check if we have ) followed by =>
+                if is_all_idents && self.check(TokenKind::RParen) {
+                    self.advance(); // consume )
+                    if self.check(TokenKind::DDArrow) {
+                        self.advance(); // consume =>
+                        let body = if self.check(TokenKind::LBrace) {
+                            let block = self.parse_block()?;
+                            Expr::Block(block)
+                        } else {
+                            self.parse_expr()?
+                        };
+                        return Ok(Expr::Closure(ClosureExpr {
+                            params: ident_names.into_iter().map(ClosureParam::Ident).collect(),
+                            body: Box::new(body),
+                            span,
+                            path: self.path_with("closure"),
+                        }));
+                    } else {
+                        // Not an arrow closure, need to backtrack
+                        self.pos = saved_pos;
+                    }
+                } else {
+                    // Not all identifiers or no ), backtrack
+                    self.pos = saved_pos;
+                }
+            } else {
+                // First token wasn't an ident, not an arrow closure
+                // Position unchanged, continue with normal parsing
+            }
+
+            // Parse first expression (normal path)
             let first_expr = self.parse_expr()?;
+
+            // Check for C#-style single-param arrow closure: (x) => expr
+            if self.check(TokenKind::RParen) {
+                // Peek ahead to see if => follows
+                if let Some(next) = self.peek_ahead(1) {
+                    if next.kind == TokenKind::DDArrow {
+                        // Extract identifier from first_expr if possible
+                        if let Expr::Ident(ident_expr) = &first_expr {
+                            self.advance(); // consume )
+                            self.advance(); // consume =>
+                            let body = if self.check(TokenKind::LBrace) {
+                                let block = self.parse_block()?;
+                                Expr::Block(block)
+                            } else {
+                                self.parse_expr()?
+                            };
+                            return Ok(Expr::Closure(ClosureExpr {
+                                params: vec![ClosureParam::Ident(ident_expr.name.clone())],
+                                body: Box::new(body),
+                                span,
+                                path: self.path_with("closure"),
+                            }));
+                        }
+                    }
+                }
+            }
 
             // Check if this is a tuple (has comma) or just parenthesized expression
             if self.check(TokenKind::Comma) {
@@ -2937,6 +3118,14 @@ impl Parser {
         // Empty closure: || body (lexed as Or token)
         if self.check(TokenKind::Or) {
             return self.parse_empty_closure(span);
+        }
+
+        // Interpolated string: $"Hello {name}"
+        // Desugars to: format!("Hello {}", name)
+        if let Some(Token { kind: TokenKind::InterpolatedString(parts), .. }) = self.peek() {
+            let parts = parts.clone();
+            self.advance();
+            return Ok(self.desugar_interpolated_string(parts, span));
         }
 
         // Literal
@@ -3082,6 +3271,22 @@ impl Parser {
 
         // Identifier or struct init
         if let Some(name) = self.try_expect_ident() {
+            // Check for C#-style arrow closure: x => expr
+            if self.check(TokenKind::DDArrow) {
+                self.advance(); // consume =>
+                let body = if self.check(TokenKind::LBrace) {
+                    let block = self.parse_block()?;
+                    Expr::Block(block)
+                } else {
+                    self.parse_expr()?
+                };
+                return Ok(Expr::Closure(ClosureExpr {
+                    params: vec![ClosureParam::Ident(name)],
+                    body: Box::new(body),
+                    span,
+                    path: self.path_with("closure"),
+                }));
+            }
             // Check for path expression: std::ptr::null
             if self.check(TokenKind::ColonColon) {
                 let mut segments = vec![name.clone()];
@@ -3793,6 +3998,81 @@ impl Parser {
         };
         self.advance();
         Ok(name.to_string())
+    }
+
+    /// Desugar an interpolated string into a format!() call
+    /// $"Hello {name}, count: {count}" -> format!("Hello {}, count: {}", name, count)
+    fn desugar_interpolated_string(&mut self, parts: Vec<crate::lexer::InterpolatedPart>, span: Span) -> Expr {
+        use crate::lexer::InterpolatedPart;
+
+        let mut format_string = String::new();
+        let mut args: Vec<Expr> = Vec::new();
+
+        for part in parts {
+            match part {
+                InterpolatedPart::Literal(s) => {
+                    // Escape any { or } in the literal for format!
+                    for c in s.chars() {
+                        if c == '{' {
+                            format_string.push_str("{{");
+                        } else if c == '}' {
+                            format_string.push_str("}}");
+                        } else {
+                            format_string.push(c);
+                        }
+                    }
+                }
+                InterpolatedPart::Expr(expr_str) => {
+                    // Add {} placeholder to format string
+                    format_string.push_str("{}");
+
+                    // Parse the expression string
+                    // We create a mini-parser for the expression
+                    let mut lexer = crate::lexer::Lexer::new(&expr_str);
+                    let tokens = lexer.tokenize();
+                    let mut mini_parser = Parser::new_with_source(tokens, expr_str.clone());
+                    match mini_parser.parse_expr() {
+                        Ok(expr) => args.push(expr),
+                        Err(_) => {
+                            // If parsing fails, create an error identifier
+                            args.push(Expr::Ident(IdentExpr {
+                                name: "__interpolation_error__".to_string(),
+                                span,
+                                path: self.path_with("interpolation_error"),
+                            }));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Build: format!("...", arg1, arg2, ...)
+        let format_path = self.path_with("format");
+
+        // Create the format string as first argument
+        let format_str_expr = Expr::Literal(Literal::String(format_string));
+
+        // Create format! as a macro call: format!(...) is Expr::Call with is_macro = true
+        // The callee is an Ident "format"
+        let callee = Expr::Ident(IdentExpr {
+            name: "format".to_string(),
+            span,
+            path: format_path.clone(),
+        });
+
+        // Create the macro call expression
+        let mut all_args = vec![format_str_expr];
+        all_args.extend(args);
+
+        Expr::Call(CallExpr {
+            callee: Box::new(callee),
+            args: all_args,
+            type_args: vec![],
+            optional: false,
+            is_macro: true,
+            span,
+            path: format_path,
+        })
     }
 
     fn skip_newlines(&mut self) {

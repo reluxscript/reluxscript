@@ -1,0 +1,64 @@
+/**
+ * Test: Null-Coalescing Operator (??)
+ *
+ * C# developers write:
+ *   var name = node.Name ?? "default";
+ *
+ * Instead of:
+ *   let name = node.name.unwrap_or("default");
+ */
+plugin NullCoalescing {
+
+    struct State {
+        result: Str,
+    }
+
+    fn init() -> State {
+        State { result: "" }
+    }
+
+    pub fn visit_variable_declarator(node: &VariableDeclarator) {
+        // Basic null coalescing
+        let name = node.id.name ?? "anonymous";
+
+        // With Option field
+        let init_value = node.init ?? default_expr();
+
+        // Chained null coalescing
+        let value = first_option ?? second_option ?? "fallback";
+
+        // With method call result
+        let parsed = parse_name(node) ?? "unknown";
+
+        // In assignment
+        self.state.result = get_optional_result() ?? "default";
+
+        // With complex default
+        let complex = node.init ?? create_default_init();
+
+        // Null coalescing with same type
+        let opt1: Option<Str> = Some("a");
+        let opt2: Option<Str> = Some("b");
+        let result = opt1 ?? opt2 ?? "c";
+    }
+
+    fn get_optional_result() -> Option<Str> {
+        None
+    }
+
+    fn parse_name(node: &VariableDeclarator) -> Option<Str> {
+        Some(node.id.name.clone())
+    }
+
+    fn default_expr() -> Expression {
+        // placeholder
+    }
+
+    fn create_default_init() -> Expression {
+        // placeholder
+    }
+
+    fn finish() -> Str {
+        self.state.result
+    }
+}

@@ -2831,6 +2831,7 @@ impl BabelGenerator {
             BinaryOp::GtEq => ">=",
             BinaryOp::And => "&&",
             BinaryOp::Or => "||",
+            BinaryOp::NullCoalesce => "??",
         }
     }
 

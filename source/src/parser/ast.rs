@@ -828,6 +828,8 @@ pub enum BinaryOp {
     GtEq,
     And,
     Or,
+    /// Null-coalescing: a ?? b -> a.unwrap_or(b)
+    NullCoalesce,
 }
 
 /// Unary expression

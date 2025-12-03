@@ -1,0 +1,60 @@
+/**
+ * Test: 'is' Pattern Matching Syntax
+ *
+ * C# developers write:
+ *   if (node is Identifier id) { ... }
+ *
+ * Instead of Rust-style:
+ *   if let Identifier(id) = node { ... }
+ */
+plugin IsPattern {
+
+    struct State {
+        result: Str,
+    }
+
+    fn init() -> State {
+        State { result: "" }
+    }
+
+    pub fn visit_expression_statement(node: &ExpressionStatement) {
+        let expr = &node.expression;
+
+        // Basic is pattern with binding
+        if expr is Expression::Identifier id {
+            self.state.result = id.name.clone();
+        }
+
+        // is pattern without binding (just type check)
+        if expr is Expression::CallExpression {
+            self.state.result = "call";
+        }
+
+        // is pattern with reference
+        if &node.expression is Expression::MemberExpression mem {
+            self.state.result = "member";
+        }
+
+        // Nested in else-if
+        if expr is Expression::Identifier id {
+            self.state.result = id.name.clone();
+        } else if expr is Expression::Literal lit {
+            self.state.result = "literal";
+        } else if expr is Expression::CallExpression call {
+            self.state.result = "call";
+        }
+
+        // is pattern in match-like chains
+        if expr is Expression::BinaryExpression bin {
+            if &bin.left is Expression::Identifier left_id {
+                if &bin.right is Expression::Literal right_lit {
+                    self.state.result = format!("{} op lit", left_id.name);
+                }
+            }
+        }
+    }
+
+    fn finish() -> Str {
+        self.state.result
+    }
+}

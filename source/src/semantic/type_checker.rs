@@ -795,6 +795,17 @@ impl TypeChecker {
                             TypeInfo::I32
                         }
                     }
+
+                    // Null-coalescing: returns the inner type of the Option or the right type
+                    BinaryOp::NullCoalesce => {
+                        // If left is Option<T>, result is T (or right_type if right is also the inner type)
+                        if let TypeInfo::Option(inner) = left_type {
+                            *inner
+                        } else {
+                            // Just use right type as fallback
+                            right_type
+                        }
+                    }
                 }
             }
 

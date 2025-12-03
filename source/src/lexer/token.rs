@@ -30,6 +30,15 @@ impl Token {
     }
 }
 
+/// Part of an interpolated string
+#[derive(Debug, Clone, PartialEq)]
+pub enum InterpolatedPart {
+    /// Literal text part
+    Literal(String),
+    /// Expression part (source text to be parsed)
+    Expr(String),
+}
+
 /// All token types in ReluxScript
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
@@ -60,6 +69,7 @@ pub enum TokenKind {
     Use,
     Pub,
     As,
+    Is,
     Self_,
     SelfType,
     Match,
@@ -108,6 +118,10 @@ pub enum TokenKind {
     // Identifiers and Literals
     Ident(String),
     StringLit(String),
+    /// Interpolated string: $"Hello {name}"
+    /// Parts alternate: literal, expr, literal, expr, ...
+    /// Always starts and ends with a literal part (may be empty)
+    InterpolatedString(Vec<InterpolatedPart>),
     IntLit(i64),
     FloatLit(f64),
 
@@ -153,6 +167,7 @@ pub enum TokenKind {
     ColonColon,     // ::
     Question,       // ?
     QuestionDot,    // ?.
+    QuestionQuestion, // ?? (null-coalescing)
     Hash,           // #
 
     // Special
@@ -194,6 +209,7 @@ impl fmt::Display for TokenKind {
             TokenKind::Use => write!(f, "use"),
             TokenKind::Pub => write!(f, "pub"),
             TokenKind::As => write!(f, "as"),
+            TokenKind::Is => write!(f, "is"),
             TokenKind::Self_ => write!(f, "self"),
             TokenKind::SelfType => write!(f, "Self"),
             TokenKind::Match => write!(f, "match"),
@@ -239,6 +255,16 @@ impl fmt::Display for TokenKind {
 
             TokenKind::Ident(s) => write!(f, "{}", s),
             TokenKind::StringLit(s) => write!(f, "\"{}\"", s),
+            TokenKind::InterpolatedString(parts) => {
+                write!(f, "$\"")?;
+                for part in parts {
+                    match part {
+                        InterpolatedPart::Literal(s) => write!(f, "{}", s)?,
+                        InterpolatedPart::Expr(s) => write!(f, "{{{}}}", s)?,
+                    }
+                }
+                write!(f, "\"")
+            }
             TokenKind::IntLit(n) => write!(f, "{}", n),
             TokenKind::FloatLit(n) => write!(f, "{}", n),
 
@@ -282,6 +308,7 @@ impl fmt::Display for TokenKind {
             TokenKind::ColonColon => write!(f, "::"),
             TokenKind::Question => write!(f, "?"),
             TokenKind::QuestionDot => write!(f, "?."),
+            TokenKind::QuestionQuestion => write!(f, "??"),
             TokenKind::Hash => write!(f, "#"),
 
             TokenKind::Comment(s) => write!(f, "// {}", s),

@@ -1,0 +1,42 @@
+/**
+ * Test: Null-Conditional Operator (?.)
+ *
+ * C# developers write:
+ *   var name = node.Init?.AsIdentifier()?.Name;
+ *
+ * Instead of:
+ *   let name = node.init.as_ref().and_then(|x| x.as_identifier()).map(|x| x.name);
+ */
+plugin NullConditional {
+
+    struct State {
+        result: Str,
+    }
+
+    fn init() -> State {
+        State { result: "" }
+    }
+
+    pub fn visit_variable_declarator(node: &VariableDeclarator) {
+        // Basic null conditional field access - single level
+        let has_init = node.init?.span;
+
+        // Chained null conditional with method calls
+        let name = node.init?.as_identifier()?.name;
+
+        // Combining ?. with ??
+        let name_or_default = node.init?.as_identifier()?.name ?? "anonymous".to_string();
+
+        // Null conditional in method chain
+        let upper = node.init?.as_identifier()?.name?.to_uppercase();
+
+        // Test ?? with plain Options
+        let opt1: Option<Str> = Some("a".to_string());
+        let opt2: Option<Str> = Some("b".to_string());
+        let combined = opt1 ?? opt2 ?? "neither".to_string();
+    }
+
+    fn finish() -> Str {
+        self.state.result
+    }
+}

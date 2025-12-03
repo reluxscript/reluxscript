@@ -1884,6 +1884,40 @@ impl SwcDecorator {
                 let left_needs_deref = self.needs_sym_deref(&left, &right, bin.op);
                 let right_needs_deref = self.needs_sym_deref(&right, &left, bin.op);
 
+                // For null-coalescing (??), check if right side is also an Option
+                // This determines whether to use .or() or .unwrap_or()
+                let right_is_option = if matches!(bin.op, BinaryOp::NullCoalesce) {
+                    right.metadata.is_optional ||
+                    right.metadata.swc_type.starts_with("Option<") ||
+                    // Check for another ?? on the right (chained)
+                    matches!(&right.kind, DecoratedExprKind::Binary { op: BinaryOp::NullCoalesce, .. })
+                } else {
+                    false
+                };
+
+                // Determine result type for null-coalescing
+                let (result_type, result_is_optional) = if matches!(bin.op, BinaryOp::NullCoalesce) {
+                    // If right is also an Option, result is Option<T>
+                    // Otherwise, result is the unwrapped type T
+                    if right_is_option {
+                        (left.metadata.swc_type.clone(), true)
+                    } else {
+                        // Extract inner type from Option<T>
+                        let inner_type = if left.metadata.swc_type.starts_with("Option<") {
+                            left.metadata.swc_type
+                                .strip_prefix("Option<")
+                                .and_then(|s| s.strip_suffix(">"))
+                                .unwrap_or(&left.metadata.swc_type)
+                                .to_string()
+                        } else {
+                            right.metadata.swc_type.clone()
+                        };
+                        (inner_type, false)
+                    }
+                } else {
+                    ("bool".to_string(), false)
+                };
+
                 DecoratedExpr {
                     kind: DecoratedExprKind::Binary {
                         left,
@@ -1892,16 +1926,17 @@ impl SwcDecorator {
                         binary_metadata: SwcBinaryMetadata {
                             left_needs_deref,
                             right_needs_deref,
+                            right_is_option,
                             span: Some(bin.span),
                         },
                     },
-                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
-                        swc_type: "bool".to_string(),
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None,
+                        swc_type: result_type,
                         is_boxed: false,
-                        is_optional: false,
+                        is_optional: result_is_optional,
                         type_kind: SwcTypeKind::Primitive,
                         span: Some(bin.span),
-                    
+
                     needs_to_string: false,},
                 }
             }

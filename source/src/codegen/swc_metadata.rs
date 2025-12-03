@@ -201,6 +201,10 @@ pub struct SwcBinaryMetadata {
     /// Whether the right side needs special handling
     pub right_needs_deref: bool,
 
+    /// For null-coalescing (??): true if right side is also an Option
+    /// This determines whether to use .or() (Option) or .unwrap_or() (value)
+    pub right_is_option: bool,
+
     /// Source location for error reporting
     pub span: Option<Span>,
 }

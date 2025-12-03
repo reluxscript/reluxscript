@@ -1,0 +1,59 @@
+/**
+ * Test: String Interpolation ($"...")
+ *
+ * C# developers write:
+ *   $"Hello {name}, you have {count} items"
+ *
+ * Instead of:
+ *   format!("Hello {}, you have {} items", name, count)
+ */
+plugin StringInterpolation {
+
+    struct State {
+        result: Str,
+    }
+
+    fn init() -> State {
+        State { result: "" }
+    }
+
+    pub fn visit_identifier(node: &Identifier) {
+        let name = node.name.clone();
+        let count = 42;
+
+        // Basic interpolation
+        let msg1 = $"Hello {name}";
+
+        // Multiple expressions
+        let msg2 = $"User {name} has {count} items";
+
+        // Expressions with method calls
+        let msg3 = $"Uppercase: {name.to_uppercase()}";
+
+        // Expressions with member access
+        let msg4 = $"Length: {name.len()}";
+
+        // Nested braces (escaped)
+        let msg5 = $"JSON: {{\"name\": \"{name}\"}}";
+
+        // Complex expressions
+        let msg6 = $"Double: {count * 2}, Half: {count / 2}";
+
+        // Conditional expression inside interpolation
+        let msg7 = $"Status: {if count > 10 { "many" } else { "few" }}";
+
+        // Empty interpolation parts
+        let msg8 = $"{name}";
+        let msg9 = $"prefix{name}suffix";
+
+        // Multi-line (if supported)
+        let msg10 = $"Line 1: {name}
+Line 2: {count}";
+
+        self.state.result = msg2;
+    }
+
+    fn finish() -> Str {
+        self.state.result
+    }
+}

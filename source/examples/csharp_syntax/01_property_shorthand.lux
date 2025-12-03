@@ -1,0 +1,52 @@
+/**
+ * Test: Property Initialization Shorthand
+ *
+ * C# developers expect to write:
+ *   new ComponentStats { name, hooks = new List<Hook>() }
+ *
+ * Instead of:
+ *   new ComponentStats { name = name, hooks = new List<Hook>() }
+ */
+plugin PropertyShorthand {
+
+    struct Stats {
+        name: Str,
+        count: i32,
+        enabled: bool,
+    }
+
+    struct State {
+        result: Str,
+    }
+
+    fn init() -> State {
+        State { result: "" }
+    }
+
+    pub fn visit_identifier(node: &Identifier) {
+        let name = "test".to_string();
+        let count = 42;
+        let enabled = true;
+
+        // Property shorthand - should desugar to:
+        // Stats { name: name, count: count, enabled: enabled }
+        let stats = Stats {
+            name,
+            count,
+            enabled,
+        };
+
+        // Mixed shorthand and explicit
+        let stats2 = Stats {
+            name,
+            count: 100,
+            enabled,
+        };
+
+        self.state.result = stats.name;
+    }
+
+    fn finish() -> Str {
+        self.state.result
+    }
+}

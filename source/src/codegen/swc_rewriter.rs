@@ -1084,20 +1084,47 @@ impl SwcRewriter {
                 }
             }
 
-            // Member expressions
+            // Member expressions - transform optional chains to .and_then()/.map()
             DecoratedExprKind::Member { object, property, optional, computed, is_path, field_metadata } => {
-                DecoratedExprKind::Member {
-                    object: Box::new(self.rewrite_expr(*object)),
-                    property,
-                    optional,
-                    computed,
-                    is_path,
-                    field_metadata,
+                let rewritten_object = Box::new(self.rewrite_expr(*object));
+
+                if optional {
+                    // Transform obj?.field into obj.as_ref().map(|__opt| __opt.field)
+                    self.transform_optional_member(rewritten_object, property, field_metadata)
+                } else {
+                    DecoratedExprKind::Member {
+                        object: rewritten_object,
+                        property,
+                        optional: false,
+                        computed,
+                        is_path,
+                        field_metadata,
+                    }
                 }
             }
 
             // Call expressions
             DecoratedExprKind::Call(call) => {
+                // Check if callee is an optional member (obj?.method())
+                // If so, transform to obj.and_then(|x| x.method())
+                if let DecoratedExprKind::Member { object, property, optional: true, .. } = call.callee.kind {
+                    // Transform obj?.method(args) into obj.and_then(|__opt| __opt.method(args))
+                    let rewritten_object = Box::new(self.rewrite_expr(*object));
+                    let rewritten_args: Vec<_> = call.args
+                        .into_iter()
+                        .map(|arg| self.rewrite_expr(arg))
+                        .collect();
+                    return DecoratedExpr {
+                        kind: self.transform_optional_method_call(
+                            rewritten_object,
+                            property,
+                            rewritten_args,
+                            call.type_args,
+                        ),
+                        metadata: expr.metadata,
+                    };
+                }
+
                 DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
                     callee: self.rewrite_expr(call.callee),
                     args: call.args
@@ -1339,6 +1366,246 @@ impl SwcRewriter {
         }
 
         pattern
+    }
+
+    // ========================================================================
+    // TRANSFORMATION: Optional Chain (?.) to .and_then()/.map()
+    // ========================================================================
+
+    /// Transform `obj?.field` into `obj.as_ref().map(|__opt| __opt.field)`
+    /// This avoids using the `?` operator which only works in Option/Result-returning functions.
+    fn transform_optional_member(
+        &mut self,
+        object: Box<DecoratedExpr>,
+        property: String,
+        field_metadata: SwcFieldMetadata,
+    ) -> DecoratedExprKind {
+        // Generate unique closure parameter name
+        let param_name = format!("__opt_{}", self.temp_var_counter);
+        self.temp_var_counter += 1;
+
+        // Check if the object itself is already an optional chain result (returns Option)
+        // If so, use .and_then() instead of .map() to flatten
+        let is_object_optional = object.metadata.is_optional
+            || object.metadata.swc_type.starts_with("Option<")
+            || matches!(&object.kind, DecoratedExprKind::Call(call)
+                if matches!(&call.callee.kind, DecoratedExprKind::Member { property, .. }
+                    if property == "and_then" || property == "map"));
+
+        // Build: __opt.field (with read_conversion if any)
+        let inner_access = DecoratedExpr {
+            kind: DecoratedExprKind::Member {
+                object: Box::new(DecoratedExpr {
+                    kind: DecoratedExprKind::Ident {
+                        name: param_name.clone(),
+                        ident_metadata: SwcIdentifierMetadata {
+                            use_sym: false,
+                            deref_pattern: None,
+                            span: None,
+                        },
+                    },
+                    metadata: SwcExprMetadata {
+                        needs_enum_unwrap: None,
+                        swc_type: "unknown".to_string(),
+                        is_boxed: false,
+                        is_optional: false,
+                        type_kind: SwcTypeKind::Unknown,
+                        span: None,
+                        needs_to_string: false,
+                    },
+                }),
+                property: property.clone(),
+                optional: false,  // Already handled by the combinator
+                computed: false,
+                is_path: false,
+                field_metadata: field_metadata.clone(),
+            },
+            metadata: SwcExprMetadata {
+                needs_enum_unwrap: None,
+                swc_type: field_metadata.field_type.clone(),
+                is_boxed: false,
+                is_optional: false,
+                type_kind: SwcTypeKind::Unknown,
+                span: None,
+                needs_to_string: false,
+            },
+        };
+
+        // Build closure: |__opt| __opt.field
+        let closure = DecoratedExpr {
+            kind: DecoratedExprKind::Closure(crate::codegen::decorated_ast::DecoratedClosureExpr {
+                params: vec![crate::parser::ClosureParam::Ident(param_name)],
+                body: Box::new(inner_access),
+                span: Span::new(0, 0, 0, 0),
+            }),
+            metadata: SwcExprMetadata {
+                needs_enum_unwrap: None,
+                swc_type: "closure".to_string(),
+                is_boxed: false,
+                is_optional: false,
+                type_kind: SwcTypeKind::Unknown,
+                span: None,
+                needs_to_string: false,
+            },
+        };
+
+        // Determine method name: use .and_then() if result might be Option, else .map()
+        // For now, use .map() for field access (result is T), .and_then() if we need to flatten
+        let method_name = if is_object_optional {
+            // Already dealing with Option chain, need to flatten with and_then
+            // But actually for field access we just need map
+            "map"
+        } else {
+            "map"
+        };
+
+        // Build: obj.map(|__opt| __opt.field)
+        // No extra as_ref() needed - the object already has proper accessor metadata
+        // that will emit .as_ref() if needed (e.g., for Option<Box<T>> fields)
+        DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+            callee: DecoratedExpr {
+                kind: DecoratedExprKind::Member {
+                    object,
+                    property: method_name.to_string(),
+                    optional: false,
+                    computed: false,
+                    is_path: false,
+                    field_metadata: SwcFieldMetadata::direct(method_name.to_string(), "".to_string()),
+                },
+                metadata: SwcExprMetadata {
+                    needs_enum_unwrap: None,
+                    swc_type: "unknown".to_string(),
+                    is_boxed: false,
+                    is_optional: false,
+                    type_kind: SwcTypeKind::Unknown,
+                    span: None,
+                    needs_to_string: false,
+                },
+            },
+            args: vec![closure],
+            type_args: vec![],
+            optional: false,
+            is_macro: false,
+            span: Span::new(0, 0, 0, 0),
+        }))
+    }
+
+    /// Transform `obj?.method(args)` into `obj.and_then(|__opt| __opt.method(args))`
+    /// Uses and_then because method calls may return Option (we need to flatten)
+    fn transform_optional_method_call(
+        &mut self,
+        object: Box<DecoratedExpr>,
+        method_name: String,
+        args: Vec<DecoratedExpr>,
+        type_args: Vec<crate::parser::TsType>,
+    ) -> DecoratedExprKind {
+        // Generate unique closure parameter name
+        let param_name = format!("__opt_{}", self.temp_var_counter);
+        self.temp_var_counter += 1;
+
+        // Build: __opt.method(args)
+        let inner_call = DecoratedExpr {
+            kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                callee: DecoratedExpr {
+                    kind: DecoratedExprKind::Member {
+                        object: Box::new(DecoratedExpr {
+                            kind: DecoratedExprKind::Ident {
+                                name: param_name.clone(),
+                                ident_metadata: SwcIdentifierMetadata {
+                                    use_sym: false,
+                                    deref_pattern: None,
+                                    span: None,
+                                },
+                            },
+                            metadata: SwcExprMetadata {
+                                needs_enum_unwrap: None,
+                                swc_type: "unknown".to_string(),
+                                is_boxed: false,
+                                is_optional: false,
+                                type_kind: SwcTypeKind::Unknown,
+                                span: None,
+                                needs_to_string: false,
+                            },
+                        }),
+                        property: method_name.clone(),
+                        optional: false,
+                        computed: false,
+                        is_path: false,
+                        field_metadata: SwcFieldMetadata::direct(method_name.clone(), "".to_string()),
+                    },
+                    metadata: SwcExprMetadata {
+                        needs_enum_unwrap: None,
+                        swc_type: "unknown".to_string(),
+                        is_boxed: false,
+                        is_optional: false,
+                        type_kind: SwcTypeKind::Unknown,
+                        span: None,
+                        needs_to_string: false,
+                    },
+                },
+                args,
+                type_args,
+                optional: false,
+                is_macro: false,
+                span: Span::new(0, 0, 0, 0),
+            })),
+            metadata: SwcExprMetadata {
+                needs_enum_unwrap: None,
+                swc_type: "unknown".to_string(),
+                is_boxed: false,
+                is_optional: true,  // Result might be Option
+                type_kind: SwcTypeKind::Unknown,
+                span: None,
+                needs_to_string: false,
+            },
+        };
+
+        // Build closure: |__opt| __opt.method(args)
+        let closure = DecoratedExpr {
+            kind: DecoratedExprKind::Closure(crate::codegen::decorated_ast::DecoratedClosureExpr {
+                params: vec![crate::parser::ClosureParam::Ident(param_name)],
+                body: Box::new(inner_call),
+                span: Span::new(0, 0, 0, 0),
+            }),
+            metadata: SwcExprMetadata {
+                needs_enum_unwrap: None,
+                swc_type: "closure".to_string(),
+                is_boxed: false,
+                is_optional: false,
+                type_kind: SwcTypeKind::Unknown,
+                span: None,
+                needs_to_string: false,
+            },
+        };
+
+        // Build: obj.and_then(|__opt| __opt.method(args))
+        // Use and_then because method might return Option
+        DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+            callee: DecoratedExpr {
+                kind: DecoratedExprKind::Member {
+                    object,
+                    property: "and_then".to_string(),
+                    optional: false,
+                    computed: false,
+                    is_path: false,
+                    field_metadata: SwcFieldMetadata::direct("and_then".to_string(), "".to_string()),
+                },
+                metadata: SwcExprMetadata {
+                    needs_enum_unwrap: None,
+                    swc_type: "unknown".to_string(),
+                    is_boxed: false,
+                    is_optional: false,
+                    type_kind: SwcTypeKind::Unknown,
+                    span: None,
+                    needs_to_string: false,
+                },
+            },
+            args: vec![closure],
+            type_args: vec![],
+            optional: false,
+            is_macro: false,
+            span: Span::new(0, 0, 0, 0),
+        }))
     }
 
     // ========================================================================

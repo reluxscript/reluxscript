@@ -1,0 +1,71 @@
+/**
+ * Test: C# Type Name Aliases
+ *
+ * C# developers write:
+ *   string, int, bool, List<T>, Dictionary<K,V>
+ *
+ * Instead of:
+ *   Str, i32, bool, Vec<T>, HashMap<K,V>
+ */
+plugin TypeAliases {
+
+    struct State {
+        // C# style type names
+        name: string,
+        count: int,
+        score: double,
+        enabled: bool,
+        items: List<string>,
+        lookup: Dictionary<string, int>,
+        unique: HashSet<string>,
+    }
+
+    fn init() -> State {
+        State {
+            name: "",
+            count: 0,
+            score: 0.0,
+            enabled: false,
+            items: List::new(),
+            lookup: Dictionary::new(),
+            unique: HashSet::new(),
+        }
+    }
+
+    pub fn visit_identifier(node: &Identifier) {
+        // Function with C# types
+        let name: string = node.name.clone();
+        let length: int = name.len() as int;
+        let is_long: bool = length > 10;
+
+        // Collections with C# syntax
+        let names: List<string> = List::new();
+        let scores: Dictionary<string, double> = Dictionary::new();
+
+        // Nullable types (if we support them)
+        let optional_name: string? = None;
+
+        // Generic constraints could also use C# style
+        // where T : class, new()
+
+        self.state.name = name;
+        self.state.count = length;
+    }
+
+    // Function signatures with C# types
+    fn process_items(items: List<string>) -> int {
+        items.Count()
+    }
+
+    fn create_lookup(items: List<string>) -> Dictionary<string, int> {
+        let mut result: Dictionary<string, int> = Dictionary::new();
+        for (i, item) in items.iter().enumerate() {
+            result.insert(item.clone(), i as int);
+        }
+        result
+    }
+
+    fn finish() -> string {
+        self.state.name
+    }
+}

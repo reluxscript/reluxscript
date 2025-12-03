@@ -1434,6 +1434,21 @@ impl SwcEmitter {
             }
 
             DecoratedExprKind::Binary { left, op, right, binary_metadata } => {
+                // Special handling for null-coalescing: a ?? b
+                // If right is also an Option: a.or(b)
+                // If right is a value: a.unwrap_or(b)
+                if matches!(op, crate::parser::BinaryOp::NullCoalesce) {
+                    self.emit_expr(left);
+                    if binary_metadata.right_is_option {
+                        self.output.push_str(".or(");
+                    } else {
+                        self.output.push_str(".unwrap_or(");
+                    }
+                    self.emit_expr(right);
+                    self.output.push(')');
+                    return;
+                }
+
                 self.output.push('(');
 
                 // Left side - check for sym deref
@@ -2291,6 +2306,8 @@ impl SwcEmitter {
             BinaryOp::GtEq => ">=",
             BinaryOp::And => "&&",
             BinaryOp::Or => "||",
+            // NullCoalesce is handled specially in emit_decorated_binary, not here
+            BinaryOp::NullCoalesce => "unwrap_or",
         }
         .to_string()
     }
