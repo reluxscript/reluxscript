@@ -115,9 +115,11 @@ fn find_matching_brace(content: &str, start: usize) -> Option<usize> {
 }
 
 fn add_field(content: &str, struct_name: &str, field_name: &str, default_value: &str) -> (String, usize) {
-    // Pattern to find struct literals: StructName {
+    // Pattern to find struct literals: StructName { field: or StructName { field,
     // Must have word boundary before struct name to avoid matching "FooSwcExprMetadata"
-    let pattern = format!(r"\b{}(\s*)\{{", regex::escape(struct_name));
+    // Must have a field pattern after { to distinguish from return types like `-> Type {`
+    // Handles both `field:` and shorthand `field,` syntax
+    let pattern = format!(r"\b{}\s*\{{\s*[a-zA-Z_][a-zA-Z0-9_]*\s*[,:]", regex::escape(struct_name));
     let re = Regex::new(&pattern).unwrap();
 
     let mut result = content.to_string();

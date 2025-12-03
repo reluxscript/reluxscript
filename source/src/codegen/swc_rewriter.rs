@@ -419,7 +419,8 @@ impl SwcRewriter {
                             is_optional: false,
                             type_kind: crate::type_system::SwcTypeKind::Unknown,
                             span: scrutinee_span,
-                        },
+                        
+                        needs_to_string: false,},
                     };
 
                     if_stmt.pattern = Some(shadowing_pattern);
@@ -627,7 +628,8 @@ impl SwcRewriter {
                             is_optional: false,
                             type_kind: SwcTypeKind::Unknown,
                             span: None,
-                        },
+                        
+                        needs_to_string: false,},
                     },
                     args: vec![],
                     type_args: vec![],
@@ -695,7 +697,8 @@ impl SwcRewriter {
                                     is_optional: false,
                                     type_kind: crate::type_system::SwcTypeKind::WrapperEnum,
                                     span: None,
-                                },
+                                
+                                needs_to_string: false,},
                             }),
                             property: "as_ref".to_string(),
                             optional: false,
@@ -709,7 +712,8 @@ impl SwcRewriter {
                             is_optional: false,
                             type_kind: crate::type_system::SwcTypeKind::Unknown,
                             span: None,
-                        },
+                        
+                        needs_to_string: false,},
                     },
                     args: vec![],
                     type_args: vec![],
@@ -723,7 +727,8 @@ impl SwcRewriter {
                     is_optional: false,
                     type_kind: crate::type_system::SwcTypeKind::Unknown,
                     span: None,
-                },
+                
+                needs_to_string: false,},
             };
 
             let inner_pattern = DecoratedPattern {
@@ -774,7 +779,8 @@ impl SwcRewriter {
                         is_optional: false,
                         type_kind: crate::type_system::SwcTypeKind::Unknown,
                         span: None,
-                    },
+                    
+                    needs_to_string: false,},
                 }
             };
 
@@ -1140,7 +1146,15 @@ impl SwcRewriter {
                 return self.rewrite_custom_prop_access(*access);
             }
 
-            DecoratedExprKind::Literal(_) |
+            DecoratedExprKind::Literal(ref lit) => {
+                // Check if this literal needs .to_string() conversion
+                if expr.metadata.needs_to_string {
+                    // Wrap with .to_string() call
+                    return self.wrap_with_to_string(expr);
+                }
+                expr.kind
+            }
+
             DecoratedExprKind::Ident { .. } |
             DecoratedExprKind::Break |
             DecoratedExprKind::Continue |
@@ -1649,7 +1663,8 @@ impl SwcRewriter {
                 is_optional: false,
                 type_kind: crate::type_system::SwcTypeKind::Unknown,
                 span: None,
-            },
+            
+            needs_to_string: false,},
         };
 
         // Arm 1: MemberProp::Ident(id) => id.sym.to_string()
@@ -1677,7 +1692,7 @@ impl SwcRewriter {
                                                 name: "id".to_string(),
                                                 ident_metadata: SwcIdentifierMetadata::name(),
                                             },
-                                            metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None },
+                                            metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None , needs_to_string: false},
                                         }),
                                         property: "sym".to_string(),
                                         optional: false,
@@ -1685,7 +1700,7 @@ impl SwcRewriter {
                                         is_path: false,
                                         field_metadata: SwcFieldMetadata::direct("sym".to_string(), "JsWord".to_string()),
                                     },
-                                    metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None },
+                                    metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None , needs_to_string: false},
                                 }),
                                 property: "to_string".to_string(),
                                 optional: false,
@@ -1693,7 +1708,7 @@ impl SwcRewriter {
                                 is_path: false,
                                 field_metadata: SwcFieldMetadata::direct("to_string".to_string(), "fn".to_string()),
                             },
-                            metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None },
+                            metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None , needs_to_string: false},
                         },
                         args: vec![],
                         type_args: vec![],
@@ -1701,7 +1716,7 @@ impl SwcRewriter {
                         is_macro: false,
                         span: crate::lexer::Span::new(0, 0, 0, 0),
                     })),
-                    metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None },
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None , needs_to_string: false},
                 })],
             },
         };
@@ -1726,7 +1741,7 @@ impl SwcRewriter {
                             kind: DecoratedExprKind::Member {
                                 object: Box::new(DecoratedExpr {
                                     kind: DecoratedExprKind::Literal(crate::parser::Literal::String("[computed]".to_string())),
-                                    metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None },
+                                    metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None , needs_to_string: false},
                                 }),
                                 property: "to_string".to_string(),
                                 optional: false,
@@ -1734,7 +1749,7 @@ impl SwcRewriter {
                                 is_path: false,
                                 field_metadata: SwcFieldMetadata::direct("to_string".to_string(), "fn".to_string()),
                             },
-                            metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None },
+                            metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None , needs_to_string: false},
                         },
                         args: vec![],
                         type_args: vec![],
@@ -1742,7 +1757,7 @@ impl SwcRewriter {
                         is_macro: false,
                         span: crate::lexer::Span::new(0, 0, 0, 0),
                     })),
-                    metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None },
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None , needs_to_string: false},
                 })],
             },
         };
@@ -1768,12 +1783,12 @@ impl SwcRewriter {
                                 name: "format".to_string(),
                                 ident_metadata: SwcIdentifierMetadata::name(),
                             },
-                            metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None },
+                            metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None , needs_to_string: false},
                         },
                         args: vec![
                             DecoratedExpr {
                                 kind: DecoratedExprKind::Literal(crate::parser::Literal::String("\"#{}\"".to_string())),
-                                metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None },
+                                metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None , needs_to_string: false},
                             },
                             DecoratedExpr {
                                 kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
@@ -1786,7 +1801,7 @@ impl SwcRewriter {
                                                             name: "name".to_string(),
                                                             ident_metadata: SwcIdentifierMetadata::name(),
                                                         },
-                                                        metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None },
+                                                        metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None , needs_to_string: false},
                                                     }),
                                                     property: "name".to_string(),
                                                     optional: false,
@@ -1794,7 +1809,7 @@ impl SwcRewriter {
                                                     is_path: false,
                                                     field_metadata: SwcFieldMetadata::direct("name".to_string(), "JsWord".to_string()),
                                                 },
-                                                metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None },
+                                                metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None , needs_to_string: false},
                                             }),
                                             property: "to_string".to_string(),
                                             optional: false,
@@ -1802,7 +1817,7 @@ impl SwcRewriter {
                                             is_path: false,
                                             field_metadata: SwcFieldMetadata::direct("to_string".to_string(), "fn".to_string()),
                                         },
-                                        metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None },
+                                        metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None , needs_to_string: false},
                                     },
                                     args: vec![],
                                     type_args: vec![],
@@ -1810,7 +1825,7 @@ impl SwcRewriter {
                                     is_macro: false,
                                     span: crate::lexer::Span::new(0, 0, 0, 0),
                                 })),
-                                metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None },
+                                metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None , needs_to_string: false},
                             },
                         ],
                         type_args: vec![],
@@ -1818,7 +1833,7 @@ impl SwcRewriter {
                         is_macro: true,  // format! is a macro
                         span: crate::lexer::Span::new(0, 0, 0, 0),
                     })),
-                    metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None },
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None , needs_to_string: false},
                 })],
             },
         };
@@ -1835,7 +1850,8 @@ impl SwcRewriter {
                 is_optional: false,
                 type_kind: crate::type_system::SwcTypeKind::Primitive,
                 span: None,
-            },
+            
+            needs_to_string: false,},
         }
     }
 
@@ -2029,7 +2045,8 @@ impl SwcRewriter {
                                         is_optional: false,
                                         type_kind: SwcTypeKind::Unknown,
                                         span: None,
-                                    },
+                                    
+                                    needs_to_string: false,},
                                 },
                                 args: vec![],
                                 type_args: vec![],
@@ -2043,7 +2060,8 @@ impl SwcRewriter {
                                 is_optional: false,
                                 type_kind: SwcTypeKind::Unknown,
                                 span: None,
-                            },
+                            
+                            needs_to_string: false,},
                         };
                         new_fields.push(("sym".to_string(), into_call));
                     } else {
@@ -2070,7 +2088,8 @@ impl SwcRewriter {
                                 is_optional: false,
                                 type_kind: SwcTypeKind::Unknown,
                                 span: None,
-                            },
+                            
+                            needs_to_string: false,},
                         }
                     ));
                 }
@@ -2087,7 +2106,8 @@ impl SwcRewriter {
                                 is_optional: false,
                                 type_kind: SwcTypeKind::Unknown,
                                 span: None,
-                            },
+                            
+                            needs_to_string: false,},
                         }
                     ));
                 }
@@ -2112,7 +2132,8 @@ impl SwcRewriter {
                                 is_optional: false,
                                 type_kind: SwcTypeKind::Unknown,
                                 span: None,
-                            },
+                            
+                            needs_to_string: false,},
                         }
                     ));
                 }
@@ -2146,7 +2167,8 @@ impl SwcRewriter {
                                 is_optional: false,
                                 type_kind: SwcTypeKind::Primitive,
                                 span: Some(struct_init.span),
-                            },
+                            
+                            needs_to_string: false,},
                         },
                         args: vec![],
                         type_args: vec![],
@@ -2225,7 +2247,8 @@ impl SwcRewriter {
                         is_optional: false,
                         type_kind: expr.metadata.type_kind.clone(),
                         span: None,
-                    },
+                    
+                    needs_to_string: false,},
                 };
 
                 // Create match arm
@@ -2252,7 +2275,8 @@ impl SwcRewriter {
                                 is_optional: false,
                                 type_kind: crate::type_system::SwcTypeKind::Unknown,
                                 span: None,
-                            },
+                            
+                            needs_to_string: false,},
                         },
                         args: vec![],
                         type_args: vec![],
@@ -2267,7 +2291,8 @@ impl SwcRewriter {
                         is_optional: false,
                         type_kind: crate::type_system::SwcTypeKind::Unknown,
                         span: None,
-                    },
+                    
+                    needs_to_string: false,},
                 };
 
                 let wildcard_arm = DecoratedMatchArm {
@@ -2294,7 +2319,8 @@ impl SwcRewriter {
                                     is_optional: false,
                                     type_kind: object.metadata.type_kind.clone(),
                                     span: object.metadata.span,
-                                },
+                                
+                                needs_to_string: false,},
                             };
 
                             // Rebuild the member expression with the unwrapped object
@@ -2375,7 +2401,8 @@ impl SwcRewriter {
                                 is_optional: false,
                                 type_kind: object.metadata.type_kind.clone(),
                                 span: None,
-                            },
+                            
+                            needs_to_string: false,},
                         };
 
                         // Create match arm
@@ -2402,7 +2429,8 @@ impl SwcRewriter {
                                         is_optional: false,
                                         type_kind: crate::type_system::SwcTypeKind::Unknown,
                                         span: None,
-                                    },
+                                    
+                                    needs_to_string: false,},
                                 },
                                 args: vec![],
                                 type_args: vec![],
@@ -2417,7 +2445,8 @@ impl SwcRewriter {
                                 is_optional: false,
                                 type_kind: crate::type_system::SwcTypeKind::Unknown,
                                 span: None,
-                            },
+                            
+                            needs_to_string: false,},
                         };
 
                         let wildcard_arm = DecoratedMatchArm {
@@ -2444,7 +2473,8 @@ impl SwcRewriter {
                                 is_optional: false,
                                 type_kind: object.metadata.type_kind.clone(),
                                 span: object.metadata.span,
-                            },
+                            
+                            needs_to_string: false,},
                         };
 
                         // Return the member expression with the unwrapped object
@@ -2493,7 +2523,8 @@ impl SwcRewriter {
                                 is_optional: false,
                                 type_kind: crate::type_system::SwcTypeKind::Primitive,
                                 span: None,
-                            },
+                            
+                            needs_to_string: false,},
                         })],
                     },
                 };
@@ -2513,7 +2544,8 @@ impl SwcRewriter {
                                 is_optional: false,
                                 type_kind: crate::type_system::SwcTypeKind::Primitive,
                                 span: None,
-                            },
+                            
+                            needs_to_string: false,},
                         })],
                     },
                 };
@@ -2563,7 +2595,8 @@ impl SwcRewriter {
                                     is_optional: false,
                                     type_kind: crate::type_system::SwcTypeKind::Unknown,
                                     span: scrutinee_span,
-                                },
+                                
+                                needs_to_string: false,},
                             },
                             args: vec![],
                             type_args: vec![],
@@ -2578,7 +2611,8 @@ impl SwcRewriter {
                             is_optional: false,
                             type_kind: crate::type_system::SwcTypeKind::Unknown,
                             span: scrutinee_span,
-                        },
+                        
+                        needs_to_string: false,},
                     };
 
                     // Now wrap in &* to get &T from &T
@@ -2598,7 +2632,8 @@ impl SwcRewriter {
                             is_optional: false,
                             type_kind: crate::type_system::SwcTypeKind::Unknown,
                             span: scrutinee_span,
-                        },
+                        
+                        needs_to_string: false,},
                     };
 
                     deref_expr
@@ -2617,7 +2652,8 @@ impl SwcRewriter {
                         is_optional: false,
                         type_kind: crate::type_system::SwcTypeKind::Unknown,
                         span: scrutinee_span,
-                    },
+                    
+                    needs_to_string: false,},
                 };
 
                 DecoratedExpr {
@@ -2631,7 +2667,8 @@ impl SwcRewriter {
                         is_optional: false,
                         type_kind: crate::type_system::SwcTypeKind::Primitive,
                         span: expr.metadata.span,
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
             _ => expr,
@@ -2674,7 +2711,8 @@ impl SwcRewriter {
                                     is_optional: false,
                                     type_kind: crate::type_system::SwcTypeKind::Unknown,
                                     span: object.metadata.span,
-                                },
+                                
+                                needs_to_string: false,},
                             };
 
                             let iter_call_expr = DecoratedExpr {
@@ -2692,7 +2730,8 @@ impl SwcRewriter {
                                     is_optional: false,
                                     type_kind: crate::type_system::SwcTypeKind::Unknown,
                                     span: object.metadata.span,
-                                },
+                                
+                                needs_to_string: false,},
                             };
 
                             // Now create the final method call with iter() as the object
@@ -2805,7 +2844,8 @@ impl SwcRewriter {
                         is_optional: false,
                         type_kind: crate::type_system::SwcTypeKind::Unknown,
                         span: Some(span),
-                    },
+                    
+                    needs_to_string: false,},
                 },
                 args: vec![],
                 type_args: vec![],
@@ -2819,7 +2859,8 @@ impl SwcRewriter {
                 is_optional: false,
                 type_kind: crate::type_system::SwcTypeKind::Unknown,
                 span: Some(span),
-            },
+            
+            needs_to_string: false,},
         }
     }
 
@@ -2842,7 +2883,8 @@ impl SwcRewriter {
             is_optional: false,
             type_kind: crate::type_system::SwcTypeKind::Unknown,
             span: None,
-        }
+        
+        needs_to_string: false,}
     }
 
     /// Rewrite custom property assignment to state.set_custom_prop() call
@@ -3416,7 +3458,8 @@ impl SwcRewriter {
                             type_kind: SwcTypeKind::Struct,
                             span: expr.metadata.span,
                             needs_enum_unwrap: None,
-                        },
+                        
+                        needs_to_string: false,},
                     };
                 }
             }
@@ -3572,7 +3615,8 @@ impl SwcRewriter {
             is_optional: false,
             type_kind: SwcTypeKind::Unknown,
             span: None,
-        };
+        
+        needs_to_string: false,};
 
         // Create: var_name.as_ref().unwrap()
         let unwrap_expr = DecoratedExpr {

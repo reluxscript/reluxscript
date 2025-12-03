@@ -456,7 +456,8 @@ impl SwcHoister {
                         is_optional: false,
                         type_kind: crate::type_system::SwcTypeKind::Unknown,
                         span: Some(traverse.span),
-                    },
+                    
+                    needs_to_string: false,},
                 })
             }
         }
@@ -497,7 +498,8 @@ impl SwcHoister {
                                 is_optional: false,
                                 type_kind: crate::type_system::SwcTypeKind::Unknown,
                                 span: Some(capture.span),
-                            },
+                            
+                            needs_to_string: false,},
                         }),
                         unary_metadata: crate::codegen::swc_metadata::SwcUnaryMetadata {
                             override_op: None,
@@ -510,7 +512,8 @@ impl SwcHoister {
                         is_optional: false,
                         type_kind: crate::type_system::SwcTypeKind::Unknown,
                         span: Some(capture.span),
-                    },
+                    
+                    needs_to_string: false,},
                 }
             } else {
                 // &capture
@@ -532,7 +535,8 @@ impl SwcHoister {
                                 is_optional: false,
                                 type_kind: crate::type_system::SwcTypeKind::Unknown,
                                 span: Some(capture.span),
-                            },
+                            
+                            needs_to_string: false,},
                         }),
                         unary_metadata: crate::codegen::swc_metadata::SwcUnaryMetadata {
                             override_op: None,
@@ -545,7 +549,8 @@ impl SwcHoister {
                         is_optional: false,
                         type_kind: crate::type_system::SwcTypeKind::Unknown,
                         span: Some(capture.span),
-                    },
+                    
+                    needs_to_string: false,},
                 }
             };
 
@@ -577,7 +582,8 @@ impl SwcHoister {
                 is_optional: false,
                 type_kind: crate::type_system::SwcTypeKind::Unknown,
                 span: Some(traverse.span),
-            },
+            
+            needs_to_string: false,},
         };
 
         // Generate: target.visit_mut_with(&mut visitor)
@@ -623,7 +629,8 @@ impl SwcHoister {
                     is_optional: false,
                     type_kind: crate::type_system::SwcTypeKind::Unknown,
                     span: traverse.target.metadata.span,
-                },
+                
+                needs_to_string: false,},
             };
 
             // Create clone() call
@@ -656,7 +663,8 @@ impl SwcHoister {
                             is_optional: false,
                             type_kind: crate::type_system::SwcTypeKind::Unknown,
                             span: traverse.target.metadata.span,
-                        },
+                        
+                        needs_to_string: false,},
                     },
                     args: vec![],
                     type_args: vec![],
@@ -671,7 +679,8 @@ impl SwcHoister {
                     is_optional: false,
                     type_kind: crate::type_system::SwcTypeKind::Unknown,
                     span: traverse.target.metadata.span,
-                },
+                
+                needs_to_string: false,},
             };
 
             // Create let mut clone_var = target.clone()
@@ -721,7 +730,8 @@ impl SwcHoister {
                         is_optional: false,
                         type_kind: crate::type_system::SwcTypeKind::Unknown,
                         span: Some(traverse.span),
-                    },
+                    
+                    needs_to_string: false,},
                 },
                 args: vec![
                     DecoratedExpr {
@@ -739,7 +749,8 @@ impl SwcHoister {
                             is_optional: false,
                             type_kind: crate::type_system::SwcTypeKind::Unknown,
                             span: Some(traverse.span),
-                        },
+                        
+                        needs_to_string: false,},
                     }
                 ],
                 type_args: vec![],
@@ -753,7 +764,8 @@ impl SwcHoister {
                 is_optional: false,
                 type_kind: crate::type_system::SwcTypeKind::Unknown,
                 span: Some(traverse.span),
-            },
+            
+            needs_to_string: false,},
         };
 
         // STEP 4: Add clone statement to pending_stmts if needed
@@ -907,7 +919,8 @@ impl CaptureTransformer {
                                     is_optional: false,
                                     type_kind: crate::type_system::SwcTypeKind::Unknown,
                                     span: expr.metadata.span,
-                                },
+                                
+                                needs_to_string: false,},
                             }),
                             property: name_clone.clone(),
                             optional: false,
@@ -1056,7 +1069,8 @@ impl CaptureTransformer {
                                         is_optional: false,
                                         type_kind: crate::type_system::SwcTypeKind::Unknown,
                                         span: call.callee.metadata.span,
-                                    },
+                                    
+                                    needs_to_string: false,},
                                 }),
                                 property: name.clone(),
                                 optional: false,

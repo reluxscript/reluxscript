@@ -9,6 +9,8 @@ pub struct TypeChecker {
     errors: Vec<SemanticError>,
     /// Current function's return type (for return statement checking)
     current_return_type: Option<TypeInfo>,
+    /// Current impl block's target struct name (for resolving `Self`)
+    current_impl_target: Option<String>,
 }
 
 impl TypeChecker {
@@ -17,6 +19,7 @@ impl TypeChecker {
             env: env.clone(),
             errors: Vec::new(),
             current_return_type: None,
+            current_impl_target: None,
         }
     }
 
@@ -42,19 +45,68 @@ impl TypeChecker {
     }
 
     fn check_plugin(&mut self, plugin: &PluginDecl) {
-        // Don't push/pop scope - we want to retain all types for codegen
+        // Build the synthetic plugin struct type
+        // The generated code will have `pub struct PluginName { pub state: State }`
+        let mut plugin_fields = std::collections::HashMap::new();
+
+        // Find the State struct in the plugin body
         for item in &plugin.body {
-            if let PluginItem::Function(f) = item {
-                self.check_function(f);
+            if let PluginItem::Struct(s) = item {
+                if s.name == "State" {
+                    // Found State struct - add it as a field to the plugin struct
+                    let state_fields: std::collections::HashMap<String, TypeInfo> = s.fields.iter()
+                        .map(|field| (field.name.clone(), ast_type_to_type_info(&field.ty)))
+                        .collect();
+                    plugin_fields.insert("state".to_string(), TypeInfo::Struct {
+                        name: "State".to_string(),
+                        fields: state_fields,
+                    });
+                    break;
+                }
             }
         }
+
+        // Create the plugin struct type and register `self`
+        let plugin_struct = TypeInfo::Struct {
+            name: plugin.name.clone(),
+            fields: plugin_fields,
+        };
+
+        // Register the plugin struct so it can be looked up
+        self.env.define_struct(plugin.name.clone(), match &plugin_struct {
+            TypeInfo::Struct { fields, .. } => fields.clone(),
+            _ => std::collections::HashMap::new(),
+        });
+
+        // Set impl target so `Self` resolves to plugin struct
+        self.current_impl_target = Some(plugin.name.clone());
+
+        // Define `self` with the plugin struct type (wrapped in Ref since visitor methods take &mut self)
+        let self_type = TypeInfo::Ref {
+            mutable: true,
+            inner: Box::new(plugin_struct),
+        };
+        self.env.define("self".to_string(), self_type);
+
+        // Don't push/pop scope - we want to retain all types for codegen
+        for item in &plugin.body {
+            match item {
+                PluginItem::Function(f) => self.check_function(f),
+                PluginItem::Impl(impl_block) => self.check_impl_block(impl_block),
+                _ => {}
+            }
+        }
+
+        self.current_impl_target = None;
     }
 
     fn check_writer(&mut self, writer: &WriterDecl) {
         // Don't push/pop scope - we want to retain all types for codegen
         for item in &writer.body {
-            if let PluginItem::Function(f) = item {
-                self.check_function(f);
+            match item {
+                PluginItem::Function(f) => self.check_function(f),
+                PluginItem::Impl(impl_block) => self.check_impl_block(impl_block),
+                _ => {}
             }
         }
     }
@@ -62,10 +114,27 @@ impl TypeChecker {
     fn check_module(&mut self, module: &ModuleDecl) {
         // Don't push/pop scope - we want to retain all types for codegen
         for item in &module.items {
-            if let PluginItem::Function(f) = item {
-                self.check_function(f);
+            match item {
+                PluginItem::Function(f) => self.check_function(f),
+                PluginItem::Impl(impl_block) => self.check_impl_block(impl_block),
+                _ => {}
             }
         }
+    }
+
+    fn check_impl_block(&mut self, impl_block: &crate::parser::ImplBlock) {
+        eprintln!("[TYPE CHECKER] Processing impl block for: {}", impl_block.target);
+
+        // Set the current impl target so `Self` can be resolved
+        self.current_impl_target = Some(impl_block.target.clone());
+
+        // Check each method in the impl block
+        for method in &impl_block.items {
+            self.check_function(method);
+        }
+
+        // Clear the impl target
+        self.current_impl_target = None;
     }
 
     fn check_function(&mut self, f: &FnDecl) {
@@ -83,7 +152,10 @@ impl TypeChecker {
         // Define parameters
         for param in &f.params {
             let ty = ast_type_to_type_info(&param.ty);
-            self.env.define(param.name.clone(), ty);
+            // Resolve `Self` to the actual impl struct type
+            let resolved_ty = self.resolve_self_type(ty);
+            eprintln!("[TYPE CHECKER] Defining param '{}' with type: {:?}", param.name, resolved_ty);
+            self.env.define(param.name.clone(), resolved_ty);
         }
 
         // Check body
@@ -91,6 +163,39 @@ impl TypeChecker {
 
         // Don't pop scope - keep all types for decorator
         self.current_return_type = None;
+    }
+
+    /// Resolve `Self` type to the actual impl struct type
+    fn resolve_self_type(&self, ty: TypeInfo) -> TypeInfo {
+        match ty {
+            TypeInfo::AstNode(ref name) if name == "Self" => {
+                // Replace `Self` with the current impl target struct
+                if let Some(ref target) = self.current_impl_target {
+                    if let Some(fields) = self.env.get_struct_fields(target) {
+                        TypeInfo::Struct {
+                            name: target.clone(),
+                            fields: fields.clone(),
+                        }
+                    } else {
+                        // Struct not defined - use empty fields
+                        TypeInfo::Struct {
+                            name: target.clone(),
+                            fields: std::collections::HashMap::new(),
+                        }
+                    }
+                } else {
+                    ty // No impl target, return as-is
+                }
+            }
+            TypeInfo::Ref { mutable, inner } => {
+                // Recursively resolve Self in reference types
+                TypeInfo::Ref {
+                    mutable,
+                    inner: Box::new(self.resolve_self_type(*inner)),
+                }
+            }
+            _ => ty,
+        }
     }
 
     fn check_block(&mut self, block: &Block) {

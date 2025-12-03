@@ -164,6 +164,8 @@ impl SwcDecorator {
                 // e.g., "MemberExpression" -> "MemberExpr"
                 map_reluxscript_to_swc(name).0
             }
+            TypeInfo::Struct { name, .. } => name.clone(),
+            TypeInfo::Enum { name, .. } => name.clone(),
             _ => "Unknown".to_string(),
         }
     }
@@ -1403,7 +1405,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: Some(mem.span),
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
             // For all other expression types, just use normal decoration
@@ -1533,7 +1536,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: type_ctx.kind.clone(),
                         span: Some(ident_expr.span),
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -1694,10 +1698,27 @@ impl SwcDecorator {
                         ""
                     };
 
+                    // Try to look up field type from semantic type env for user-defined structs
+                    let field_type = if !is_likely_ast_type {
+                        // For user-defined structs, look up the field type from semantic type env
+                        self.semantic_type_env.as_ref()
+                            .and_then(|env| env.get_struct_fields(object_type))
+                            .and_then(|fields| fields.get(&mem.property))
+                            .map(|type_info| {
+                                let type_name = type_info.display_name();
+                                eprintln!("[DEBUG] Found struct field type: {}.{} = {}",
+                                    object_type, mem.property, type_name);
+                                type_name
+                            })
+                            .unwrap_or_else(|| "UserDefined".to_string())
+                    } else {
+                        "UserDefined".to_string()
+                    };
+
                     SwcFieldMetadata {
                         swc_field_name: swc_field.to_string(),
                         accessor: FieldAccessor::Direct,
-                        field_type: "UserDefined".to_string(),
+                        field_type,
                         source_field: Some(mem.property.clone()),
                         span: Some(mem.span),
                         read_conversion: read_conversion.to_string(),
@@ -1746,7 +1767,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown, // TODO: Infer properly
                         span: Some(mem.span),
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -1793,7 +1815,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: Some(unary.span),
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -1806,7 +1829,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Primitive,
                         span: None,
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -1836,7 +1860,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Primitive,
                         span: Some(bin.span),
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -1909,7 +1934,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: Some(call.span),
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -1934,7 +1960,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: None,
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -1979,7 +2006,8 @@ impl SwcDecorator {
                             is_optional: false,
                             type_kind: SwcTypeKind::Unknown,
                             span: Some(index.span),
-                        },
+                        
+                        needs_to_string: false,},
                     };
 
                     // Look up the field mapping to get proper metadata
@@ -2025,7 +2053,8 @@ impl SwcDecorator {
                             is_optional: false,
                             type_kind: SwcTypeKind::Unknown,
                             span: Some(index.span),
-                        },
+                        
+                        needs_to_string: false,},
                     }
                 } else {
                     // Normal index access, no unwrapping needed
@@ -2040,7 +2069,8 @@ impl SwcDecorator {
                             is_optional: false,
                             type_kind: SwcTypeKind::Unknown,
                             span: Some(index.span),
-                        },
+                        
+                        needs_to_string: false,},
                     }
                 }
             }
@@ -2068,7 +2098,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Struct,
                         span: Some(struct_init.span),
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -2083,7 +2114,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: Some(vec_init.span),
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -2104,7 +2136,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: None,
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -2138,7 +2171,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: None,
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -2157,7 +2191,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: Some(closure.span),
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -2186,7 +2221,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: Some(ref_expr.span),
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -2205,22 +2241,38 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind,
                         span: Some(deref_expr.span),
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
             Expr::Assign(assign) => {
                 let left = Box::new(self.decorate_expr(&assign.target));
-                let right = Box::new(self.decorate_expr(&assign.value));
+                let mut right = Box::new(self.decorate_expr(&assign.value));
+
+                // Check if we need .to_string() conversion:
+                // If left is String type and right is a string literal (&str)
+                let left_type = &left.metadata.swc_type;
+                let is_string_literal = matches!(&right.kind, DecoratedExprKind::Literal(crate::parser::Literal::String(_)));
+
+                eprintln!("[ASSIGN DEBUG] left_type={}, is_string_literal={}", left_type, is_string_literal);
+
+                // TypeInfo::Str has display_name "Str", which maps to Rust's String type
+                if left_type == "Str" && is_string_literal {
+                    eprintln!("[ASSIGN DEBUG] Setting needs_to_string=true");
+                    right.metadata.needs_to_string = true;
+                }
 
                 DecoratedExpr {
                     kind: DecoratedExprKind::Assign { left, right },
-                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
+                    metadata: SwcExprMetadata {
+                        needs_enum_unwrap: None,
                         swc_type: "()".to_string(),
                         is_boxed: false,
                         is_optional: false,
                         type_kind: SwcTypeKind::Primitive,
                         span: Some(assign.span),
+                        needs_to_string: false,
                     },
                 }
             }
@@ -2241,7 +2293,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Primitive,
                         span: Some(compound.span),
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -2261,7 +2314,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: Some(range.span),
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -2276,7 +2330,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: None,
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -2291,7 +2346,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: None,
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -2326,7 +2382,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Primitive,
                         span: Some(matches.span),
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -2341,7 +2398,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: None,
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -2354,7 +2412,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: None,
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -2367,7 +2426,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: None,
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -2398,7 +2458,8 @@ impl SwcDecorator {
                         type_kind: crate::type_system::SwcTypeKind::Unknown,
                         needs_enum_unwrap: None,
                         span: None,
-                    },
+                    
+                    needs_to_string: false,},
                 )
             }
         }
@@ -2691,7 +2752,8 @@ impl SwcDecorator {
                 is_optional: true,
                 type_kind: SwcTypeKind::Unknown,
                 span: Some(access.span),
-            },
+            
+            needs_to_string: false,},
         }
     }
 
@@ -2823,7 +2885,8 @@ impl SwcDecorator {
                 is_optional,
                 type_kind: SwcTypeKind::Primitive,
                 span: Some(regex_call.span),
-            },
+            
+            needs_to_string: false,},
         }
     }
 }
