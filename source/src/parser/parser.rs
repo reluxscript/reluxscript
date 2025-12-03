@@ -1953,6 +1953,10 @@ impl Parser {
     fn parse_while_stmt(&mut self) -> ParseResult<Stmt> {
         let start_span = self.current_span();
         self.expect(TokenKind::While)?;
+
+        // Create path for while loop
+        let while_path = self.path_with("while");
+
         // Use parse_expr_no_struct to avoid ambiguity with block
         let condition = self.parse_expr_no_struct()?;
         let body = self.parse_block()?;
@@ -1961,6 +1965,7 @@ impl Parser {
             condition,
             body,
             span: start_span,
+            path: while_path,
         }))
     }
 
@@ -1968,11 +1973,16 @@ impl Parser {
     fn parse_loop_stmt(&mut self) -> ParseResult<Stmt> {
         let start_span = self.current_span();
         self.expect(TokenKind::Loop)?;
+
+        // Create path for loop
+        let loop_path = self.path_with("loop");
+
         let body = self.parse_block()?;
 
         Ok(Stmt::Loop(LoopStmt {
             body,
             span: start_span,
+            path: loop_path,
         }))
     }
 
@@ -2116,12 +2126,14 @@ impl Parser {
                     let init = self.parse_expr()?;
                     self.expect(TokenKind::Semicolon)?;
 
+                    let let_path = self.path_with(&name);
                     state.push(LetStmt {
                         mutable,
                         pattern: Pattern::Ident(name),
                         ty,
                         init: Some(init),
                         span: let_span,
+                        path: let_path,
                     });
                 } else if self.check(TokenKind::Fn) || self.check(TokenKind::Pub) {
                     // Parse visitor method
@@ -2240,6 +2252,7 @@ impl Parser {
         if self.match_token(TokenKind::Eq) {
             let value = self.parse_assignment()?;
             let span = self.current_span();
+            let assign_path = self.path_with("assign");
 
             // Check if this is a custom property assignment
             if let Expr::CustomPropAccess(access) = expr {
@@ -2250,6 +2263,7 @@ impl Parser {
                     target: Box::new(Expr::CustomPropAccess(access)),
                     value: Box::new(value),
                     span,
+                    path: assign_path,
                 }));
             }
 
@@ -2257,6 +2271,7 @@ impl Parser {
                 target: Box::new(expr),
                 value: Box::new(value),
                 span,
+                path: assign_path,
             }));
         }
 
@@ -2276,11 +2291,13 @@ impl Parser {
         if let Some(op) = op {
             let value = self.parse_assignment()?;
             let span = self.current_span();
+            let compound_path = self.path_with("compound_assign");
             return Ok(Expr::CompoundAssign(CompoundAssignExpr {
                 op,
                 target: Box::new(expr),
                 value: Box::new(value),
                 span,
+                path: compound_path,
             }));
         }
 
@@ -2312,11 +2329,13 @@ impl Parser {
                 Some(Box::new(self.parse_or()?))
             };
 
+            let range_path = self.path_with("range");
             return Ok(Expr::Range(RangeExpr {
                 start: start.map(Box::new),
                 end,
                 inclusive,
                 span,
+                path: range_path,
             }));
         }
 
@@ -2331,11 +2350,13 @@ impl Parser {
         while self.match_token(TokenKind::Or) {
             let right = self.parse_and()?;
             let span = self.current_span();
+            let binary_path = self.path_with("binary");
             expr = Expr::Binary(BinaryExpr {
                 op: BinaryOp::Or,
                 left: Box::new(expr),
                 right: Box::new(right),
                 span,
+                path: binary_path,
             });
         }
 
@@ -2349,11 +2370,13 @@ impl Parser {
         while self.match_token(TokenKind::And) {
             let right = self.parse_equality()?;
             let span = self.current_span();
+            let binary_path = self.path_with("binary");
             expr = Expr::Binary(BinaryExpr {
                 op: BinaryOp::And,
                 left: Box::new(expr),
                 right: Box::new(right),
                 span,
+                path: binary_path,
             });
         }
 
@@ -2375,11 +2398,13 @@ impl Parser {
 
             let right = self.parse_comparison()?;
             let span = self.current_span();
+            let binary_path = self.path_with("binary");
             expr = Expr::Binary(BinaryExpr {
                 op,
                 left: Box::new(expr),
                 right: Box::new(right),
                 span,
+                path: binary_path,
             });
         }
 
@@ -2405,11 +2430,13 @@ impl Parser {
 
             let right = self.parse_term()?;
             let span = self.current_span();
+            let binary_path = self.path_with("binary");
             expr = Expr::Binary(BinaryExpr {
                 op,
                 left: Box::new(expr),
                 right: Box::new(right),
                 span,
+                path: binary_path,
             });
         }
 
@@ -2431,11 +2458,13 @@ impl Parser {
 
             let right = self.parse_factor()?;
             let span = self.current_span();
+            let binary_path = self.path_with("binary");
             expr = Expr::Binary(BinaryExpr {
                 op,
                 left: Box::new(expr),
                 right: Box::new(right),
                 span,
+                path: binary_path,
             });
         }
 
@@ -2459,11 +2488,13 @@ impl Parser {
 
             let right = self.parse_unary()?;
             let span = self.current_span();
+            let binary_path = self.path_with("binary");
             expr = Expr::Binary(BinaryExpr {
                 op,
                 left: Box::new(expr),
                 right: Box::new(right),
                 span,
+                path: binary_path,
             });
         }
 
@@ -2476,37 +2507,45 @@ impl Parser {
 
         if self.match_token(TokenKind::Not) {
             let operand = self.parse_unary()?;
+            let unary_path = self.path_with("unary");
             return Ok(Expr::Unary(UnaryExpr {
                 op: UnaryOp::Not,
                 operand: Box::new(operand),
                 span,
+                path: unary_path,
             }));
         }
 
         if self.match_token(TokenKind::Minus) {
             let operand = self.parse_unary()?;
+            let unary_path = self.path_with("unary");
             return Ok(Expr::Unary(UnaryExpr {
                 op: UnaryOp::Neg,
                 operand: Box::new(operand),
                 span,
+                path: unary_path,
             }));
         }
 
         if self.match_token(TokenKind::Star) {
             let operand = self.parse_unary()?;
+            let deref_path = self.path_with("deref");
             return Ok(Expr::Deref(DerefExpr {
                 expr: Box::new(operand),
                 span,
+                path: deref_path,
             }));
         }
 
         if self.match_token(TokenKind::Ampersand) {
             let mutable = self.match_token(TokenKind::Mut);
             let operand = self.parse_unary()?;
+            let ref_path = self.path_with("ref");
             return Ok(Expr::Ref(RefExpr {
                 mutable,
                 expr: Box::new(operand),
                 span,
+                path: ref_path,
             }));
         }
 
@@ -2545,6 +2584,7 @@ impl Parser {
                 let span = self.current_span();
                 // Use pending turbofish type args if any
                 let type_args = std::mem::take(&mut pending_turbofish);
+                let call_path = self.path_with("call");
                 expr = Expr::Call(CallExpr {
                     callee: Box::new(expr),
                     args,
@@ -2552,6 +2592,7 @@ impl Parser {
                     optional: false,
                     is_macro: false,
                     span,
+                    path: call_path,
                 });
             } else if self.match_token(TokenKind::Dot) {
                 // Member access
@@ -2566,6 +2607,7 @@ impl Parser {
                         span,
                     });
                 } else {
+                    let member_path = self.path_with(&property);
                     expr = Expr::Member(MemberExpr {
                         object: Box::new(expr),
                         property,
@@ -2573,12 +2615,14 @@ impl Parser {
                         computed: false,
                         is_path: false,
                         span,
+                        path: member_path,
                     });
                 }
             } else if self.match_token(TokenKind::QuestionDot) {
                 // Optional member access ?.
                 let property = self.expect_ident()?;
                 let span = self.current_span();
+                let member_path = self.path_with(&property);
                 expr = Expr::Member(MemberExpr {
                     object: Box::new(expr),
                     property,
@@ -2586,6 +2630,7 @@ impl Parser {
                     computed: false,
                     is_path: false,
                     span,
+                    path: member_path,
                 });
             } else if self.match_token(TokenKind::LBracket) {
                 // Index access or range slice
@@ -2599,16 +2644,20 @@ impl Parser {
                     };
                     self.expect(TokenKind::RBracket)?;
                     let span = self.current_span();
+                    let range_path = self.path_with("range");
                     let range = Expr::Range(RangeExpr {
                         start: None,
                         end,
                         inclusive: false,
                         span: span.clone(),
+                        path: range_path,
                     });
+                    let index_path = self.path_with("index");
                     expr = Expr::Index(IndexExpr {
                         object: Box::new(expr),
                         index: Box::new(range),
                         span,
+                        path: index_path,
                     });
                 } else {
                     // Parse first expression
@@ -2623,25 +2672,31 @@ impl Parser {
                         };
                         self.expect(TokenKind::RBracket)?;
                         let span = self.current_span();
+                        let range_path = self.path_with("range");
                         let range = Expr::Range(RangeExpr {
                             start: Some(Box::new(start_expr)),
                             end,
                             inclusive: false,
                             span: span.clone(),
+                            path: range_path,
                         });
+                        let index_path = self.path_with("index");
                         expr = Expr::Index(IndexExpr {
                             object: Box::new(expr),
                             index: Box::new(range),
                             span,
+                            path: index_path,
                         });
                     } else {
                         // Regular index access
                         self.expect(TokenKind::RBracket)?;
                         let span = self.current_span();
+                        let index_path = self.path_with("index");
                         expr = Expr::Index(IndexExpr {
                             object: Box::new(expr),
                             index: Box::new(start_expr),
                             span,
+                            path: index_path,
                         });
                     }
                 }
@@ -2676,6 +2731,7 @@ impl Parser {
                     };
                     expr = self.parse_struct_init(path, span)?;
                 } else {
+                    let member_path = self.path_with(&method);
                     expr = Expr::Member(MemberExpr {
                         object: Box::new(expr),
                         property: method,
@@ -2683,6 +2739,7 @@ impl Parser {
                         computed: false,
                         is_path: true,
                         span,
+                        path: member_path,
                     });
                 }
             } else if self.match_token(TokenKind::Question) {
@@ -2909,12 +2966,15 @@ impl Parser {
                     }
                 }
                 self.expect(TokenKind::RBracket)?;
-                return Ok(Expr::VecInit(VecInitExpr { elements, span }));
+                let vec_path = self.path_with("vec");
+                return Ok(Expr::VecInit(VecInitExpr { elements, span, path: vec_path }));
             } else {
                 // Just identifier "vec"
+                let ident_path = self.path_with("vec");
                 return Ok(Expr::Ident(IdentExpr {
                     name: "vec".to_string(),
                     span,
+                    path: ident_path,
                 }));
             }
         }
@@ -2926,21 +2986,27 @@ impl Parser {
                 self.expect(TokenKind::LParen)?;
                 let args = self.parse_args()?;
                 self.expect(TokenKind::RParen)?;
+                let ident_path = self.path_with("format");
+                let call_path = self.path_with("call");
                 return Ok(Expr::Call(CallExpr {
                     callee: Box::new(Expr::Ident(IdentExpr {
                         name: "format".to_string(),
                         span,
+                        path: ident_path,
                     })),
                     args,
                     type_args: Vec::new(),
                     optional: false,
                     is_macro: true,
                     span,
+                    path: call_path,
                 }));
             } else {
+                let ident_path = self.path_with("format");
                 return Ok(Expr::Ident(IdentExpr {
                     name: "format".to_string(),
                     span,
+                    path: ident_path,
                 }));
             }
         }
