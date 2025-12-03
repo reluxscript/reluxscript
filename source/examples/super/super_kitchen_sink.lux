@@ -25,6 +25,33 @@ plugin KitchenSink {
     }
 
     /**
+     * impl block for struct (#41)
+     */
+    impl ComplexBinding {
+        // Constructor syntax StructName::new() (#56)
+        pub fn new(name: Str, path: Str) -> ComplexBinding {
+            ComplexBinding {
+                name,
+                path,
+                depth: 0,
+            }
+        }
+
+        // Self:: for associated function calls (#42)
+        pub fn default() -> ComplexBinding {
+            Self::new("".to_string(), "".to_string())
+        }
+
+        pub fn with_depth(&self, depth: i32) -> ComplexBinding {
+            ComplexBinding {
+                name: self.name.clone(),
+                path: self.path.clone(),
+                depth,
+            }
+        }
+    }
+
+    /**
      * Struct with generic collection types (#7)
      */
     struct AnalysisResult {
@@ -41,6 +68,9 @@ plugin KitchenSink {
 
     fn init() -> State {
         // vec![] macro (#21)
+        // 0x hex literals (#51)
+        let _hex_gap = 0x10000000;
+
         State {
             output: "",
             count: 0,
@@ -187,10 +217,30 @@ plugin KitchenSink {
             if ch.is_uppercase() {
                 self.state.output = "PascalCase";
             }
+            // .is_alphanumeric() / .is_ascii_hexdigit() (#53)
+            if ch.is_alphanumeric() {
+                self.state.output = "alphanumeric";
+            }
         }
 
         // .repeat() (#23)
         let indent = "  ".repeat(4);
+
+        // .to_lowercase() / .to_uppercase() (#43)
+        let lower = name.to_lowercase();
+        let upper = name.to_uppercase();
+
+        // .trim() / .trim_end_matches() (#44)
+        let trimmed = name.trim();
+        let trimmed_zeros = name.trim_end_matches('0');
+
+        // .find() / .rfind() (#45)
+        if let Some(pos) = name.find('.') {
+            self.state.count = pos as i32;
+        }
+        if let Some(last_pos) = name.rfind('.') {
+            self.state.count = last_pos as i32;
+        }
     }
 
     /**
@@ -224,6 +274,13 @@ plugin KitchenSink {
         let has_null = node.elements.iter().any(|e| {
             matches!(e, Expression::NullLiteral)
         });
+
+        // .all() iterator method (#54)
+        let all_valid = new_results.iter().all(|p| p.chars().all(|c| c.is_ascii_hexdigit()));
+
+        // .remove() / .clear() on collections (#50)
+        new_results.remove(0);
+        new_results.clear();
     }
 
     /**
@@ -246,6 +303,19 @@ plugin KitchenSink {
             // Slice with explicit range
             let slice = &value[0..3];
         }
+
+        // .abs() on numbers (#49)
+        let diff = (self.state.count - 10).abs();
+
+        // .fract() on floats (#52)
+        let num = 3.14;
+        let fractional = num.fract();
+
+        // .to_string(16) radix conversion (#47)
+        let hex_str = self.state.count.to_string(16);
+
+        // format! with format specifiers (#55)
+        let formatted = format!("{:08x}", self.state.count);
     }
 
     /**
@@ -277,6 +347,17 @@ plugin KitchenSink {
         let other = node.id.as_ref()
             .map(|id| id.name.clone())
             .unwrap_or_default();
+
+        // .unwrap() on Option/Result (#39)
+        let unwrapped = node.id.as_ref().unwrap();
+
+        // .is_some() / .is_none() on Option (#38)
+        if node.id.is_some() {
+            self.state.output = "has_id";
+        }
+        if node.body.is_none() {
+            self.state.output = "no_body";
+        }
 
         name
     }
@@ -331,6 +412,65 @@ plugin KitchenSink {
      */
     fn format_output(prefix: &Str, value: &Str) -> Str {
         format!("{}: {}", prefix, value)
+    }
+
+    /**
+     * Test ? operator for early return (#40)
+     */
+    fn parse_with_question_mark(input: &Str) -> Result<i32, Str> {
+        let trimmed = input.trim();
+        let value = i32::from_str_radix(trimmed, 16)?;
+        Ok(value * 2)
+    }
+
+    /**
+     * Test for i in 0..n range loops (#33)
+     */
+    fn test_range_loop(items: &Vec<Str>) {
+        // for i in 0..n range loop (#33)
+        for i in 0..items.len() {
+            self.state.count = i as i32;
+        }
+
+        // += and -= compound assignment (#48)
+        let mut counter = 0;
+        counter += 1;
+        counter -= 1;
+    }
+
+    /**
+     * Test while loops (#34)
+     */
+    fn test_while_loop(items: &Vec<Str>) {
+        let mut i = 0;
+        while i < items.len() {
+            self.state.count = i as i32;
+            i += 1;
+        }
+    }
+
+    /**
+     * Test loop with break/continue (#35, #36, #37)
+     */
+    fn test_loop_break_continue(items: &Vec<Str>) {
+        let mut i = 0;
+
+        // loop {} infinite loop (#35)
+        loop {
+            if i >= items.len() {
+                // break statement (#36)
+                break;
+            }
+
+            if items[i].is_empty() {
+                i += 1;
+                // continue statement (#37)
+                continue;
+            }
+
+            self.state.output = items[i].clone();
+            i += 1;
+        }
     }
 
     fn finish() -> Str {
