@@ -388,7 +388,10 @@ impl KitchenSink {
         let keys = map.keys().cloned().collect();
     }
     
-    fn transform_elements(elements: &Vec<Expr>, transformer: F) -> Vec<String> {
+    fn transform_elements<F>(elements: &Vec<Expr>, transformer: F) -> Vec<String>
+    where
+        F: Fn(&Expr) -> String
+    {
         elements.iter().map(|e| transformer(e)).collect()
     }
     

@@ -836,8 +836,17 @@ impl SwcEmitter {
             .map(|ty| self.type_has_reference(ty))
             .unwrap_or(false);
 
-        // Add lifetime parameter if needed
-        if needs_lifetime {
+        // Add generic type parameters if any, or just lifetime if needed
+        if !func.type_params.is_empty() {
+            let type_param_strs: Vec<String> = func.type_params.iter()
+                .map(|p| p.name.clone())
+                .collect();
+            if needs_lifetime {
+                sig.push_str(&format!("<'a, {}>", type_param_strs.join(", ")));
+            } else {
+                sig.push_str(&format!("<{}>", type_param_strs.join(", ")));
+            }
+        } else if needs_lifetime {
             sig.push_str("<'a>");
         }
 
@@ -896,8 +905,22 @@ impl SwcEmitter {
             sig.push_str(&self.type_to_string_with_lifetime(ret_ty, needs_lifetime));
         }
 
-        sig.push_str(" {");
-        self.emit_line(&sig);
+        // Where clause
+        if !func.where_clause.is_empty() {
+            self.emit_line(&sig);
+            self.emit_line("where");
+            self.indent += 1;
+            for (i, pred) in func.where_clause.iter().enumerate() {
+                let bound_str = self.type_to_string(&pred.bound);
+                let comma = if i < func.where_clause.len() - 1 { "," } else { "" };
+                self.emit_line(&format!("{}: {}{}", pred.target, bound_str, comma));
+            }
+            self.indent -= 1;
+            self.emit_line("{");
+        } else {
+            sig.push_str(" {");
+            self.emit_line(&sig);
+        }
 
         // Function body
         // If function has no return type or returns (), all statements need semicolons
@@ -2148,7 +2171,7 @@ impl SwcEmitter {
             }
             Type::FnTrait { params, return_type } => {
                 format!(
-                    "fn({}) -> {}",
+                    "Fn({}) -> {}",
                     params.iter()
                         .map(|t| self.type_to_string(t))
                         .collect::<Vec<_>>()

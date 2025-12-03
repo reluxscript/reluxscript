@@ -401,6 +401,7 @@ impl SwcHoister {
 
                     let impl_method = DecoratedFnDecl {
                         name: swc_method_name.clone(),
+                        type_params: vec![],
                         params: vec![
                             Param {
                                 name: "self".to_string(),
@@ -422,6 +423,7 @@ impl SwcHoister {
                             },
                         ],
                         return_type: None,
+                        where_clause: vec![],
                         body: method_body,
                     };
 

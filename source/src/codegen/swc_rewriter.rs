@@ -266,8 +266,10 @@ impl SwcRewriter {
     fn rewrite_fn_decl(&mut self, func: DecoratedFnDecl) -> DecoratedFnDecl {
         DecoratedFnDecl {
             name: func.name,
+            type_params: func.type_params,
             params: func.params,
             return_type: func.return_type,
+            where_clause: func.where_clause,
             body: self.rewrite_block(func.body),
         }
     }

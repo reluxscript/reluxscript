@@ -364,10 +364,21 @@ impl SwcDecorator {
             param
         }).collect();
 
+        // Map where clause bounds to SWC types
+        let swc_where_clause: Vec<WherePredicate> = func.where_clause.iter().map(|pred| {
+            WherePredicate {
+                target: pred.target.clone(),
+                bound: self.map_type_to_swc(&pred.bound),
+                span: pred.span,
+            }
+        }).collect();
+
         DecoratedFnDecl {
             name: swc_name,
+            type_params: func.type_params.clone(),
             params: swc_params,
             return_type: func.return_type.as_ref().map(|ty| self.map_type_to_swc(ty)),
+            where_clause: swc_where_clause,
             body: decorated_body,
         }
     }
@@ -2670,6 +2681,13 @@ impl SwcDecorator {
                     type_args: type_args.iter().map(|t| self.map_type_to_swc(t)).collect(),
                 }
             }
+            Type::FnTrait { params, return_type } => {
+                // Map parameter and return types in function trait bounds
+                Type::FnTrait {
+                    params: params.iter().map(|t| self.map_type_to_swc(t)).collect(),
+                    return_type: Box::new(self.map_type_to_swc(return_type)),
+                }
+            }
             _ => ty.clone(),
         }
     }
@@ -3002,8 +3020,10 @@ pub struct DecoratedStaticDecl {
 #[derive(Debug, Clone)]
 pub struct DecoratedFnDecl {
     pub name: String,
+    pub type_params: Vec<GenericParam>,
     pub params: Vec<Param>,
     pub return_type: Option<Type>,
+    pub where_clause: Vec<WherePredicate>,
     pub body: DecoratedBlock,
 }
 
