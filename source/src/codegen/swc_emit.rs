@@ -1198,10 +1198,16 @@ impl SwcEmitter {
 
         // If the scrutinee is a Box<T>, we need to dereference it with &*
         // This allows matching against the inner type
-        eprintln!("[EMIT MATCH] scrutinee type='{}', is_boxed={}", match_stmt.expr.metadata.swc_type, match_stmt.expr.metadata.is_boxed);
+        // If the scrutinee is an Option<Box<T>> or Option<T>, we need to borrow with &
+        // to avoid moving out of the reference
+        let scrutinee_type = &match_stmt.expr.metadata.swc_type;
+        eprintln!("[EMIT MATCH] scrutinee type='{}', is_boxed={}", scrutinee_type, match_stmt.expr.metadata.is_boxed);
         if match_stmt.expr.metadata.is_boxed {
             eprintln!("[EMIT MATCH] Emitting &* for boxed scrutinee");
             self.output.push_str("&*");
+        } else if scrutinee_type.starts_with("Option<") {
+            eprintln!("[EMIT MATCH] Emitting & for Option scrutinee");
+            self.output.push_str("&");
         }
 
         self.emit_expr(&match_stmt.expr);

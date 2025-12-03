@@ -34,11 +34,11 @@ pub struct NeedsToString {
 
 impl VisitMut for NeedsToString {
     fn visit_mut_fn_decl(&mut self, node: &mut FnDecl) {
-        match node.return_type {
-            Some(type_ann) => {
+        match &node.function.return_type {
+            Option::Some(type_ann) => {
                 {
-                    match type_ann.type_annotation {
-                        TsType::TsKeywordType => {
+                    match &*type_ann.type_ann.as_ref() {
+                        TsType::TsKeywordType(TsKeywordType { kind: TsKeywordTypeKind::TsStringKeyword, .. }) => {
                             {
                                 self.state.output = "string".to_string()
                             }
@@ -50,7 +50,7 @@ impl VisitMut for NeedsToString {
                     }
                 }
             }
-            None => {
+            Option::None => {
                 {
                 }
             }
@@ -70,7 +70,7 @@ impl NeedsToString {
     }
     
     fn init() -> State {
-        State { output: "".to_string() }
+        State { output: "".to_string(), count: 0 }
     }
     
 }

@@ -58,25 +58,25 @@ pub struct KitchenSink {
 
 impl VisitMut for KitchenSink {
     fn visit_mut_fn_decl(&mut self, node: &mut FnDecl) {
-        match node.return_type {
-            Some(type_ann) => {
-                match type_ann.type_annotation {
-                    TsType::TsKeywordType => {
+        match node.function.return_type {
+            Option::Some(type_ann) => {
+                match &*type_ann.type_ann.as_ref() {
+                    TsType::TsKeywordType(TsKeywordType { kind: TsKeywordTypeKind::TsStringKeyword, .. }) => {
                         {
                             self.state.output = "string".to_string()
                         }
                     }
-                    TsType::TsKeywordType => {
+                    TsType::TsKeywordType(TsKeywordType { kind: TsKeywordTypeKind::TsNumberKeyword, .. }) => {
                         {
                             self.state.output = "number".to_string()
                         }
                     }
-                    TsType::TsKeywordType => {
+                    TsType::TsKeywordType(TsKeywordType { kind: TsKeywordTypeKind::TsBooleanKeyword, .. }) => {
                         {
                             self.state.output = "boolean".to_string()
                         }
                     }
-                    TsType::TsKeywordType => {
+                    TsType::TsKeywordType(TsKeywordType { kind: TsKeywordTypeKind::TsAnyKeyword, .. }) => {
                         {
                             self.state.output = "any".to_string()
                         }

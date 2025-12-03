@@ -810,6 +810,17 @@ pub fn get_typed_field_mapping(parent_swc_type: &str, field: &str) -> Option<Typ
             write_conversion: "",
         }),
 
+        // TsTypeAnn (TypeAnnotation) fields
+        ("TsTypeAnn", "type_annotation") => Some(TypedFieldMapping {
+            reluxscript_field: "type_annotation",
+            swc_field: "type_ann",
+            needs_deref: true,  // Box<TsType>
+            result_type_rs: "TsType",
+            result_type_swc: "Box<TsType>",
+            read_conversion: "",
+            write_conversion: "",
+        }),
+
         // ArrayPat fields
         ("ArrayPat", "elements") => Some(TypedFieldMapping {
             reluxscript_field: "elements",

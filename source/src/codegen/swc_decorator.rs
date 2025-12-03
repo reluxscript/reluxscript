@@ -442,7 +442,8 @@ impl SwcDecorator {
                     let decorated_pattern = self.decorate_pattern_with_context(&arm.pattern, &scrutinee_type);
 
                     // Extract pattern bindings and add them to type_env before decorating body
-                    self.add_pattern_bindings_to_env(&arm.pattern, &decorated_pattern);
+                    // Pass scrutinee_type so Option<T> patterns can extract the inner T
+                    self.add_pattern_bindings_to_env_with_type(&arm.pattern, &decorated_pattern, Some(scrutinee_type.clone()));
 
                     let decorated_body_expr = self.decorate_expr(&arm.body);
 
@@ -1639,10 +1640,18 @@ impl SwcDecorator {
                         span: Some(mem.span),
                         read_conversion: String::new(),
                     }
-                } else if let Some(mapping) = get_typed_field_mapping(object_type, &mem.property) {
+                } else {
+                    // Strip Box<> wrapper for field mapping lookup
+                    let base_object_type = if object_type.starts_with("Box<") && object_type.ends_with(">") {
+                        &object_type[4..object_type.len()-1]
+                    } else {
+                        object_type.as_str()
+                    };
+
+                    if let Some(mapping) = get_typed_field_mapping(base_object_type, &mem.property) {
                     // We have precise mapping!
                     eprintln!("[DEBUG] Field mapping found: {}.{} → {}.{} (needs_deref: {})",
-                        object_type, mem.property, object_type, mapping.swc_field, mapping.needs_deref);
+                        base_object_type, mem.property, base_object_type, mapping.swc_field, mapping.needs_deref);
                     SwcFieldMetadata {
                         swc_field_name: mapping.swc_field.to_string(),
                         accessor: {
@@ -1743,7 +1752,8 @@ impl SwcDecorator {
                         span: Some(mem.span),
                         read_conversion: read_conversion.to_string(),
                     }
-                };
+                    }  // Close inner if-else (field mapping found vs fallback)
+                };  // Close outer else (is_self_builder check)
 
                 // Infer the type of this member expression
                 // If there's a read_conversion that changes the type, use the converted type
@@ -2507,6 +2517,11 @@ impl SwcDecorator {
     /// Example: "Expr::Array(array_lit)" → "Expr::Array"
     /// Example: "Pat::Ident(ident)" → "Pat::Ident"
     fn strip_pattern_binding(&self, pattern: &str) -> String {
+        // Don't strip struct patterns that contain field matching (e.g., `{ kind: ... }`)
+        // These patterns need the full content for proper type discrimination
+        if pattern.contains("{ ") {
+            return pattern.to_string();
+        }
         if let Some(paren_pos) = pattern.find('(') {
             pattern[..paren_pos].to_string()
         } else {

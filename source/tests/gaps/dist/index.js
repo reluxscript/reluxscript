@@ -17,7 +17,7 @@ module.exports = function({ types: t }) {
   }
   
   function init() {
-    return { output: "" };
+    return { output: "", count: 0 };
   }
   
   let state = {};
