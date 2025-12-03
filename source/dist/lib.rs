@@ -11,23 +11,23 @@ struct State {
     result: String,
 }
 
-pub struct TestNullOps {
+pub struct NullConditional {
     pub state: State,
 }
 
-impl VisitMut for TestNullOps {
+impl VisitMut for NullConditional {
     fn visit_mut_var_declarator(&mut self, node: &mut VarDeclarator) {
         let opt1 = Some("a".to_string());
         let opt2 = Some("b".to_string());
-        let result = opt1.or(opt2).unwrap_or("c".to_string());
+        let combined = opt1.or(opt2).unwrap_or("neither".to_string());
         let opt3 = None;
-        let value = opt3.unwrap_or("default".to_string());
-        self.state.result = result;
+        let result = opt3.unwrap_or("default".to_string());
+        self.state.result = combined;
     }
     
 }
 
-impl TestNullOps {
+impl NullConditional {
     pub fn new() -> Self {
         Self {
             state: State {

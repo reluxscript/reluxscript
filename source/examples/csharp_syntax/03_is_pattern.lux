@@ -39,9 +39,9 @@ plugin IsPattern {
         if expr is Expression::Identifier id {
             self.state.result = id.name.clone();
         } else if expr is Expression::Literal lit {
-            self.state.result = "literal";
+            self.state.result = "literal".to_string();
         } else if expr is Expression::CallExpression call {
-            self.state.result = "call";
+            self.state.result = "call".to_string();
         }
 
         // is pattern in match-like chains

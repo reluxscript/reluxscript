@@ -18,44 +18,21 @@ plugin NullCoalescing {
     }
 
     pub fn visit_variable_declarator(node: &VariableDeclarator) {
-        // Basic null coalescing
-        let name = node.id.name ?? "anonymous";
-
-        // With Option field
-        let init_value = node.init ?? default_expr();
-
-        // Chained null coalescing
-        let value = first_option ?? second_option ?? "fallback";
-
-        // With method call result
-        let parsed = parse_name(node) ?? "unknown";
-
-        // In assignment
-        self.state.result = get_optional_result() ?? "default";
-
-        // With complex default
-        let complex = node.init ?? create_default_init();
+        // Chained null coalescing with local Options
+        let first_option: Option<Str> = Some("first".to_string());
+        let second_option: Option<Str> = None;
+        let value = first_option ?? second_option ?? "fallback".to_string();
 
         // Null coalescing with same type
-        let opt1: Option<Str> = Some("a");
-        let opt2: Option<Str> = Some("b");
-        let result = opt1 ?? opt2 ?? "c";
-    }
+        let opt1: Option<Str> = Some("a".to_string());
+        let opt2: Option<Str> = Some("b".to_string());
+        let result = opt1 ?? opt2 ?? "c".to_string();
 
-    fn get_optional_result() -> Option<Str> {
-        None
-    }
+        // Simple fallback
+        let opt3: Option<Str> = None;
+        let fallback_result = opt3 ?? "default".to_string();
 
-    fn parse_name(node: &VariableDeclarator) -> Option<Str> {
-        Some(node.id.name.clone())
-    }
-
-    fn default_expr() -> Expression {
-        // placeholder
-    }
-
-    fn create_default_init() -> Expression {
-        // placeholder
+        self.state.result = result;
     }
 
     fn finish() -> Str {

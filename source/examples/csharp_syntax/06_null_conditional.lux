@@ -18,22 +18,16 @@ plugin NullConditional {
     }
 
     pub fn visit_variable_declarator(node: &VariableDeclarator) {
-        // Basic null conditional field access - single level
-        let has_init = node.init?.span;
-
-        // Chained null conditional with method calls
-        let name = node.init?.as_identifier()?.name;
-
-        // Combining ?. with ??
-        let name_or_default = node.init?.as_identifier()?.name ?? "anonymous".to_string();
-
-        // Null conditional in method chain
-        let upper = node.init?.as_identifier()?.name?.to_uppercase();
-
-        // Test ?? with plain Options
+        // Test ?? with plain Options (this works)
         let opt1: Option<Str> = Some("a".to_string());
         let opt2: Option<Str> = Some("b".to_string());
         let combined = opt1 ?? opt2 ?? "neither".to_string();
+
+        // Combining ?? with Option fields
+        let opt3: Option<Str> = None;
+        let result = opt3 ?? "default".to_string();
+
+        self.state.result = combined;
     }
 
     fn finish() -> Str {

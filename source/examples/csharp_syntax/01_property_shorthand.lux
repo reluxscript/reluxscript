@@ -36,11 +36,15 @@ plugin PropertyShorthand {
             enabled,
         };
 
+        // Second example uses fresh variables
+        let name2 = "test2".to_string();
+        let enabled2 = false;
+
         // Mixed shorthand and explicit
         let stats2 = Stats {
-            name,
+            name: name2,
             count: 100,
-            enabled,
+            enabled: enabled2,
         };
 
         self.state.result = stats.name;

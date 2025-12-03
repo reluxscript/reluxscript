@@ -3041,8 +3041,15 @@ impl Parser {
                         } else {
                             self.parse_expr()?
                         };
+                        // For C#-style multi-param closures (a, b) => ...,
+                        // emit as a single Tuple param so Rust gets |(a, b)| instead of |a, b|
+                        let params = if ident_names.len() > 1 {
+                            vec![ClosureParam::Tuple(ident_names)]
+                        } else {
+                            ident_names.into_iter().map(ClosureParam::Ident).collect()
+                        };
                         return Ok(Expr::Closure(ClosureExpr {
-                            params: ident_names.into_iter().map(ClosureParam::Ident).collect(),
+                            params,
                             body: Box::new(body),
                             span,
                             path: self.path_with("closure"),

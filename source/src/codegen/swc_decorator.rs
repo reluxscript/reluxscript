@@ -1841,6 +1841,14 @@ impl SwcDecorator {
                     }
                 };
 
+                // For reference operator (&), preserve is_boxed from operand
+                // so that &bin.left where bin.left is Box<Expr> becomes &*bin.left
+                let is_boxed = if matches!(unary.op, UnaryOp::Ref | UnaryOp::RefMut) {
+                    decorated_operand.metadata.is_boxed
+                } else {
+                    false
+                };
+
                 DecoratedExpr {
                     kind: DecoratedExprKind::Unary {
                         op: unary.op,
@@ -1850,13 +1858,13 @@ impl SwcDecorator {
                             span: Some(unary.span),
                         },
                     },
-                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None,
                         swc_type: result_type,
-                        is_boxed: false,
+                        is_boxed,
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: Some(unary.span),
-                    
+
                     needs_to_string: false,},
                 }
             }
@@ -2611,6 +2619,7 @@ impl SwcDecorator {
             "Statement" => "Stmt",
             "Declaration" => "Decl",
             "Identifier" => "Ident",
+            "Literal" => "Lit",
             "MemberExpression" => "Member",
             "CallExpression" => "Call",
             "BinaryExpression" => "Bin",

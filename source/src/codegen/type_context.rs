@@ -677,6 +677,35 @@ pub fn get_typed_field_mapping(parent_swc_type: &str, field: &str) -> Option<Typ
             write_conversion: "",
         }),
 
+        // BinExpr fields
+        ("BinExpr", "left") => Some(TypedFieldMapping {
+            reluxscript_field: "left",
+            swc_field: "left",
+            needs_deref: true, // Box<Expr>
+            result_type_rs: "Expr",
+            result_type_swc: "Box<Expr>",
+            read_conversion: "",
+            write_conversion: "",
+        }),
+        ("BinExpr", "right") => Some(TypedFieldMapping {
+            reluxscript_field: "right",
+            swc_field: "right",
+            needs_deref: true, // Box<Expr>
+            result_type_rs: "Expr",
+            result_type_swc: "Box<Expr>",
+            read_conversion: "",
+            write_conversion: "",
+        }),
+        ("BinExpr", "op") | ("BinExpr", "operator") => Some(TypedFieldMapping {
+            reluxscript_field: "op",
+            swc_field: "op",
+            needs_deref: false,
+            result_type_rs: "BinaryOp",
+            result_type_swc: "BinaryOp",
+            read_conversion: "",
+            write_conversion: "",
+        }),
+
         // Param fields
         ("Param", "pattern") => Some(TypedFieldMapping {
             reluxscript_field: "pattern",
