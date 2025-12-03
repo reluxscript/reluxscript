@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-syn = { version = "2.0", features = ["full", "parsing", "visit"] }
+regex = "1.10"
 clap = { version = "4.0", features = ["derive"] }
 walkdir = "2.4"
