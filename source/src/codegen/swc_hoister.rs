@@ -343,6 +343,7 @@ impl SwcHoister {
                     derives: vec![], // TODO: Add derives if needed
                     lifetimes: if has_captures { vec!["'a".to_string()] } else { vec![] },
                     span: traverse.span,
+                    path: format!("{}[G000]", struct_name),  // Generated path
                 };
 
                 self.hoisted_structs.push(hoisted_struct);
@@ -399,7 +400,7 @@ impl SwcHoister {
                     );
 
                     let impl_method = DecoratedFnDecl {
-                        name: swc_method_name,
+                        name: swc_method_name.clone(),
                         params: vec![
                             Param {
                                 name: "self".to_string(),
@@ -408,14 +409,16 @@ impl SwcHoister {
                                     mutable: true,
                                 },
                                 span: Span { start: 0, end: 0, line: 0, column: 0 },
+                                path: format!("{}.self[G001]", swc_method_name),
                             },
                             Param {
-                                name: param_name,
+                                name: param_name.clone(),
                                 ty: Type::Reference {
                                     inner: Box::new(param_type),
                                     mutable: true,
                                 },
                                 span: Span { start: 0, end: 0, line: 0, column: 0 },
+                                path: format!("{}.{}[G002]", swc_method_name, param_name),
                             },
                         ],
                         return_type: None,

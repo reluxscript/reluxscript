@@ -239,6 +239,7 @@ impl TypeChecker {
                         then_branch: if_stmt.then_branch.clone(),
                         else_branch: if_stmt.else_branch.clone(),
                         span: if_stmt.span,
+                        path: if_stmt.path.clone(),
                     });
                     return self.infer_expr(&Expr::If(if_expr));
                 }

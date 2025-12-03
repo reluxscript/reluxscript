@@ -3108,6 +3108,7 @@ impl BabelGenerator {
                             let field_expr = Expr::Ident(IdentExpr {
                                 name: field_scrutinee.clone(),
                                 span: crate::lexer::Span::new(0, 0, 0, 0),
+                                path: String::new(),  // Generated node
                             });
                             self.gen_matches_pattern(&field_expr, field_pattern);
                         }

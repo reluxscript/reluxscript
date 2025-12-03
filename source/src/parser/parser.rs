@@ -3053,6 +3053,7 @@ impl Parser {
                     return Ok(Expr::VecInit(VecInitExpr {
                         elements,
                         span,
+                        path: self.path_with("vec"),
                     }));
                 }
             }
@@ -3063,6 +3064,7 @@ impl Parser {
             return Ok(Expr::Ident(IdentExpr {
                 name: "self".to_string(),
                 span,
+                path: self.path_with("self"),
             }));
         }
 
@@ -3074,6 +3076,7 @@ impl Parser {
             return Ok(Expr::Ident(IdentExpr {
                 name,
                 span,
+                path: self.path_with("Self"),
             }));
         }
 
@@ -3106,16 +3109,19 @@ impl Parser {
                     self.advance(); // consume (
                     let args = self.parse_args()?;
                     self.expect(TokenKind::RParen)?;
+                    let path_str = segments.join("::");
                     return Ok(Expr::Call(CallExpr {
-                        callee: Box::new(Expr::Path(PathExpr { segments, span })),
+                        callee: Box::new(Expr::Path(PathExpr { segments: segments.clone(), span, path: self.path_with(&path_str) })),
                         args,
                         type_args: Vec::new(),
                         optional: false,
                         is_macro: false,
                         span: self.current_span(),
+                        path: self.path_with("call"),
                     }));
                 }
-                return Ok(Expr::Path(PathExpr { segments, span }));
+                let path_str = segments.join("::");
+                return Ok(Expr::Path(PathExpr { segments, span, path: self.path_with(&path_str) }));
             }
             // Check for macro call: identifier!()
             if self.check(TokenKind::Not) && self.peek_ahead(1).map_or(false, |t| t.kind == TokenKind::LParen) {
@@ -3124,12 +3130,13 @@ impl Parser {
                 let args = self.parse_args()?;
                 self.expect(TokenKind::RParen)?;
                 return Ok(Expr::Call(CallExpr {
-                    callee: Box::new(Expr::Ident(IdentExpr { name, span })),
+                    callee: Box::new(Expr::Ident(IdentExpr { name: name.clone(), span, path: self.path_with(&name) })),
                     args,
                     type_args: Vec::new(),
                     optional: false,
                     is_macro: true,
                     span: self.current_span(),
+                    path: self.path_with("call"),
                 }));
             }
             // Check for struct initialization or wildcard pattern TypeName(_)
@@ -3145,12 +3152,14 @@ impl Parser {
                     self.expect(TokenKind::RParen)?;
                     // Return a struct init with a special marker for wildcard
                     return Ok(Expr::StructInit(StructInitExpr {
-                        name,
+                        name: name.clone(),
                         fields: vec![("_wildcard".to_string(), Expr::Ident(IdentExpr {
                             name: "_".to_string(),
                             span,
+                            path: self.path_with("_"),
                         }))],
                         span,
+                        path: self.path_with(&name),
                     }));
                 }
                 // Not a wildcard pattern, parse as call
@@ -3160,15 +3169,16 @@ impl Parser {
                 }
                 self.expect(TokenKind::RParen)?;
                 return Ok(Expr::Call(CallExpr {
-                    callee: Box::new(Expr::Ident(IdentExpr { name, span })),
+                    callee: Box::new(Expr::Ident(IdentExpr { name: name.clone(), span, path: self.path_with(&name) })),
                     args,
                     type_args: Vec::new(),
                     optional: false,
                     is_macro: false,
                     span,
+                    path: self.path_with("call"),
                 }));
             }
-            return Ok(Expr::Ident(IdentExpr { name, span }));
+            return Ok(Expr::Ident(IdentExpr { name: name.clone(), span, path: self.path_with(&name) }));
         }
 
         // AST node type as identifier
@@ -3200,16 +3210,19 @@ impl Parser {
                     self.advance(); // consume (
                     let args = self.parse_args()?;
                     self.expect(TokenKind::RParen)?;
+                    let path_str = segments.join("::");
                     return Ok(Expr::Call(CallExpr {
-                        callee: Box::new(Expr::Path(PathExpr { segments, span })),
+                        callee: Box::new(Expr::Path(PathExpr { segments: segments.clone(), span, path: self.path_with(&path_str) })),
                         args,
                         type_args: Vec::new(),
                         optional: false,
                         is_macro: false,
                         span: self.current_span(),
+                        path: self.path_with("call"),
                     }));
                 }
-                return Ok(Expr::Path(PathExpr { segments, span }));
+                let path_str = segments.join("::");
+                return Ok(Expr::Path(PathExpr { segments, span, path: self.path_with(&path_str) }));
             }
             // Check for struct initialization
             if self.check(TokenKind::LBrace) {
@@ -3224,12 +3237,14 @@ impl Parser {
                     self.expect(TokenKind::RParen)?;
                     // Return a struct init with a special marker for wildcard
                     return Ok(Expr::StructInit(StructInitExpr {
-                        name,
+                        name: name.clone(),
                         fields: vec![("_wildcard".to_string(), Expr::Ident(IdentExpr {
                             name: "_".to_string(),
                             span,
+                            path: self.path_with("_"),
                         }))],
                         span,
+                        path: self.path_with(&name),
                     }));
                 }
                 // Not a wildcard - this is invalid syntax for AST types
@@ -3239,7 +3254,7 @@ impl Parser {
                     self.current_span(),
                 ));
             }
-            return Ok(Expr::Ident(IdentExpr { name, span }));
+            return Ok(Expr::Ident(IdentExpr { name: name.clone(), span, path: self.path_with(&name) }));
         }
 
         // Self type (can be used for struct initialization)
@@ -3248,7 +3263,7 @@ impl Parser {
             if self.check(TokenKind::LBrace) {
                 return self.parse_struct_init(name, span);
             }
-            return Ok(Expr::Ident(IdentExpr { name, span }));
+            return Ok(Expr::Ident(IdentExpr { name, span, path: self.path_with("Self") }));
         }
 
         // Type keywords that can be used as path expressions (HashMap::new(), etc.)
@@ -3268,7 +3283,7 @@ impl Parser {
             if self.check(TokenKind::LBrace) {
                 return self.parse_struct_init(name, span);
             }
-            return Ok(Expr::Ident(IdentExpr { name, span }));
+            return Ok(Expr::Ident(IdentExpr { name: name.clone(), span, path: self.path_with(&name) }));
         }
 
         Err(self.error("Expected expression"))
@@ -3301,6 +3316,7 @@ impl Parser {
             params,
             body: Box::new(body),
             span,
+            path: self.path_with("closure"),
         }))
     }
 
@@ -3351,6 +3367,7 @@ impl Parser {
             params: Vec::new(), // empty params
             body: Box::new(body),
             span,
+            path: self.path_with("closure"),
         }))
     }
 
@@ -3377,12 +3394,14 @@ impl Parser {
             if self.check(TokenKind::If) {
                 // else if - parse as nested if expression inside a block
                 let else_if_expr = self.parse_if_expr()?;
+                let else_block_path = self.path_with("else_block");
                 Some(Block {
                     stmts: vec![Stmt::Expr(ExprStmt {
                         expr: else_if_expr,
                         span: start_span,
                     })],
                     span: start_span,
+                    path: else_block_path,
                 })
             } else {
                 // else block
@@ -3398,6 +3417,7 @@ impl Parser {
             then_branch,
             else_branch,
             span: start_span,
+            path: self.path_with("if_expr"),
         })))
     }
 
@@ -3427,6 +3447,7 @@ impl Parser {
             scrutinee,
             arms,
             span: start_span,
+            path: self.path_with("match_expr"),
         })))
     }
 
@@ -3450,6 +3471,7 @@ impl Parser {
                 Expr::Ident(IdentExpr {
                     name: field_name.clone(),
                     span: self.current_span(),
+                    path: self.path_with(&field_name),
                 })
             };
             fields.push((field_name, value));
@@ -3461,7 +3483,7 @@ impl Parser {
         }
 
         self.expect(TokenKind::RBrace)?;
-        Ok(Expr::StructInit(StructInitExpr { name, fields, span }))
+        Ok(Expr::StructInit(StructInitExpr { name: name.clone(), fields, span, path: self.path_with(&name) }))
     }
 
     /// Try to parse a literal
