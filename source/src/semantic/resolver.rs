@@ -885,9 +885,11 @@ impl Resolver {
         match expr {
             Expr::Ident(ident) => {
                 if self.env.lookup(&ident.name).is_none() {
-                    // Check for special names and built-in macros
+                    // Check for special names, built-in macros, and primitive types used as type paths
                     let is_special = matches!(ident.name.as_str(),
-                        "self" | "Self" | "matches!" | "format!" | "format" | "vec!" | "Some" | "None" | "Ok" | "Err" | "String" | "HashMap" | "HashSet" | "Vec" | "Option" | "Result" | "Box" | "CodeBuilder" | "_"
+                        "self" | "Self" | "matches!" | "format!" | "format" | "vec!" | "Some" | "None" | "Ok" | "Err" | "String" | "HashMap" | "HashSet" | "Vec" | "Option" | "Result" | "Box" | "CodeBuilder" | "_" |
+                        // Primitive types used as type paths (e.g., usize::from_str_radix)
+                        "usize" | "isize" | "i8" | "i16" | "i32" | "i64" | "i128" | "u8" | "u16" | "u32" | "u64" | "u128" | "f32" | "f64" | "bool" | "char"
                     );
                     // Check if it's a known AST node type (used in matches!)
                     let is_ast_type = get_node_mapping(&ident.name).is_some();
