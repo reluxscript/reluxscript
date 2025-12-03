@@ -1,0 +1,339 @@
+/**
+ * Kitchen Sink Plugin
+ *
+ * Tests ALL unsupported features (except multi-file/module imports)
+ * This plugin should compile once all features are implemented.
+ */
+plugin KitchenSink {
+
+    /**
+     * User-defined enum with data variants (#14)
+     */
+    enum BindingType {
+        Simple(Str),
+        Complex { name: Str, path: Str },
+        None,
+    }
+
+    /**
+     * Struct definition (#6)
+     */
+    struct ComplexBinding {
+        name: Str,
+        path: Str,
+        depth: i32,
+    }
+
+    /**
+     * Struct with generic collection types (#7)
+     */
+    struct AnalysisResult {
+        bindings: Vec<BindingType>,
+        dependencies: HashSet<Str>,
+        metadata: HashMap<Str, Str>,
+    }
+
+    struct State {
+        output: Str,
+        count: i32,
+        results: Vec<AnalysisResult>,
+    }
+
+    fn init() -> State {
+        // vec![] macro (#21)
+        State {
+            output: "",
+            count: 0,
+            results: vec![],
+        }
+    }
+
+    /**
+     * Test TSType matching with keyword variants (#2)
+     */
+    pub fn visit_function_declaration(node: &FunctionDeclaration) {
+        if let Some(type_ann) = node.return_type {
+            match type_ann.type_annotation {
+                // TSType keyword variants
+                TSType::TSStringKeyword => {
+                    self.state.output = "string";
+                }
+                TSType::TSNumberKeyword => {
+                    self.state.output = "number";
+                }
+                TSType::TSBooleanKeyword => {
+                    self.state.output = "boolean";
+                }
+                TSType::TSAnyKeyword => {
+                    self.state.output = "any";
+                }
+                // TSType with data (#2)
+                TSType::TSArrayType(ref array_type) => {
+                    self.state.output = "array";
+                }
+                TSType::TSTypeLiteral(_) => {
+                    self.state.output = "object";
+                }
+                // TSTypeReference with TSEntityName (#3)
+                TSType::TSTypeReference(ref type_ref) => {
+                    if let TSEntityName::Identifier(ref type_name) = type_ref.type_name {
+                        self.state.output = type_name.name.clone();
+                    }
+                }
+                _ => {
+                    self.state.output = "unknown";
+                }
+            }
+        }
+    }
+
+    /**
+     * Test complex nested pattern matching (#10, #11)
+     * Test multiple nested match expressions
+     */
+    pub fn visit_variable_declaration(node: &VariableDeclaration) {
+        for declarator in &node.declarations {
+            // Nested if let with complex patterns (#28)
+            if let Pattern::ArrayPattern(ref array_pattern) = declarator.id {
+                if let Some(ref first_elem) = array_pattern.elements.get(0) {
+                    if let Pattern::Identifier(ref id) = first_elem {
+                        self.state.output = id.name.clone();
+                    }
+                }
+            }
+
+            // Multiple nested match (#11, #29)
+            if let Some(ref init) = declarator.init {
+                match init {
+                    Expression::ArrowFunctionExpression(ref arrow) => {
+                        // Iterator methods (#18) and closure syntax (#19)
+                        let param_names: Vec<Str> = arrow.params.iter()
+                            .filter(|p| matches!(p, Pattern::Identifier(_)))
+                            .map(|p| {
+                                if let Pattern::Identifier(ref id) = p {
+                                    id.name.clone()
+                                } else {
+                                    "unknown".to_string()
+                                }
+                            })
+                            .collect();
+
+                        // .join() (#24)
+                        self.state.output = param_names.join(", ");
+                    }
+                    Expression::FunctionExpression(ref func) => {
+                        self.state.output = "function";
+                    }
+                    Expression::CallExpression(ref call) => {
+                        // matches! macro (#16)
+                        if matches!(call.callee, Expression::Identifier(_)) {
+                            self.state.output = "call";
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    /**
+     * Test Expression matching with multi-pattern arms (#15)
+     */
+    pub fn visit_expression_statement(node: &ExpressionStatement) {
+        // Multi-pattern match with | (#15)
+        let is_jsx = matches!(
+            node.expression,
+            Expression::JSXElement(_)
+                | Expression::JSXFragment(_)
+        );
+
+        if is_jsx {
+            self.state.output = "jsx";
+        }
+
+        // Type cast (#17)
+        self.state.count = self.state.count + 1;
+        let count_usize = self.state.count as usize;
+        let back_to_i32 = count_usize as i32;
+
+        // Accessing extra_data on AST nodes (#22)
+        if let Expression::CallExpression(ref call) = node.expression {
+            if let Some(ref path) = call.extra_data.get("__minimactPath") {
+                self.state.output = path.clone();
+            }
+        }
+    }
+
+    /**
+     * Test string methods (#13, #23)
+     */
+    pub fn visit_identifier(node: &Identifier) {
+        let name = &node.name;
+
+        // String methods (#13)
+        if name.starts_with("set") {
+            self.state.output = "setter";
+        } else if name.ends_with("Handler") {
+            self.state.output = "handler";
+        } else if name.contains("_") {
+            self.state.output = "snake_case";
+        }
+
+        // .split(), .chars() (#23)
+        let parts: Vec<Str> = name.split("_").map(|s| s.to_string()).collect();
+        let first_char = name.chars().next();
+
+        if let Some(ch) = first_char {
+            if ch.is_uppercase() {
+                self.state.output = "PascalCase";
+            }
+        }
+
+        // .repeat() (#23)
+        let indent = "  ".repeat(4);
+    }
+
+    /**
+     * Test collection methods (#24) and .len(), .is_empty(), .first(), .get()
+     */
+    pub fn visit_array_expression(node: &ArrayExpression) {
+        // .len() and .is_empty()
+        if node.elements.is_empty() {
+            self.state.output = "empty";
+            return;
+        }
+
+        let length = node.elements.len();
+        self.state.count = length as i32;
+
+        // .first() and .get()
+        if let Some(first) = node.elements.first() {
+            self.state.output = "has_first";
+        }
+
+        if let Some(third) = node.elements.get(2) {
+            self.state.output = "has_third";
+        }
+
+        // .push() - need mutable
+        let mut new_results: Vec<Str> = vec![];
+        new_results.push("item1".to_string());
+        new_results.push("item2".to_string());
+
+        // .any() (#18)
+        let has_null = node.elements.iter().any(|e| {
+            matches!(e, Expression::NullLiteral)
+        });
+    }
+
+    /**
+     * Test .min() / .max() (#25) and range slice syntax (#26)
+     */
+    pub fn visit_string_literal(node: &StringLiteral) {
+        let value = &node.value;
+        let len = value.len();
+
+        // .min() / .max() (#25)
+        let capped_len = len.min(100);
+        let at_least_ten = len.max(10);
+
+        // Range slice syntax (#26)
+        if len > 5 {
+            let first_five = &value[..5];
+            let last_three = &value[len - 3..];
+            let middle = &value[2..len - 2];
+
+            // Slice with explicit range
+            let slice = &value[0..3];
+        }
+    }
+
+    /**
+     * Test Result<T, E> with Ok() and Err() (#20)
+     */
+    fn parse_value(input: &Str) -> Result<i32, Str> {
+        if input.is_empty() {
+            return Err("Empty input".to_string());
+        }
+
+        // usize::from_str_radix (#27)
+        if let Ok(hex_value) = usize::from_str_radix(input, 16) {
+            return Ok(hex_value as i32);
+        }
+
+        Err("Invalid hex".to_string())
+    }
+
+    /**
+     * Test unwrap_or() / unwrap_or_default() (#30)
+     */
+    fn get_name_or_default(node: &FunctionDeclaration) -> Str {
+        // unwrap_or (#30)
+        let name = node.id.as_ref()
+            .map(|id| id.name.clone())
+            .unwrap_or("anonymous".to_string());
+
+        // unwrap_or_default
+        let other = node.id.as_ref()
+            .map(|id| id.name.clone())
+            .unwrap_or_default();
+
+        name
+    }
+
+    /**
+     * Test .into() for type conversion (#31)
+     */
+    fn convert_error() -> Result<Str, Str> {
+        // .into() (#31)
+        Err("Something went wrong".into())
+    }
+
+    /**
+     * Test HashMap/HashSet operations (#32)
+     */
+    fn test_collections() {
+        let mut set: HashSet<Str> = HashSet::new();
+        set.insert("key1".to_string());
+        set.insert("key2".to_string());
+
+        // .contains() (#12, #32)
+        if set.contains("key1") {
+            self.state.output = "found";
+        }
+
+        let mut map: HashMap<Str, i32> = HashMap::new();
+        map.insert("count".to_string(), 42);
+
+        // .keys() and .cloned() (#32)
+        let keys: Vec<Str> = map.keys().cloned().collect();
+    }
+
+    /**
+     * Test generic function with trait bounds (#8)
+     */
+    fn transform_elements<F>(elements: &Vec<Expression>, transformer: F) -> Vec<Str>
+    where
+        F: Fn(&Expression) -> Str
+    {
+        elements.iter().map(|e| transformer(e)).collect()
+    }
+
+    /**
+     * Private helper function (#9)
+     */
+    fn helper_function(value: i32) -> i32 {
+        value * 2
+    }
+
+    /**
+     * Another private function
+     */
+    fn format_output(prefix: &Str, value: &Str) -> Str {
+        format!("{}: {}", prefix, value)
+    }
+
+    fn finish() -> Str {
+        self.state.output
+    }
+}

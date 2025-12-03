@@ -1,0 +1,40 @@
+/**
+ * Test writer for TSType matching
+ */
+writer TestTsTypes {
+
+    struct State {
+        output: Str,
+    }
+
+    fn init() -> State {
+        State { output: "" }
+    }
+
+    pub fn visit_function_declaration(node: &FunctionDeclaration) {
+        // Test matching TSType variants
+        if let Some(type_ann) = node.return_type {
+            match type_ann.type_annotation {
+                TSType::TSStringKeyword => {
+                    self.state.output = "string";
+                }
+                TSType::TSNumberKeyword => {
+                    self.state.output = "number";
+                }
+                TSType::TSBooleanKeyword => {
+                    self.state.output = "boolean";
+                }
+                TSType::TSArrayType(array_type) => {
+                    self.state.output = "array";
+                }
+                _ => {
+                    self.state.output = "other";
+                }
+            }
+        }
+    }
+
+    fn finish() -> Str {
+        self.state.output
+    }
+}
