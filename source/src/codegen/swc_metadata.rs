@@ -86,6 +86,10 @@ pub struct SwcExprMetadata {
     /// Example: swc_type="ArrayPat" but stored in Pat enum → Some(("Pat", "Array"))
     pub needs_enum_unwrap: Option<(String, String)>,
 
+    /// Whether this expression needs .to_string() conversion
+    /// Set when a string literal is assigned to a String typed field
+    pub needs_to_string: bool,
+
     /// Source location for error reporting
     pub span: Option<Span>,
 }
