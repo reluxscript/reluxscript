@@ -203,14 +203,14 @@ impl SwcEmitter {
 
     /// Main entry point: emit entire program
     pub fn emit_program(&mut self, program: &DecoratedProgram) -> String {
+        // ALWAYS detect imports first - this populates critical emitter state
+        self.detect_imports(program);
+
         // For inline mode, just emit the functions without headers/imports/helpers
         if self.is_inline {
             self.emit_top_level_decl(&program.decl);
             return std::mem::take(&mut self.output);
         }
-
-        // Detect what imports we need
-        self.detect_imports(program);
 
         // Emit header with conditional imports
         self.emit_header();
