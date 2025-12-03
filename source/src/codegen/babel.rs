@@ -3184,9 +3184,15 @@ impl BabelGenerator {
             }
             Pattern::Struct { name, .. } => {
                 // Struct pattern: check type
-                let checker = get_node_mapping(name)
+                // Strip enum prefix (Pattern::, Expression::, etc.) before looking up mapping
+                let struct_name = if name.contains("::") {
+                    name.split("::").last().unwrap_or(name)
+                } else {
+                    name.as_str()
+                };
+                let checker = get_node_mapping(struct_name)
                     .map(|m| m.babel_checker.to_string())
-                    .unwrap_or_else(|| format!("is{}", name));
+                    .unwrap_or_else(|| format!("is{}", struct_name));
                 self.emit(&format!("t.{}(", checker));
                 self.gen_expr(scrutinee);
                 self.emit(")");

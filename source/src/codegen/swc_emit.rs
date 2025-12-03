@@ -1039,7 +1039,23 @@ impl SwcEmitter {
             }
 
             DecoratedStmt::Function(func_decl) => {
-                self.emit_line(&format!("// Nested function: {}", func_decl.name));
+                // Emit nested function declaration
+                let pub_str = if func_decl.is_pub { "pub " } else { "" };
+                let params_str = func_decl.params.iter()
+                    .map(|p| format!("{}: {}", p.name, self.type_to_string(&p.ty)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let return_str = func_decl.return_type.as_ref()
+                    .map(|t| format!(" -> {}", self.type_to_string(t)))
+                    .unwrap_or_default();
+
+                self.emit_line(&format!("{}fn {}({}){} {{", pub_str, func_decl.name, params_str, return_str));
+                self.indent += 1;
+                for stmt in &func_decl.body.stmts {
+                    self.emit_stmt(stmt);
+                }
+                self.indent -= 1;
+                self.emit_line("}");
             }
 
             DecoratedStmt::Verbatim(verbatim) => {
@@ -1948,8 +1964,8 @@ impl SwcEmitter {
                 self.output.push('|');
                 self.output.push(' ');
 
-                // Emit the body - closure uses parser Expr, not DecoratedExpr
-                self.emit_parser_expr(&closure.body);
+                // Emit the decorated body
+                self.emit_expr(&closure.body);
             }
         }
     }
@@ -2451,6 +2467,7 @@ impl SwcEmitter {
             }
             _ => {
                 // For other expression types, emit a placeholder
+                // Note: Closures should be decorated and handled via emit_expr, not here
                 self.output.push_str("/* complex expr */");
             }
         }

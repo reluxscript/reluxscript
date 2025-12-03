@@ -189,7 +189,7 @@ module.exports = function({ types: t }) {
           if (__iflet_4 !== null && __iflet_4 !== undefined) {
             const init = __iflet_4;
             if (init.type === "ArrowFunctionExpression") {
-              const param_names = arrow.params.filter((p) => (t.isPattern::Identifier(p))).map((p) => (() => {
+              const param_names = arrow.params.filter((p) => (t.isIdentifier(p))).map((p) => (() => {
                 if (p.type === "Identifier") {
                   id.name;
                 } else if (true) {
@@ -210,7 +210,7 @@ module.exports = function({ types: t }) {
       },
       ExpressionStatement(path) {
         const node = path.node;
-        const is_jsx = ((t.isExpression::JSXElement(node.expression) || t.isExpression::JSXFragment(node.expression)));
+        const is_jsx = ((t.isJSXElement(node.expression) || t.isJSXFragment(node.expression)));
         if (is_jsx) {
           this.state.output = "jsx";
         }
@@ -290,7 +290,7 @@ module.exports = function({ types: t }) {
         new_results.push("item1".toString());
         new_results.push("item2".toString());
         const has_null = node.elements.any((e) => (() => {
-          return (t.isExpression::NullLiteral(e));
+          return (t.isNullLiteral(e));
         })());
         const all_valid = new_results.all((p) => p.all((c) => c.is_ascii_hexdigit()));
         new_results.delete(0);

@@ -54,7 +54,7 @@ impl SwcGenerator {
         self.emit_line("}");
         self.emit_line("");
     }
-    pub(super) fn gen_helper_function(&mut self, f: &FnDecl) {
+    pub(super) fn gen_helper_function(&mut self, f: &crate::codegen::decorated_ast::DecoratedNestedFnDecl) {
         let pub_str = if f.is_pub { "pub " } else { "" };
 
         // Check if this is an associated function (no self parameter)
@@ -102,7 +102,10 @@ impl SwcGenerator {
             self.type_env.define(&param.name, param_ctx);
         }
 
-        self.gen_block(&f.body);
+        // Emit decorated block
+        for stmt in &f.body.stmts {
+            self.gen_decorated_stmt(stmt);
+        }
 
         self.type_env.pop_scope();
         self.indent -= 1;

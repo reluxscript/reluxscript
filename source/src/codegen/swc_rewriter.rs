@@ -343,8 +343,12 @@ impl SwcRewriter {
             }
 
             DecoratedStmt::Function(func_decl) => {
-                // Function declarations don't need rewriting at this level
-                DecoratedStmt::Function(func_decl)
+                // Recursively rewrite the function body
+                let rewritten_body = self.rewrite_block(func_decl.body);
+                DecoratedStmt::Function(DecoratedNestedFnDecl {
+                    body: rewritten_body,
+                    ..func_decl
+                })
             }
 
             DecoratedStmt::Verbatim(verbatim) => {

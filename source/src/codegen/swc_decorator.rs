@@ -553,7 +553,20 @@ impl SwcDecorator {
                 }))
             }
 
-            Stmt::Function(func_decl) => DecoratedStmt::Function(func_decl.clone()),
+            Stmt::Function(func_decl) => {
+                // Recursively decorate the function body
+                let decorated_body = self.decorate_block(&func_decl.body);
+                DecoratedStmt::Function(DecoratedNestedFnDecl {
+                    is_pub: func_decl.is_pub,
+                    name: func_decl.name.clone(),
+                    type_params: func_decl.type_params.clone(),
+                    params: func_decl.params.clone(),
+                    return_type: func_decl.return_type.clone(),
+                    where_clause: func_decl.where_clause.clone(),
+                    body: decorated_body,
+                    span: func_decl.span,
+                })
+            }
 
             Stmt::Verbatim(verbatim) => DecoratedStmt::Verbatim(verbatim.clone()),
 
@@ -2130,9 +2143,15 @@ impl SwcDecorator {
             }
 
             Expr::Closure(closure) => {
+                // Recursively decorate the closure body
+                let decorated_body = Box::new(self.decorate_expr(&closure.body));
                 DecoratedExpr {
-                    kind: DecoratedExprKind::Closure(closure.clone()),
-                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
+                    kind: DecoratedExprKind::Closure(DecoratedClosureExpr {
+                        params: closure.params.clone(),
+                        body: decorated_body,
+                        span: closure.span,
+                    }),
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None,
                         swc_type: "Closure".to_string(),
                         is_boxed: false,
                         is_optional: false,
