@@ -5,39 +5,440 @@
 use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug)]
-struct State {
-    result: String,
+enum BindingType {
+    Simple(String),
+    Complex {
+        name: String,
+        path: String,
+    },
+    None,
 }
 
-pub struct NullConditional {
-    pub state: State,
+#[derive(Clone, Debug)]
+struct ComplexBinding {
+    name: String,
+    path: String,
+    depth: i32,
 }
 
-impl VisitMut for NullConditional {
-    fn visit_mut_var_declarator(&mut self, node: &mut VarDeclarator) {
-        let opt1 = Some("a".to_string());
-        let opt2 = Some("b".to_string());
-        let combined = opt1.or(opt2).unwrap_or("neither".to_string());
-        let opt3 = None;
-        let result = opt3.unwrap_or("default".to_string());
-        self.state.result = combined;
+impl ComplexBinding {
+    fn new(name: String, path: String) -> ComplexBinding {
+        ComplexBinding { name: name, path: path, depth: 0 }
+    }
+    
+    fn default() -> ComplexBinding {
+        Self::new("".to_string(), "".to_string())
+    }
+    
+    fn with_depth(&mut self, depth: i32) -> ComplexBinding {
+        ComplexBinding { name: self.name.to_string(), path: self.path.clone(), depth: depth }
     }
     
 }
 
-impl NullConditional {
+#[derive(Clone, Debug)]
+struct AnalysisResult {
+    bindings: Vec<BindingType>,
+    dependencies: HashSet<String>,
+    metadata: HashMap<String, String>,
+}
+
+#[derive(Clone, Debug)]
+struct State {
+    output: String,
+    count: i32,
+    results: Vec<AnalysisResult>,
+}
+
+pub struct KitchenSink {
+    pub state: State,
+}
+
+impl VisitMut for KitchenSink {
+    fn visit_mut_fn_decl(&mut self, node: &mut FnDecl) {
+        match node.function.return_type {
+            Option::Some(type_ann) => {
+                match &*type_ann.type_ann.as_ref() {
+                    TsType::TsKeywordType(TsKeywordType { kind: TsKeywordTypeKind::TsStringKeyword, .. }) => {
+                        {
+                            self.state.output = "string".to_string()
+                        }
+                    }
+                    TsType::TsKeywordType(TsKeywordType { kind: TsKeywordTypeKind::TsNumberKeyword, .. }) => {
+                        {
+                            self.state.output = "number".to_string()
+                        }
+                    }
+                    TsType::TsKeywordType(TsKeywordType { kind: TsKeywordTypeKind::TsBooleanKeyword, .. }) => {
+                        {
+                            self.state.output = "boolean".to_string()
+                        }
+                    }
+                    TsType::TsKeywordType(TsKeywordType { kind: TsKeywordTypeKind::TsAnyKeyword, .. }) => {
+                        {
+                            self.state.output = "any".to_string()
+                        }
+                    }
+                    TsType::TsArrayType(array_type) => {
+                        {
+                            self.state.output = "array".to_string()
+                        }
+                    }
+                    TSType::TSTypeLiteral(_) => {
+                        {
+                            self.state.output = "object".to_string()
+                        }
+                    }
+                    TsType::TsTypeRef(type_ref) => {
+                        {
+                            match type_ref.type_name {
+                                Expr::Ident(type_name) => {
+                                    {
+                                        self.state.output = type_name.sym.to_string()
+                                    }
+                                }
+                                _ => {
+                                    {
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => {
+                        {
+                            self.state.output = "unknown".to_string()
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    
+    fn visit_mut_var_decl(&mut self, node: &mut VarDecl) {
+        for declarator in &node.decls {
+            match declarator.name {
+                Pat::Array(array_pattern) => {
+                    {
+                        match array_pattern.elements.get(0) {
+                            Some(first_elem) => {
+                                match first_elem {
+                                    Pat::Ident(id) => {
+                                        self.state.output = id.name.clone()
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                _ => {
+                    {
+                    }
+                }
+            }
+            match &*declarator.init.as_ref() {
+                Option::Some(init) => {
+                    match init {
+                        Expr::Arrow(arrow) => {
+                            {
+                                let param_names = arrow.params.iter().filter(|p| match &p {
+                                    Pat::Ident(_) => {
+                                        true
+                                    }
+                                    _ => {
+                                        false
+                                    }
+                                }).map(|p| {
+                                    match p {
+                                        Pat::Ident(id) => {
+                                            {
+                                                id.name.to_string()
+                                            }
+                                        }
+                                        _ => {
+                                            {
+                                            }
+                                        }
+                                    }
+                                }).collect();
+                                self.state.output = param_names.join(", ")
+                            }
+                        }
+                        Expr::Fn(func) => {
+                            {
+                                self.state.output = "function".to_string()
+                            }
+                        }
+                        Expr::Call(call) => {
+                            {
+                                match call.callee {
+                                    Expr::Ident(_) => {
+                                        self.state.output = "call".to_string()
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                        _ => {
+                            {
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    
+    fn visit_mut_expr_stmt(&mut self, node: &mut ExprStmt) {
+        let is_jsx = match &*node.expr.as_ref() {
+            Expr::JSXElement(_) | Expr::JSXFragment(_) => {
+                true
+            }
+            _ => {
+                false
+            }
+        };
+        if is_jsx {
+            self.state.output = "jsx".to_string()
+        }
+        self.state.count = (self.state.count + 1);
+        let count_usize = self.state.count;
+        let back_to_i32 = count_usize;
+        match &*node.expr.as_ref() {
+            Expr::Call(call) => {
+                {
+                    match call.extra_data.get("__minimactPath") {
+                        Some(path) => {
+                            self.state.output = path.clone()
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {
+                {
+                }
+            }
+        }
+    }
+    
+    fn visit_mut_ident(&mut self, node: &mut Ident) {
+        let name = &node.sym.to_string();
+        if name.starts_with("set") {
+            self.state.output = "setter".to_string()
+        } else {
+            if name.ends_with("Handler") {
+                self.state.output = "handler".to_string()
+            } else {
+                if name.contains("_") {
+                    self.state.output = "snake_case".to_string()
+                }
+            }
+        }
+        let parts = name.split("_").map(|s| s.to_string()).collect();
+        let first_char = name.chars().next();
+        match first_char {
+            Some(ch) => {
+                if ch.is_uppercase() {
+                    self.state.output = "PascalCase".to_string()
+                }
+                if ch.is_alphanumeric() {
+                    self.state.output = "alphanumeric".to_string()
+                }
+            }
+            _ => {}
+        }
+        let indent = "  ".repeat(4);
+        let lower = name.to_lowercase();
+        let upper = name.to_uppercase();
+        let trimmed = name.trim();
+        let trimmed_zeros = name.trim_end_matches("0");
+        match name.find(".") {
+            Some(pos) => {
+                self.state.count = pos
+            }
+            _ => {}
+        }
+        match name.rfind(".") {
+            Some(last_pos) => {
+                self.state.count = last_pos
+            }
+            _ => {}
+        }
+    }
+    
+    fn visit_mut_array_lit(&mut self, node: &mut ArrayLit) {
+        if node.elems.is_empty() {
+            self.state.output = "empty".to_string();
+            return;
+        }
+        let length = node.elems.len();
+        self.state.count = length;
+        match node.elems.first() {
+            Some(first) => {
+                self.state.output = "has_first".to_string()
+            }
+            _ => {}
+        }
+        match node.elems.get(2) {
+            Some(third) => {
+                self.state.output = "has_third".to_string()
+            }
+            _ => {}
+        }
+        let mut new_results = vec![];
+        new_results.push("item1".to_string());
+        new_results.push("item2".to_string());
+        let has_null = node.elems.iter().any(|e| {
+            match &e {
+                Lit::Null(_) => {
+                    true
+                }
+                _ => {
+                    false
+                }
+            }
+        });
+        let all_valid = new_results.iter().all(|p| p.chars().all(|c| c.is_ascii_hexdigit()));
+        new_results.remove(0);
+        new_results.clear();
+    }
+    
+    fn visit_mut_str(&mut self, node: &mut Str) {
+        let value = &String::from_utf8_lossy(node.value.as_bytes());
+        let len = value.len();
+        let capped_len = len.min(100);
+        let at_least_ten = len.max(10);
+        if (len > 5) {
+            let first_five = &value[..5];
+            let last_three = &value[(len - 3)..];
+            let middle = &value[2..(len - 2)];
+            let slice = &value[0..3];
+        }
+        let diff = ((self.state.count - 10)).abs();
+        let num = 3.14;
+        let fractional = num.fract();
+        let hex_str = format!("{:x}", self.state.count);
+        let formatted = format!("{:08x}", self.state.count);
+    }
+    
+}
+
+impl KitchenSink {
     pub fn new() -> Self {
         Self {
             state: State {
-                result: Default::default(),
+                output: Default::default(),
+                count: 0,
+                results: Vec::new(),
             },
         }
     }
     
     fn init() -> State {
-        State { result: "".to_string() }
+        let _hex_gap = 268435456;
+        State { output: "".to_string(), count: 0, results: vec![] }
+    }
+    
+    fn parse_value(input: &String) -> Result<i32, String> {
+        if input.is_empty() {
+            return Err("Empty input".to_string());
+        }
+        match usize::from_str_radix(input, 16) {
+            Ok(hex_value) => {
+                return Ok(hex_value);
+            }
+            _ => {}
+        }
+        Err("Invalid hex".to_string())
+    }
+    
+    fn get_name_or_default(node: &FnDecl) -> String {
+        let name = node.ident.as_ref().map(|id| id.name.to_string()).unwrap_or("anonymous".to_string());
+        let other = node.ident.as_ref().map(|id| id.name.to_string()).unwrap_or_default();
+        let unwrapped = node.ident.as_ref().unwrap();
+        if node.ident.is_some() {
+            self.state.output = "has_id".to_string()
+        }
+        if node.function.body.is_none() {
+            self.state.output = "no_body".to_string()
+        }
+        name
+    }
+    
+    fn convert_error() -> Result<String, String> {
+        Err("Something went wrong".into())
+    }
+    
+    fn test_collections() {
+        let mut set = HashSet::new();
+        set.insert("key1".to_string());
+        set.insert("key2".to_string());
+        if set.contains("key1") {
+            self.state.output = "found".to_string()
+        }
+        let mut map = HashMap::new();
+        map.insert("count".to_string(), 42);
+        let keys = map.keys().cloned().collect();
+    }
+    
+    fn transform_elements<F>(elements: &Vec<Expr>, transformer: F) -> Vec<String>
+    where
+        F: Fn(&Expr) -> String
+    {
+        elements.iter().map(|e| transformer(e)).collect()
+    }
+    
+    fn helper_function(value: i32) -> i32 {
+        (value * 2)
+    }
+    
+    fn format_output(prefix: &String, value: &String) -> String {
+        format!("{}: {}", prefix, value)
+    }
+    
+    fn parse_with_question_mark(input: &String) -> Result<i32, String> {
+        let trimmed = input.trim();
+        let value = Number::from_str_radix(trimmed, 16)?;
+        Ok((value * 2))
+    }
+    
+    fn test_range_loop(items: &Vec<String>) {
+        for i in 0..items.len() {
+            self.state.count = i;
+        }
+        let mut counter = 0;
+        counter += 1;
+        counter -= 1;
+    }
+    
+    fn test_while_loop(items: &Vec<String>) {
+        let mut i = 0;
+        while (i < items.len()) {
+            self.state.count = i;
+            i += 1;
+        }
+    }
+    
+    fn test_loop_break_continue(items: &Vec<String>) {
+        let mut i = 0;
+        loop {
+            if (i >= items.len()) {
+                break;
+            }
+            if items[i].is_empty() {
+                i += 1;
+                continue;
+            }
+            self.state.output = items[i].clone();
+            i += 1;
+        }
     }
     
 }

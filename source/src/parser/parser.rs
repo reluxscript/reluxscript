@@ -3269,6 +3269,38 @@ impl Parser {
             if self.check(TokenKind::LBrace) {
                 return self.parse_struct_init(name, span);
             }
+            // Check for Self::method path expression
+            if self.check(TokenKind::ColonColon) {
+                let mut segments = vec![name.clone()];
+                while self.match_token(TokenKind::ColonColon) {
+                    if let Some(segment) = self.try_expect_ident() {
+                        segments.push(segment);
+                    } else {
+                        return Err(ParseError::new(
+                            "Expected identifier after ::",
+                            self.current_span(),
+                        ));
+                    }
+                }
+                // Check for function call on path: Self::new()
+                if self.check(TokenKind::LParen) {
+                    self.advance(); // consume (
+                    let args = self.parse_args()?;
+                    self.expect(TokenKind::RParen)?;
+                    let path_str = segments.join("::");
+                    return Ok(Expr::Call(CallExpr {
+                        callee: Box::new(Expr::Path(PathExpr { segments: segments.clone(), span, path: self.path_with(&path_str) })),
+                        args,
+                        type_args: Vec::new(),
+                        optional: false,
+                        is_macro: false,
+                        span: self.current_span(),
+                        path: self.path_with("call"),
+                    }));
+                }
+                let path_str = segments.join("::");
+                return Ok(Expr::Path(PathExpr { segments, span, path: self.path_with(&path_str) }));
+            }
             return Ok(Expr::Ident(IdentExpr {
                 name,
                 span,
