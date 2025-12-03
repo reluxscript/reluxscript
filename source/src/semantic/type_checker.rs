@@ -11,6 +11,8 @@ pub struct TypeChecker {
     current_return_type: Option<TypeInfo>,
     /// Current impl block's target struct name (for resolving `Self`)
     current_impl_target: Option<String>,
+    /// Current plugin's self type (for implicit `self` in visitor methods)
+    current_plugin_self: Option<TypeInfo>,
 }
 
 impl TypeChecker {
@@ -20,6 +22,7 @@ impl TypeChecker {
             errors: Vec::new(),
             current_return_type: None,
             current_impl_target: None,
+            current_plugin_self: None,
         }
     }
 
@@ -31,6 +34,9 @@ impl TypeChecker {
             TopLevelDecl::Interface(_) => {} // Interfaces are type declarations, not code
             TopLevelDecl::Module(module) => self.check_module(module),
         }
+
+        // Debug: dump all XPath→Type mappings
+        self.env.dump_paths();
 
         if self.errors.is_empty() {
             Ok(())
@@ -86,13 +92,18 @@ impl TypeChecker {
             mutable: true,
             inner: Box::new(plugin_struct),
         };
-        self.env.define("self".to_string(), self_type);
+        self.env.define("self".to_string(), self_type.clone());
 
         // Don't push/pop scope - we want to retain all types for codegen
         for item in &plugin.body {
             match item {
                 PluginItem::Function(f) => self.check_function(f),
-                PluginItem::Impl(impl_block) => self.check_impl_block(impl_block),
+                PluginItem::Impl(impl_block) => {
+                    self.check_impl_block(impl_block);
+                    // Restore `self` to plugin type after impl block
+                    // (impl methods may have redefined `self` as their target type)
+                    self.env.define("self".to_string(), self_type.clone());
+                }
                 _ => {}
             }
         }
@@ -149,12 +160,15 @@ impl TypeChecker {
         // to retain all variable types (including parameters and narrowed types)
         // so they're available to the decorator during codegen.
 
-        // Define parameters
+        // Define parameters using their XPath
         for param in &f.params {
             let ty = ast_type_to_type_info(&param.ty);
             // Resolve `Self` to the actual impl struct type
             let resolved_ty = self.resolve_self_type(ty);
-            eprintln!("[TYPE CHECKER] Defining param '{}' with type: {:?}", param.name, resolved_ty);
+            eprintln!("[TYPE CHECKER] Defining param '{}' at path '{}' with type: {:?}", param.name, param.path, resolved_ty);
+            // Define at XPath (new canonical way)
+            self.env.define_at_path(&param.path, resolved_ty.clone());
+            // Also define by name (legacy - for backwards compatibility)
             self.env.define(param.name.clone(), resolved_ty);
         }
 
@@ -743,6 +757,12 @@ impl TypeChecker {
                     .cloned()
                     .unwrap_or(TypeInfo::Unknown);
                 eprintln!("[TYPE INFER] Ident '{}' has type: {:?}", ident.name, ty);
+
+                // Store the resolved type at the XPath for later lookup by decorator
+                if !ident.path.is_empty() {
+                    self.env.define_at_path(&ident.path, ty.clone());
+                }
+
                 ty
             }
 
@@ -834,7 +854,15 @@ impl TypeChecker {
                 }
 
                 let obj_type = self.infer_expr(&member.object);
-                self.get_field_type(&obj_type, &member.property)
+                let field_type = self.get_field_type(&obj_type, &member.property);
+
+                // Store the resolved type at the XPath for later lookup by decorator
+                if !member.path.is_empty() {
+                    eprintln!("[TYPE INFER] Storing member type at path '{}': {}", member.path, field_type.display_name());
+                    self.env.define_at_path(&member.path, field_type.clone());
+                }
+
+                field_type
             }
 
             Expr::Index(index) => {

@@ -1,0 +1,40 @@
+// Minimal test for needs_to_string: assigning string literal to Str field
+// Reproduces super_kitchen_sink: impl block before visitor method
+plugin NeedsToString {
+    struct Foo {
+        name: Str,
+    }
+
+    impl Foo {
+        pub fn new(name: Str) -> Foo {
+            Foo { name }
+        }
+
+        pub fn get_name(&self) -> Str {
+            self.name.clone()
+        }
+    }
+
+    struct State {
+        output: Str,
+        count: i32,
+    }
+
+    fn init() -> State {
+        State { output: "", count: 0 }
+    }
+
+    pub fn visit_function_declaration(node: &FunctionDeclaration) {
+        match node.return_type {
+            Some(type_ann) => {
+                match type_ann.type_annotation {
+                    TSType::TSStringKeyword => {
+                        self.state.output = "string";
+                    }
+                    _ => {}
+                }
+            }
+            None => {}
+        }
+    }
+}

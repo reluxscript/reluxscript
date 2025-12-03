@@ -140,6 +140,21 @@ impl SwcDecorator {
         None
     }
 
+    /// Look up type by XPath - uses path-based resolution for member expressions
+    fn lookup_type_by_path(&self, xpath: &str) -> Option<String> {
+        if let Some(ref type_env) = self.semantic_type_env {
+            // Try resolve_member_path which handles field access chains
+            if let Some(type_info) = type_env.resolve_member_path(xpath) {
+                let swc_type = Self::type_info_to_swc_type(&type_info);
+                eprintln!("[DEBUG PATH LOOKUP] '{}' resolved to: {:?} -> {}", xpath, type_info, swc_type);
+                return Some(swc_type);
+            } else {
+                eprintln!("[DEBUG PATH LOOKUP] '{}' NOT found via resolve_member_path", xpath);
+            }
+        }
+        None
+    }
+
     /// Convert semantic TypeInfo to SWC type string
     fn type_info_to_swc_type(type_info: &crate::semantic::TypeInfo) -> String {
         use crate::semantic::TypeInfo;
@@ -1698,17 +1713,22 @@ impl SwcDecorator {
                         ""
                     };
 
-                    // Try to look up field type from semantic type env for user-defined structs
+                    // Try to look up field type using XPath first (most accurate)
+                    // Then fall back to struct field lookup
                     let field_type = if !is_likely_ast_type {
-                        // For user-defined structs, look up the field type from semantic type env
-                        self.semantic_type_env.as_ref()
-                            .and_then(|env| env.get_struct_fields(object_type))
-                            .and_then(|fields| fields.get(&mem.property))
-                            .map(|type_info| {
-                                let type_name = type_info.display_name();
-                                eprintln!("[DEBUG] Found struct field type: {}.{} = {}",
-                                    object_type, mem.property, type_name);
-                                type_name
+                        // First try XPath-based lookup using the member expression's path
+                        self.lookup_type_by_path(&mem.path)
+                            .or_else(|| {
+                                // Fall back to struct field lookup
+                                self.semantic_type_env.as_ref()
+                                    .and_then(|env| env.get_struct_fields(object_type))
+                                    .and_then(|fields| fields.get(&mem.property))
+                                    .map(|type_info| {
+                                        let type_name = type_info.display_name();
+                                        eprintln!("[DEBUG] Found struct field type: {}.{} = {}",
+                                            object_type, mem.property, type_name);
+                                        type_name
+                                    })
                             })
                             .unwrap_or_else(|| "UserDefined".to_string())
                     } else {
@@ -2079,10 +2099,28 @@ impl SwcDecorator {
                 // Map ReluxScript type to SWC type
                 let swc_type = self.reluxscript_to_swc_type(&struct_init.name);
 
-                // Recursively decorate field expressions
-                let decorated_fields = struct_init.fields.iter()
+                // Get struct field types from semantic type env
+                let struct_fields = self.semantic_type_env.as_ref()
+                    .and_then(|env| env.get_struct_fields(&struct_init.name))
+                    .cloned();
+
+                // Recursively decorate field expressions, checking for String fields
+                let decorated_fields: Vec<(String, DecoratedExpr)> = struct_init.fields.iter()
                     .map(|(field_name, field_expr)| {
-                        (field_name.clone(), self.decorate_expr(field_expr))
+                        let mut decorated = self.decorate_expr(field_expr);
+
+                        // Check if field is String type and value is string literal
+                        if let Some(ref fields) = struct_fields {
+                            if let Some(field_type) = fields.get(field_name) {
+                                let field_type_str = Self::type_info_to_swc_type(field_type);
+                                let is_string_literal = matches!(&decorated.kind, DecoratedExprKind::Literal(crate::parser::Literal::String(_)));
+                                if field_type_str == "String" && is_string_literal {
+                                    decorated.metadata.needs_to_string = true;
+                                }
+                            }
+                        }
+
+                        (field_name.clone(), decorated)
                     })
                     .collect();
 
@@ -2092,13 +2130,13 @@ impl SwcDecorator {
                         fields: decorated_fields,
                         span: struct_init.span,
                     }),
-                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None,
                         swc_type,
                         is_boxed: false,
                         is_optional: false,
                         type_kind: SwcTypeKind::Struct,
                         span: Some(struct_init.span),
-                    
+
                     needs_to_string: false,},
                 }
             }
@@ -2257,8 +2295,8 @@ impl SwcDecorator {
 
                 eprintln!("[ASSIGN DEBUG] left_type={}, is_string_literal={}", left_type, is_string_literal);
 
-                // TypeInfo::Str has display_name "Str", which maps to Rust's String type
-                if left_type == "Str" && is_string_literal {
+                // TypeInfo::Str converts to "String" via type_info_to_swc_type
+                if left_type == "String" && is_string_literal {
                     eprintln!("[ASSIGN DEBUG] Setting needs_to_string=true");
                     right.metadata.needs_to_string = true;
                 }

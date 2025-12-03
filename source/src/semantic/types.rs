@@ -253,8 +253,10 @@ impl TypeInfo {
 /// Type environment - stores type information for all symbols
 #[derive(Debug, Clone, Default)]
 pub struct TypeEnv {
-    /// Type bindings by scope level
+    /// Type bindings by scope level (legacy - for name-based lookups)
     scopes: Vec<HashMap<String, TypeInfo>>,
+    /// Type bindings by XPath (new - canonical source of truth)
+    paths: HashMap<String, TypeInfo>,
     /// Struct definitions
     structs: HashMap<String, HashMap<String, TypeInfo>>,
     /// Enum definitions
@@ -269,6 +271,7 @@ impl TypeEnv {
     pub fn new() -> Self {
         let mut env = Self {
             scopes: vec![HashMap::new()],
+            paths: HashMap::new(),
             structs: HashMap::new(),
             enums: HashMap::new(),
             functions: HashMap::new(),
@@ -330,14 +333,31 @@ impl TypeEnv {
         }
     }
 
-    /// Define a variable in the current scope
+    /// Define a variable in the current scope (legacy name-based)
     pub fn define(&mut self, name: String, ty: TypeInfo) {
         if let Some(scope) = self.scopes.last_mut() {
             scope.insert(name, ty);
         }
     }
 
-    /// Look up a variable's type
+    /// Define a type at a specific XPath
+    pub fn define_at_path(&mut self, path: &str, ty: TypeInfo) {
+        self.paths.insert(path.to_string(), ty);
+    }
+
+    /// Dump all XPath→Type mappings for debugging
+    /// Sorted by path for easy reading
+    pub fn dump_paths(&self) {
+        let mut paths: Vec<_> = self.paths.iter().collect();
+        paths.sort_by(|a, b| a.0.cmp(b.0));
+        eprintln!("\n=== XPath Type Map ({} entries) ===", paths.len());
+        for (path, ty) in paths {
+            eprintln!("  {} → {}", path, ty.display_name());
+        }
+        eprintln!("=== End XPath Type Map ===\n");
+    }
+
+    /// Look up a variable's type (legacy name-based)
     pub fn lookup(&self, name: &str) -> Option<&TypeInfo> {
         for scope in self.scopes.iter().rev() {
             if let Some(ty) = scope.get(name) {
@@ -345,6 +365,69 @@ impl TypeEnv {
             }
         }
         None
+    }
+
+    /// Look up type by XPath
+    pub fn lookup_path(&self, path: &str) -> Option<&TypeInfo> {
+        self.paths.get(path)
+    }
+
+    /// Resolve a member expression type by walking the path
+    /// e.g., for "self.state.output", looks up parent types and field types
+    pub fn resolve_member_path(&self, path: &str) -> Option<TypeInfo> {
+        // First try exact match
+        if let Some(ty) = self.paths.get(path) {
+            return Some(ty.clone());
+        }
+
+        // Otherwise, try to resolve by walking the path
+        // Split path into segments: "Plugin[0].fn[1].self[2].state[3].output[4]"
+        let segments: Vec<&str> = path.split('.').collect();
+        if segments.len() < 2 {
+            return None;
+        }
+
+        // Find the longest prefix that has a type
+        for i in (1..segments.len()).rev() {
+            let prefix = segments[..i].join(".");
+            if let Some(parent_ty) = self.paths.get(&prefix) {
+                // Get remaining field path
+                let remaining = &segments[i..];
+                return self.resolve_fields(parent_ty, remaining);
+            }
+        }
+
+        None
+    }
+
+    /// Resolve field accesses on a type
+    fn resolve_fields(&self, ty: &TypeInfo, fields: &[&str]) -> Option<TypeInfo> {
+        let mut current = ty.clone();
+        for field_segment in fields {
+            // Extract field name from segment like "output[4]"
+            let field_name = field_segment.split('[').next().unwrap_or(field_segment);
+            current = self.get_field_type_info(&current, field_name)?;
+        }
+        Some(current)
+    }
+
+    /// Get the type of a field on a struct type
+    fn get_field_type_info(&self, ty: &TypeInfo, field: &str) -> Option<TypeInfo> {
+        match ty {
+            TypeInfo::Struct { name, fields } => {
+                // First check inline fields
+                if let Some(field_ty) = fields.get(field) {
+                    return Some(field_ty.clone());
+                }
+                // Then check struct definitions
+                if let Some(struct_fields) = self.structs.get(name) {
+                    return struct_fields.get(field).cloned();
+                }
+                None
+            }
+            TypeInfo::Ref { inner, .. } => self.get_field_type_info(inner, field),
+            _ => None,
+        }
     }
 
     /// Check if a name is defined in the current scope

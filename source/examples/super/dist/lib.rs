@@ -63,32 +63,32 @@ impl VisitMut for KitchenSink {
                 match type_ann.type_annotation {
                     TsType::TsKeywordType => {
                         {
-                            self.state.output = "string"
+                            self.state.output = "string".to_string()
                         }
                     }
                     TsType::TsKeywordType => {
                         {
-                            self.state.output = "number"
+                            self.state.output = "number".to_string()
                         }
                     }
                     TsType::TsKeywordType => {
                         {
-                            self.state.output = "boolean"
+                            self.state.output = "boolean".to_string()
                         }
                     }
                     TsType::TsKeywordType => {
                         {
-                            self.state.output = "any"
+                            self.state.output = "any".to_string()
                         }
                     }
                     TsType::TsArrayType(array_type) => {
                         {
-                            self.state.output = "array"
+                            self.state.output = "array".to_string()
                         }
                     }
                     TSType::TSTypeLiteral(_) => {
                         {
-                            self.state.output = "object"
+                            self.state.output = "object".to_string()
                         }
                     }
                     TsType::TsTypeRef(type_ref) => {
@@ -108,7 +108,7 @@ impl VisitMut for KitchenSink {
                     }
                     _ => {
                         {
-                            self.state.output = "unknown"
+                            self.state.output = "unknown".to_string()
                         }
                     }
                 }
@@ -163,14 +163,14 @@ impl VisitMut for KitchenSink {
                         }
                         Expr::Fn(func) => {
                             {
-                                self.state.output = "function"
+                                self.state.output = "function".to_string()
                             }
                         }
                         Expr::Call(call) => {
                             {
                                 match call.callee {
                                     Expr::Ident(_) => {
-                                        self.state.output = "call"
+                                        self.state.output = "call".to_string()
                                     }
                                     _ => {}
                                 }
@@ -197,7 +197,7 @@ impl VisitMut for KitchenSink {
             }
         };
         if is_jsx {
-            self.state.output = "jsx"
+            self.state.output = "jsx".to_string()
         }
         self.state.count = (self.state.count + 1);
         let count_usize = self.state.count;
@@ -223,13 +223,13 @@ impl VisitMut for KitchenSink {
     fn visit_mut_ident(&mut self, node: &mut Ident) {
         let name = &node.sym.to_string();
         if name.starts_with("set") {
-            self.state.output = "setter"
+            self.state.output = "setter".to_string()
         } else {
             if name.ends_with("Handler") {
-                self.state.output = "handler"
+                self.state.output = "handler".to_string()
             } else {
                 if name.contains("_") {
-                    self.state.output = "snake_case"
+                    self.state.output = "snake_case".to_string()
                 }
             }
         }
@@ -238,10 +238,10 @@ impl VisitMut for KitchenSink {
         match first_char {
             Some(ch) => {
                 if ch.is_uppercase() {
-                    self.state.output = "PascalCase"
+                    self.state.output = "PascalCase".to_string()
                 }
                 if ch.is_alphanumeric() {
-                    self.state.output = "alphanumeric"
+                    self.state.output = "alphanumeric".to_string()
                 }
             }
             _ => {}
@@ -267,20 +267,20 @@ impl VisitMut for KitchenSink {
     
     fn visit_mut_array_lit(&mut self, node: &mut ArrayLit) {
         if node.elems.is_empty() {
-            self.state.output = "empty";
+            self.state.output = "empty".to_string();
             return;
         }
         let length = node.elems.len();
         self.state.count = length;
         match node.elems.first() {
             Some(first) => {
-                self.state.output = "has_first"
+                self.state.output = "has_first".to_string()
             }
             _ => {}
         }
         match node.elems.get(2) {
             Some(third) => {
-                self.state.output = "has_third"
+                self.state.output = "has_third".to_string()
             }
             _ => {}
         }
@@ -328,7 +328,7 @@ impl KitchenSink {
     
     fn init() -> State {
         let _hex_gap = 268435456;
-        State { output: "", count: 0, results: vec![] }
+        State { output: "".to_string(), count: 0, results: vec![] }
     }
     
     fn parse_value(input: &String) -> Result<i32, String> {
@@ -349,10 +349,10 @@ impl KitchenSink {
         let other = node.ident.as_ref().map(|id| id.name.clone()).unwrap_or_default();
         let unwrapped = node.ident.as_ref().unwrap();
         if node.ident.is_some() {
-            self.state.output = "has_id"
+            self.state.output = "has_id".to_string()
         }
         if node.function.body.is_none() {
-            self.state.output = "no_body"
+            self.state.output = "no_body".to_string()
         }
         name
     }
@@ -366,7 +366,7 @@ impl KitchenSink {
         set.insert("key1".to_string());
         set.insert("key2".to_string());
         if set.contains("key1") {
-            self.state.output = "found"
+            self.state.output = "found".to_string()
         }
         let mut map = HashMap::new();
         map.insert("count".to_string(), 42);

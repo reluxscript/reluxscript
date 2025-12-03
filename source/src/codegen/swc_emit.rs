@@ -1363,13 +1363,9 @@ impl SwcEmitter {
     fn emit_expr(&mut self, expr: &DecoratedExpr) {
         match &expr.kind {
             DecoratedExprKind::Literal(lit) => {
+                // Emitter is dumb - just emit the literal
+                // The rewriter handles .to_string() wrapping via needs_to_string flag
                 self.emit_literal(lit);
-
-                // String literals need .to_string() when used as owned String values
-                // This happens in contexts like Err("str"), Ok("str"), Some("str"), etc.
-                if matches!(lit, Literal::String(_)) && expr.metadata.swc_type == "String" {
-                    self.output.push_str(".to_string()");
-                }
             }
 
             DecoratedExprKind::Ident { name, ident_metadata } => {
