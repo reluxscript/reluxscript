@@ -2161,6 +2161,10 @@ impl SwcEmitter {
                     self.type_to_string_with_lifetime(inner, add_lifetime)
                 )
             }
+            Type::AstNode(name) => {
+                // AST node types are emitted as-is, no conversion
+                name.clone()
+            }
         }
     }
 

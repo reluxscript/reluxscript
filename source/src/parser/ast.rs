@@ -228,6 +228,9 @@ pub enum Type {
         mutable: bool,
         inner: Box<Type>,
     },
+    /// SWC AST node type - emitted as-is without primitive conversion
+    /// E.g., AstNode("Str") emits "Str", not "String"
+    AstNode(String),
 }
 
 impl Type {
@@ -278,6 +281,13 @@ impl Type {
             Type::RawPointer { inner, .. } => {
                 // Raw pointers become the inner type in TypeScript
                 inner.to_ts_type()
+            }
+            Type::AstNode(name) => {
+                // AST node types become type references
+                TsType::TypeReference {
+                    name: name.clone(),
+                    type_args: vec![],
+                }
             }
         }
     }

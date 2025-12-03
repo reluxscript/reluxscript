@@ -563,5 +563,9 @@ pub fn ast_type_to_type_info(ty: &crate::parser::Type) -> TypeInfo {
             let _ = (mutable, inner);
             TypeInfo::Unknown
         }
+        crate::parser::Type::AstNode(name) => {
+            // AST node types are SWC types, treat them as AstNode
+            TypeInfo::AstNode(name.clone())
+        }
     }
 }

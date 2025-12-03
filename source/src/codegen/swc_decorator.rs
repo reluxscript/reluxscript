@@ -2650,9 +2650,10 @@ impl SwcDecorator {
 
         match ty {
             Type::Named(name) => {
-                // Try to map the type name
+                // Try to map the type name to an SWC AST node type
                 if let Some(mapping) = get_node_mapping(name) {
-                    Type::Named(mapping.swc.to_string())
+                    // Use AstNode for SWC AST types - these should be emitted as-is
+                    Type::AstNode(mapping.swc.to_string())
                 } else {
                     ty.clone()
                 }
