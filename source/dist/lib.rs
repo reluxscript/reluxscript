@@ -123,11 +123,11 @@ impl VisitMut for KitchenSink {
             match declarator.name {
                 Pat::Array(array_pattern) => {
                     {
-                        match array_pattern.elements.get(0) {
+                        match array_pattern.elems.get(0) {
                             Some(first_elem) => {
                                 match first_elem {
                                     Pat::Ident(id) => {
-                                        self.state.output = id.name.clone()
+                                        self.state.output = id.sym.to_string().clone()
                                     }
                                     _ => {}
                                 }
@@ -143,7 +143,7 @@ impl VisitMut for KitchenSink {
             }
             match &*declarator.init.as_ref() {
                 Option::Some(init) => {
-                    match init {
+                    match &*init {
                         Expr::Arrow(arrow) => {
                             {
                                 let param_names = arrow.params.iter().filter(|p| match &p {
@@ -157,7 +157,7 @@ impl VisitMut for KitchenSink {
                                     match p {
                                         Pat::Ident(id) => {
                                             {
-                                                id.name.to_string()
+                                                id.sym.to_string()
                                             }
                                         }
                                         _ => {
@@ -359,9 +359,9 @@ impl KitchenSink {
         Err("Invalid hex".to_string())
     }
     
-    fn get_name_or_default(node: &FnDecl) -> String {
-        let name = node.ident.as_ref().map(|id| id.name.to_string()).unwrap_or("anonymous".to_string());
-        let other = node.ident.as_ref().map(|id| id.name.to_string()).unwrap_or_default();
+    fn get_name_or_default(&mut self, node: &mut FnDecl) -> String {
+        let name = node.ident.as_ref().map(|id| id.sym.to_string()).unwrap_or("anonymous".to_string());
+        let other = node.ident.as_ref().map(|id| id.sym.to_string()).unwrap_or_default();
         let unwrapped = node.ident.as_ref().unwrap();
         if node.ident.is_some() {
             self.state.output = "has_id".to_string()
@@ -376,7 +376,7 @@ impl KitchenSink {
         Err("Something went wrong".into())
     }
     
-    fn test_collections() {
+    fn test_collections(&mut self) {
         let mut set = HashSet::new();
         set.insert("key1".to_string());
         set.insert("key2".to_string());
@@ -409,7 +409,7 @@ impl KitchenSink {
         Ok((value * 2))
     }
     
-    fn test_range_loop(items: &Vec<String>) {
+    fn test_range_loop(&mut self, items: &mut Vec<String>) {
         for i in 0..items.len() {
             self.state.count = i;
         }
@@ -418,7 +418,7 @@ impl KitchenSink {
         counter -= 1;
     }
     
-    fn test_while_loop(items: &Vec<String>) {
+    fn test_while_loop(&mut self, items: &mut Vec<String>) {
         let mut i = 0;
         while (i < items.len()) {
             self.state.count = i;
@@ -426,7 +426,7 @@ impl KitchenSink {
         }
     }
     
-    fn test_loop_break_continue(items: &Vec<String>) {
+    fn test_loop_break_continue(&mut self, items: &mut Vec<String>) {
         let mut i = 0;
         loop {
             if (i >= items.len()) {

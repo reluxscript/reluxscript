@@ -860,8 +860,10 @@ impl SwcEmitter {
 
         // Only add &mut self if:
         // 1. It's a visitor method (visit_*), OR
-        // 2. The function already has self as first parameter in source
-        let needs_self = func.name.starts_with("visit_") || first_is_self;
+        // 2. The function already has self as first parameter in source, OR
+        // 3. The function body uses self (e.g., self.state)
+        let body_uses_self = self.block_uses_self(&func.body);
+        let needs_self = func.name.starts_with("visit_") || first_is_self || body_uses_self;
 
         if needs_self && !first_is_self {
             sig.push_str("&mut self");
@@ -2055,6 +2057,127 @@ impl SwcEmitter {
     // ========================================================================
     // TYPE CONVERSIONS
     // ========================================================================
+
+    /// Check if a block uses `self` (e.g., self.state)
+    fn block_uses_self(&self, block: &DecoratedBlock) -> bool {
+        block.stmts.iter().any(|stmt| self.stmt_uses_self(stmt))
+    }
+
+    fn stmt_uses_self(&self, stmt: &DecoratedStmt) -> bool {
+        match stmt {
+            DecoratedStmt::Let(let_stmt) => {
+                let_stmt.init.as_ref().map(|e| self.expr_uses_self(e)).unwrap_or(false)
+            }
+            DecoratedStmt::Const(const_stmt) => {
+                self.expr_uses_self(&const_stmt.init)
+            }
+            DecoratedStmt::Expr(expr) => self.expr_uses_self(expr),
+            DecoratedStmt::If(if_stmt) => {
+                self.expr_uses_self(&if_stmt.condition) ||
+                self.block_uses_self(&if_stmt.then_branch) ||
+                if_stmt.else_branch.as_ref().map(|b| self.block_uses_self(b)).unwrap_or(false)
+            }
+            DecoratedStmt::For(for_stmt) => {
+                self.expr_uses_self(&for_stmt.iter) ||
+                self.block_uses_self(&for_stmt.body)
+            }
+            DecoratedStmt::While(while_stmt) => {
+                self.expr_uses_self(&while_stmt.condition) ||
+                self.block_uses_self(&while_stmt.body)
+            }
+            DecoratedStmt::Loop(loop_block) => {
+                self.block_uses_self(loop_block)
+            }
+            DecoratedStmt::Return(ret) => {
+                ret.as_ref().map(|e| self.expr_uses_self(e)).unwrap_or(false)
+            }
+            DecoratedStmt::Match(match_stmt) => {
+                self.expr_uses_self(&match_stmt.expr) ||
+                match_stmt.arms.iter().any(|arm| self.block_uses_self(&arm.body))
+            }
+            DecoratedStmt::Function(nested_fn) => {
+                self.block_uses_self(&nested_fn.body)
+            }
+            DecoratedStmt::Traverse(traverse) => {
+                // Check the traverse kind for inline visitors
+                match &traverse.kind {
+                    DecoratedTraverseKind::Inline(inline) => {
+                        inline.methods.iter().any(|m| self.block_uses_self(&m.body))
+                    }
+                    DecoratedTraverseKind::Delegated(_) => false,
+                }
+            }
+            DecoratedStmt::Unsafe(unsafe_block) => {
+                unsafe_block.stmts.iter().any(|s| self.stmt_uses_self(s))
+            }
+            DecoratedStmt::Verbatim(_) => false,
+            DecoratedStmt::CustomPropAssignment(_) => true, // Uses self by definition
+            DecoratedStmt::Break | DecoratedStmt::Continue => false,
+        }
+    }
+
+    fn expr_uses_self(&self, expr: &DecoratedExpr) -> bool {
+        match &expr.kind {
+            DecoratedExprKind::Ident { name, .. } => name == "self",
+            DecoratedExprKind::Member { object, .. } => self.expr_uses_self(object),
+            DecoratedExprKind::Call(call) => {
+                self.expr_uses_self(&call.callee) ||
+                call.args.iter().any(|a| self.expr_uses_self(a))
+            }
+            DecoratedExprKind::Binary { left, right, .. } => {
+                self.expr_uses_self(left) || self.expr_uses_self(right)
+            }
+            DecoratedExprKind::Unary { operand, .. } => self.expr_uses_self(operand),
+            DecoratedExprKind::Index { object, index } => {
+                self.expr_uses_self(object) || self.expr_uses_self(index)
+            }
+            DecoratedExprKind::Assign { left, right } => {
+                self.expr_uses_self(left) || self.expr_uses_self(right)
+            }
+            DecoratedExprKind::CompoundAssign { left, right, .. } => {
+                self.expr_uses_self(left) || self.expr_uses_self(right)
+            }
+            DecoratedExprKind::If(if_expr) => {
+                self.expr_uses_self(&if_expr.condition) ||
+                self.block_uses_self(&if_expr.then_branch) ||
+                if_expr.else_branch.as_ref().map(|b| self.block_uses_self(b)).unwrap_or(false)
+            }
+            DecoratedExprKind::Match(match_expr) => {
+                self.expr_uses_self(&match_expr.expr) ||
+                match_expr.arms.iter().any(|arm| self.block_uses_self(&arm.body))
+            }
+            DecoratedExprKind::Block(block) => self.block_uses_self(block),
+            DecoratedExprKind::Paren(inner) => self.expr_uses_self(inner),
+            DecoratedExprKind::Closure(closure) => self.expr_uses_self(&closure.body),
+            DecoratedExprKind::StructInit(struct_init) => {
+                struct_init.fields.iter().any(|(_, v)| self.expr_uses_self(v))
+            }
+            DecoratedExprKind::VecInit(elements) => {
+                elements.iter().any(|e| self.expr_uses_self(e))
+            }
+            DecoratedExprKind::Range { start, end, .. } => {
+                start.as_ref().map(|e| self.expr_uses_self(e)).unwrap_or(false) ||
+                end.as_ref().map(|e| self.expr_uses_self(e)).unwrap_or(false)
+            }
+            DecoratedExprKind::Tuple(elements) => {
+                elements.iter().any(|e| self.expr_uses_self(e))
+            }
+            DecoratedExprKind::Ref { expr: inner, .. } => self.expr_uses_self(inner),
+            DecoratedExprKind::Deref(inner) => self.expr_uses_self(inner),
+            DecoratedExprKind::Try(inner) => self.expr_uses_self(inner),
+            DecoratedExprKind::Matches { expr: inner, .. } => self.expr_uses_self(inner),
+            DecoratedExprKind::Return(ret) => {
+                ret.as_ref().map(|e| self.expr_uses_self(e)).unwrap_or(false)
+            }
+            DecoratedExprKind::RegexCall(regex_call) => {
+                self.expr_uses_self(&regex_call.text_arg) ||
+                regex_call.replacement_arg.as_ref().map(|e| self.expr_uses_self(e)).unwrap_or(false)
+            }
+            DecoratedExprKind::CustomPropAccess(_) => true, // Uses self by definition
+            DecoratedExprKind::Literal(_) => false,
+            DecoratedExprKind::Break | DecoratedExprKind::Continue => false,
+        }
+    }
 
     /// Check if a type contains any references
     fn type_has_reference(&self, ty: &Type) -> bool {

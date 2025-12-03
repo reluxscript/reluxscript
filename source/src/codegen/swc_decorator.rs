@@ -1285,8 +1285,20 @@ impl SwcDecorator {
                     self.narrowed_enum_vars.insert(binding_name.clone(), (parent_enum, variant));
                 }
             }
+            (Pattern::Ref { pattern: inner_pat, .. }, dec) => {
+                // Ref patterns: unwrap and pass the type through
+                // The decorated pattern may also be wrapped, but we want the actual inner
+                let inner_dec = match dec {
+                    DecoratedPatternKind::Ref { pattern: inner, .. } => inner.as_ref(),
+                    // If the decorated isn't Ref, still unwrap the source pattern
+                    _ => decorated,
+                };
+                eprintln!("[MATCH BINDING] Ref pattern - passing through type {:?} to inner", expected_type);
+                self.add_pattern_bindings_to_env_with_type(inner_pat, inner_dec, expected_type);
+            }
             _ => {
                 // Other patterns don't create bindings we need to track
+                eprintln!("[MATCH BINDING] Unhandled pattern case: {:?}", pattern);
             }
         }
     }
