@@ -645,6 +645,16 @@ pub static NODE_MAPPINGS: Lazy<Vec<NodeMapping>> = Lazy::new(|| vec![
         visitor_method: "visit_ts_union_type",
         swc_visitor: "visit_mut_ts_union_type",
     },
+    NodeMapping {
+        reluxscript: "TSTypeLiteral",
+        babel: "TSTypeLiteral",
+        swc: "TsTypeLit",
+        swc_enum: Some("TsType::TsTypeLit"),
+        babel_checker: "isTSTypeLiteral",
+        swc_pattern: "TsType::TsTypeLit(ts_type_lit)",
+        visitor_method: "visit_ts_type_literal",
+        swc_visitor: "visit_mut_ts_type_lit",
+    },
 
     // === TypeScript Type Keywords ===
     NodeMapping {

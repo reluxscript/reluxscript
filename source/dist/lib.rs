@@ -87,7 +87,7 @@ impl VisitMut for KitchenSink {
                             self.state.output = "array".to_string()
                         }
                     }
-                    TSType::TSTypeLiteral(_) => {
+                    TsType::TsTypeLit(_) => {
                         {
                             self.state.output = "object".to_string()
                         }
