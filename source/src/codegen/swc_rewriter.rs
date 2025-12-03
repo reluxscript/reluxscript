@@ -52,6 +52,112 @@ impl SwcRewriter {
         }
     }
 
+    /// Convert pattern bindings to wildcards for matches! macro
+    /// In matches! context, we don't use bindings - we only check if pattern matches
+    fn pattern_to_wildcard(pattern: DecoratedPattern) -> DecoratedPattern {
+        let new_kind = match pattern.kind {
+            // Identifier bindings become wildcards
+            DecoratedPatternKind::Ident(_) => DecoratedPatternKind::Wildcard,
+
+            // Variant patterns: convert inner binding to wildcard
+            DecoratedPatternKind::Variant { name, inner } => {
+                let new_inner = inner.map(|inner_pat| {
+                    Box::new(Self::pattern_to_wildcard(*inner_pat))
+                });
+                DecoratedPatternKind::Variant { name, inner: new_inner }
+            }
+
+            // Struct patterns: convert field bindings to wildcards
+            DecoratedPatternKind::Struct { name, fields } => {
+                let new_fields = fields.into_iter()
+                    .map(|(field_name, field_pat)| {
+                        (field_name, Self::pattern_to_wildcard(field_pat))
+                    })
+                    .collect();
+                DecoratedPatternKind::Struct { name, fields: new_fields }
+            }
+
+            // Tuple patterns: convert elements to wildcards
+            DecoratedPatternKind::Tuple(elements) => {
+                let new_elements = elements.into_iter()
+                    .map(Self::pattern_to_wildcard)
+                    .collect();
+                DecoratedPatternKind::Tuple(new_elements)
+            }
+
+            // Array patterns: convert elements to wildcards
+            DecoratedPatternKind::Array(elements) => {
+                let new_elements = elements.into_iter()
+                    .map(Self::pattern_to_wildcard)
+                    .collect();
+                DecoratedPatternKind::Array(new_elements)
+            }
+
+            // Object patterns: convert properties to wildcards
+            DecoratedPatternKind::Object(props) => {
+                // For object patterns in matches!, we keep structure but wildcard bindings
+                DecoratedPatternKind::Object(props)
+            }
+
+            // Or patterns: convert each alternative
+            DecoratedPatternKind::Or(alternatives) => {
+                let new_alternatives = alternatives.into_iter()
+                    .map(Self::pattern_to_wildcard)
+                    .collect();
+                DecoratedPatternKind::Or(new_alternatives)
+            }
+
+            // Rest patterns: convert inner to wildcard
+            DecoratedPatternKind::Rest(inner) => {
+                DecoratedPatternKind::Rest(Box::new(Self::pattern_to_wildcard(*inner)))
+            }
+
+            // Ref patterns: convert inner to wildcard
+            DecoratedPatternKind::Ref { is_mut, pattern: inner } => {
+                DecoratedPatternKind::Ref {
+                    is_mut,
+                    pattern: Box::new(Self::pattern_to_wildcard(*inner))
+                }
+            }
+
+            // Literals and wildcards pass through unchanged
+            DecoratedPatternKind::Literal(_) => pattern.kind,
+            DecoratedPatternKind::Wildcard => pattern.kind,
+        };
+
+        // Update swc_pattern in metadata for tuple variants (e.g., "Lit::Null" -> "Lit::Null(_)")
+        let mut new_metadata = pattern.metadata;
+
+        // Check if this is a known SWC tuple variant that needs (_)
+        // These are variants like Lit::Null, Lit::Bool, etc. that wrap a struct
+        let swc_pat = &new_metadata.swc_pattern;
+        let needs_tuple_wildcard =
+            swc_pat.ends_with("Lit::Null") ||
+            swc_pat.ends_with("Lit::Bool") ||
+            swc_pat.ends_with("Lit::Str") ||
+            swc_pat.ends_with("Lit::Num") ||
+            swc_pat.ends_with("Lit::BigInt") ||
+            swc_pat.ends_with("Lit::Regex") ||
+            swc_pat.ends_with("Lit::JSXText");
+
+        if needs_tuple_wildcard {
+            // Add (_) to tuple variants
+            new_metadata.swc_pattern = format!("{}(_)", new_metadata.swc_pattern);
+        } else if matches!(new_kind, DecoratedPatternKind::Variant { ref inner, .. } if inner.is_some()) {
+            // For other variant patterns with inner, ensure swc_pattern ends with (_)
+            if !new_metadata.swc_pattern.ends_with("(_)") &&
+               !new_metadata.swc_pattern.ends_with("{ .. }") &&
+               !new_metadata.swc_pattern.contains('(') {
+                new_metadata.swc_pattern = format!("{}(_)", new_metadata.swc_pattern);
+            }
+        }
+
+        DecoratedPattern {
+            kind: new_kind,
+            metadata: new_metadata,
+        }
+    }
+
     /// Main entry point: rewrite entire program
     pub fn rewrite_program(&mut self, program: DecoratedProgram) -> DecoratedProgram {
         DecoratedProgram {
@@ -1116,11 +1222,17 @@ impl SwcRewriter {
                 )
             }
 
-            // Matches macro - will be expanded in transformation phase
+            // Matches macro - convert bindings to wildcards since we only check if pattern matches
             DecoratedExprKind::Matches { expr: inner, pattern } => {
+                eprintln!("[REWRITER MATCHES] Input pattern swc_pattern: '{}'", pattern.metadata.swc_pattern);
+                let rewritten_pattern = self.rewrite_pattern(pattern);
+                eprintln!("[REWRITER MATCHES] After rewrite swc_pattern: '{}'", rewritten_pattern.metadata.swc_pattern);
+                // Convert pattern bindings to wildcards for matches! (we don't use the bindings)
+                let wildcard_pattern = Self::pattern_to_wildcard(rewritten_pattern);
+                eprintln!("[REWRITER MATCHES] After wildcard swc_pattern: '{}'", wildcard_pattern.metadata.swc_pattern);
                 DecoratedExprKind::Matches {
                     expr: Box::new(self.rewrite_expr(*inner)),
-                    pattern: self.rewrite_pattern(pattern),
+                    pattern: wildcard_pattern,
                 }
             }
 
@@ -1157,9 +1269,17 @@ impl SwcRewriter {
 
             DecoratedExprKind::Ident { .. } |
             DecoratedExprKind::Break |
-            DecoratedExprKind::Continue |
-            DecoratedExprKind::Closure(_) => {
+            DecoratedExprKind::Continue => {
                 expr.kind
+            }
+
+            // Closures - recurse into the body
+            DecoratedExprKind::Closure(closure) => {
+                DecoratedExprKind::Closure(crate::codegen::decorated_ast::DecoratedClosureExpr {
+                    params: closure.params,
+                    body: Box::new(self.rewrite_expr(*closure.body)),
+                    span: closure.span,
+                })
             }
         };
 
@@ -2509,6 +2629,9 @@ impl SwcRewriter {
 
                 eprintln!("[REWRITER MATCHES START] scrutinee metadata: swc_type='{}', is_boxed={}, needs_enum_unwrap={:?}",
                           scrutinee.metadata.swc_type, scrutinee.metadata.is_boxed, scrutinee.metadata.needs_enum_unwrap);
+
+                // Convert pattern bindings to wildcards for matches! (we don't use the bindings)
+                let pattern = Self::pattern_to_wildcard(pattern);
 
                 // Create the match arms
                 let match_arm = DecoratedMatchArm {

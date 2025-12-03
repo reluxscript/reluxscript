@@ -145,11 +145,18 @@ impl VisitMut for KitchenSink {
                     match init {
                         Expr::Arrow(arrow) => {
                             {
-                                let param_names = arrow.params.iter().filter(|p| matches!(p, Pat::Ident(_))).map(|p| {
+                                let param_names = arrow.params.iter().filter(|p| match &p {
+                                    Pat::Ident(_) => {
+                                        true
+                                    }
+                                    _ => {
+                                        false
+                                    }
+                                }).map(|p| {
                                     match p {
                                         Pat::Ident(id) => {
                                             {
-                                                id.name.clone()
+                                                id.name.to_string()
                                             }
                                         }
                                         _ => {
@@ -288,7 +295,14 @@ impl VisitMut for KitchenSink {
         new_results.push("item1".to_string());
         new_results.push("item2".to_string());
         let has_null = node.elems.iter().any(|e| {
-            matches!(e, Lit::Null)
+            match &e {
+                Lit::Null(_) => {
+                    true
+                }
+                _ => {
+                    false
+                }
+            }
         });
         let all_valid = new_results.iter().all(|p| p.chars().all(|c| c.is_ascii_hexdigit()));
         new_results.remove(0);
@@ -345,8 +359,8 @@ impl KitchenSink {
     }
     
     fn get_name_or_default(node: &FnDecl) -> String {
-        let name = node.ident.as_ref().map(|id| id.name.clone()).unwrap_or("anonymous".to_string());
-        let other = node.ident.as_ref().map(|id| id.name.clone()).unwrap_or_default();
+        let name = node.ident.as_ref().map(|id| id.name.to_string()).unwrap_or("anonymous".to_string());
+        let other = node.ident.as_ref().map(|id| id.name.to_string()).unwrap_or_default();
         let unwrapped = node.ident.as_ref().unwrap();
         if node.ident.is_some() {
             self.state.output = "has_id".to_string()
