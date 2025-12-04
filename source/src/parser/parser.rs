@@ -316,16 +316,16 @@ impl Parser {
             let attributes = self.parse_attributes()?;
 
             let mut item = if self.check(TokenKind::Struct) {
-                PluginItem::Struct(self.parse_struct()?)
+                PluginItem::Struct(self.parse_struct_with_visibility(false)?)
             } else if self.check(TokenKind::Enum) {
-                PluginItem::Enum(self.parse_enum()?)
+                PluginItem::Enum(self.parse_enum_with_visibility(false)?)
             } else if self.check(TokenKind::Pub) {
                 // Handle pub struct, pub enum, pub fn, pub use
                 self.advance(); // consume 'pub'
                 if self.check(TokenKind::Struct) {
-                    PluginItem::Struct(self.parse_struct()?)
+                    PluginItem::Struct(self.parse_struct_with_visibility(true)?)
                 } else if self.check(TokenKind::Enum) {
-                    PluginItem::Enum(self.parse_enum()?)
+                    PluginItem::Enum(self.parse_enum_with_visibility(true)?)
                 } else if self.check(TokenKind::Fn) {
                     // Check if this is a special hook (pre, exit, or finish)
                     let func = self.parse_function()?;
@@ -410,7 +410,7 @@ impl Parser {
     }
 
     /// Parse struct declaration
-    fn parse_struct(&mut self) -> ParseResult<StructDecl> {
+    fn parse_struct_with_visibility(&mut self, is_pub: bool) -> ParseResult<StructDecl> {
         let start_span = self.current_span();
         self.expect(TokenKind::Struct)?;
         let name = self.expect_ident()?;
@@ -428,15 +428,19 @@ impl Parser {
             }
 
             let field_span = self.current_span();
-            // Skip 'pub' if present on field
-            if self.check(TokenKind::Pub) {
+            // Check 'pub' on field
+            let field_is_pub = if self.check(TokenKind::Pub) {
                 self.advance();
-            }
+                true
+            } else {
+                false
+            };
             let field_name = self.expect_ident()?;
             self.expect(TokenKind::Colon)?;
             let ty = self.parse_type()?;
 
             fields.push(StructField {
+                is_pub: field_is_pub,
                 name: field_name,
                 ty,
                 span: field_span,
@@ -451,6 +455,7 @@ impl Parser {
         self.expect(TokenKind::RBrace)?;
 
         Ok(StructDecl {
+            is_pub,
             name,
             fields,
             derives: Vec::new(),  // Will be populated by semantic analysis
@@ -460,8 +465,12 @@ impl Parser {
         })
     }
 
+    fn parse_struct(&mut self) -> ParseResult<StructDecl> {
+        self.parse_struct_with_visibility(false)
+    }
+
     /// Parse enum declaration
-    fn parse_enum(&mut self) -> ParseResult<EnumDecl> {
+    fn parse_enum_with_visibility(&mut self, is_pub: bool) -> ParseResult<EnumDecl> {
         let start_span = self.current_span();
         self.expect(TokenKind::Enum)?;
         let name = self.expect_ident()?;
@@ -540,12 +549,17 @@ impl Parser {
         self.expect(TokenKind::RBrace)?;
 
         Ok(EnumDecl {
+            is_pub,
             name,
             variants,
             derives: Vec::new(),  // Will be populated by parse_plugin_body
             span: start_span,
             path: enum_path,
         })
+    }
+
+    fn parse_enum(&mut self) -> ParseResult<EnumDecl> {
+        self.parse_enum_with_visibility(false)
     }
 
     /// Parse static variable declaration

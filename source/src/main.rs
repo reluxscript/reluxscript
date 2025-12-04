@@ -289,7 +289,7 @@ plugin {name} {{
 
             // Semantic analysis
             let base_dir = file.parent().unwrap_or_else(|| std::path::Path::new(".")).to_path_buf();
-            let result = analyze_with_base_dir(&program, base_dir);
+            let result = analyze_with_base_dir(&program, base_dir.clone());
             if !result.errors.is_empty() {
                 for error in &result.errors {
                     eprintln!(
@@ -356,8 +356,13 @@ plugin {name} {{
                 return;
             }
 
-            // Generate code (use generate_with_types to get proper SWC mappings)
-            let generated = reluxscript::generate_with_types(&program, result.type_env.clone(), target_enum);
+            // Generate code (use generate_with_types_and_base_dir to get proper module imports)
+            let generated = reluxscript::codegen::generate_with_types_and_base_dir(
+                &program,
+                result.type_env.clone(),
+                target_enum,
+                base_dir.clone(),
+            );
 
             // Create output directory
             if let Err(e) = fs::create_dir_all(&output) {
@@ -404,6 +409,16 @@ plugin {name} {{
                     std::process::exit(1);
                 }
                 println!("Generated SWC plugin: {:?}", swc_path);
+
+                // Write imported module files
+                for (module_name, module_code, _imports) in &generated.swc_modules {
+                    let module_path = output.join(format!("{}.rs", module_name));
+                    if let Err(e) = fs::write(&module_path, module_code) {
+                        eprintln!("Error writing module '{}': {}", module_name, e);
+                        std::process::exit(1);
+                    }
+                    println!("Generated module: {:?}", module_path);
+                }
 
                 // Generate a minimal Cargo.toml for validation
                 let cargo_toml_path = output.join("Cargo.toml");
@@ -564,6 +579,20 @@ serde_json = "1.0.145"
                 std::process::exit(1);
             }
             println!("Generated SWC module: {:?}", swc_path);
+
+            // Generate .luxon manifest
+            let module_name = file.file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("module")
+                .to_string();
+            let manifest = reluxscript::luxon::extract_manifest(&program, module_name);
+            let luxon_path = output.join("lib.luxon");
+            if let Err(e) = manifest.save(&luxon_path) {
+                eprintln!("Warning: Failed to write .luxon manifest: {}", e);
+            } else {
+                println!("Generated manifest: {:?}", luxon_path);
+            }
+
             println!("Build complete!");
         }
         Commands::Fix { files, dry_run } => {

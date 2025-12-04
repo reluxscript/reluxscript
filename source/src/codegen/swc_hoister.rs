@@ -314,6 +314,7 @@ impl SwcHoister {
                     };
 
                     struct_fields.push(StructField {
+                        is_pub: false,
                         name: capture.name.clone(),
                         ty: field_type,
                         span: capture.span,
@@ -330,6 +331,7 @@ impl SwcHoister {
                         };
 
                         struct_fields.push(StructField {
+                            is_pub: false,
                             name: name.clone(),
                             ty: field_type,
                             span: let_stmt.span,
@@ -339,6 +341,7 @@ impl SwcHoister {
 
                 // Create the struct
                 let hoisted_struct = StructDecl {
+                    is_pub: false,
                     name: struct_name.clone(),
                     fields: struct_fields,
                     derives: vec![], // TODO: Add derives if needed

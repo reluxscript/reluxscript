@@ -58,6 +58,13 @@ pub struct SwcEmitter {
 
     /// Set of custom types used in custom properties (for CustomPropValue enum)
     custom_prop_types: std::collections::HashSet<String>,
+
+    /// Imported modules: (module_name, (code, imports))
+    /// Used for generating proper mod structure
+    imported_modules: Vec<(String, String, Vec<String>)>,
+
+    /// Base directory for resolving module paths
+    base_dir: std::path::PathBuf,
 }
 
 impl SwcEmitter {
@@ -79,6 +86,16 @@ impl SwcEmitter {
             uses_regex: false,
             uses_custom_props: false,
             custom_prop_types: std::collections::HashSet::new(),
+            imported_modules: Vec::new(),
+            base_dir: std::path::PathBuf::from("."),
+        }
+    }
+
+    /// Create emitter with base directory for resolving module imports
+    pub fn with_base_dir(base_dir: std::path::PathBuf) -> Self {
+        Self {
+            base_dir,
+            ..Self::new()
         }
     }
 
@@ -529,7 +546,14 @@ impl SwcEmitter {
             self.emit_custom_prop_value_enum();
         }
 
-        // Emit structs, enums, and impl blocks FIRST (at module level)
+        // Process pub use imports FIRST (to load module code)
+        for item in &plugin.body {
+            if let DecoratedPluginItem::PubUse(_) = item {
+                self.emit_plugin_item(item);
+            }
+        }
+
+        // Emit structs, enums, and impl blocks (at module level)
         for item in &plugin.body {
             match item {
                 DecoratedPluginItem::Struct(_) |
@@ -722,6 +746,17 @@ impl SwcEmitter {
     }
 
     fn emit_plugin_item(&mut self, item: &DecoratedPluginItem) {
+        let item_name = match item {
+            DecoratedPluginItem::Function(_) => "Function",
+            DecoratedPluginItem::Struct(_) => "Struct",
+            DecoratedPluginItem::Enum(_) => "Enum",
+            DecoratedPluginItem::Impl(_) => "Impl",
+            DecoratedPluginItem::PreHook(_) => "PreHook",
+            DecoratedPluginItem::ExitHook(_) => "ExitHook",
+            DecoratedPluginItem::Static(_) => "Static",
+            DecoratedPluginItem::PubUse(_) => "PubUse",
+        };
+        eprintln!("[EMITTER] emit_plugin_item: {}", item_name);
         match item {
             DecoratedPluginItem::Function(func) => {
                 self.emit_function(func);
@@ -747,16 +782,8 @@ impl SwcEmitter {
                 self.emit_static(static_decl);
             }
             DecoratedPluginItem::PubUse(use_stmt) => {
-                // Emit pub use as Rust re-export
-                self.emit_indent();
-                self.output.push_str("pub use ");
-                self.output.push_str(&use_stmt.path);
-                if !use_stmt.imports.is_empty() {
-                    self.output.push_str("::{");
-                    self.output.push_str(&use_stmt.imports.join(", "));
-                    self.output.push_str("}");
-                }
-                self.output.push_str(";\n");
+                // Load the compiled module and track it for later emission
+                self.process_pub_use(use_stmt);
             }
         }
     }
@@ -782,21 +809,25 @@ impl SwcEmitter {
     // ========================================================================
 
     fn emit_struct(&mut self, struct_decl: &StructDecl) {
-        // Emit derives if any, or default to Clone + Debug for SWC
-        if !struct_decl.derives.is_empty() {
-            self.emit_line(&format!("#[derive({})]", struct_decl.derives.join(", ")));
-        } else {
-            // Default derives for user structs in SWC
-            // Don't derive Clone if struct has mutable reference fields (can't be cloned)
-            let has_mut_refs = struct_decl.fields.iter().any(|f| {
-                matches!(f.ty, Type::Reference { mutable: true, .. })
-            });
-            if has_mut_refs {
-                self.emit_line("#[derive(Debug)]");
-            } else {
-                self.emit_line("#[derive(Clone, Debug)]");
-            }
+        // Combine explicit derives with defaults (Clone, Debug)
+        // Don't derive Clone if struct has mutable reference fields (can't be cloned)
+        let has_mut_refs = struct_decl.fields.iter().any(|f| {
+            matches!(f.ty, Type::Reference { mutable: true, .. })
+        });
+
+        let mut derives: Vec<String> = struct_decl.derives.clone();
+
+        // Add default derives if not already present
+        if !derives.iter().any(|d| d == "Clone") && !has_mut_refs {
+            derives.insert(0, "Clone".to_string());
         }
+        if !derives.iter().any(|d| d == "Debug") {
+            // Insert Debug after Clone if present, otherwise at beginning
+            let pos = if derives.iter().any(|d| d == "Clone") { 1 } else { 0 };
+            derives.insert(pos, "Debug".to_string());
+        }
+
+        self.emit_line(&format!("#[derive({})]", derives.join(", ")));
 
         // Emit struct with optional lifetime parameters
         let lifetimes_str = if !struct_decl.lifetimes.is_empty() {
@@ -804,7 +835,8 @@ impl SwcEmitter {
         } else {
             String::new()
         };
-        self.emit_line(&format!("struct {}{} {{", struct_decl.name, lifetimes_str));
+        let pub_prefix = if struct_decl.is_pub { "pub " } else { "" };
+        self.emit_line(&format!("{}struct {}{} {{", pub_prefix, struct_decl.name, lifetimes_str));
         self.indent += 1;
 
         // If struct has lifetimes, add lifetime annotations to reference types
@@ -819,7 +851,8 @@ impl SwcEmitter {
             }
 
             let type_str = self.type_to_string_with_lifetime(&field.ty, has_lifetimes);
-            self.emit_line(&format!("{}: {},", field.name, type_str));
+            let field_pub = if field.is_pub { "pub " } else { "" };
+            self.emit_line(&format!("{}{}: {},", field_pub, field.name, type_str));
         }
 
         // If this is the State struct and custom props are used, inject the __custom_props field
@@ -841,7 +874,8 @@ impl SwcEmitter {
     fn emit_enum(&mut self, enum_decl: &EnumDecl) {
         // User-defined enums need Clone + Debug for use in structs with those derives
         self.emit_line("#[derive(Clone, Debug)]");
-        self.emit_line(&format!("enum {} {{", enum_decl.name));
+        let pub_prefix = if enum_decl.is_pub { "pub " } else { "" };
+        self.emit_line(&format!("{}enum {} {{", pub_prefix, enum_decl.name));
         self.indent += 1;
 
         for variant in &enum_decl.variants {
@@ -3354,6 +3388,99 @@ impl SwcEmitter {
         // Traverse statements should have been transformed by the Hoister stage
         // If we see one here, it's a placeholder that should emit a comment
         self.emit_line("// Traverse statement (should have been hoisted)");
+    }
+
+    /// Process a pub use statement - load compiled module code and track for emission
+    fn process_pub_use(&mut self, use_stmt: &UseStmt) {
+        // Only process file-based imports
+        if !use_stmt.path.starts_with("./") && !use_stmt.path.starts_with("../") {
+            return;
+        }
+
+        // Derive module name from path (use last segment only to avoid nested underscores)
+        let path_segments: Vec<&str> = use_stmt.path.split('/').collect();
+        let module_name = path_segments.last()
+            .unwrap_or(&"module")
+            .replace("-", "_");
+
+        eprintln!("[EMITTER] Processing pub use: path='{}', base_dir={:?}, module_name='{}'",
+            use_stmt.path, self.base_dir, module_name);
+
+        // Try to find the compiled module's lib.rs
+        let stripped_path = use_stmt.path.trim_start_matches("./").trim_start_matches("../");
+        let module_paths = [
+            self.base_dir.join(stripped_path).join("lib.rs"),  // base/module/lib.rs
+            self.base_dir.join(format!("{}.rs", stripped_path)),  // base/module.rs
+        ];
+
+        for module_path in &module_paths {
+            eprintln!("[EMITTER] Checking path: {:?} (exists: {})", module_path, module_path.exists());
+            if module_path.exists() {
+                if let Ok(code) = std::fs::read_to_string(module_path) {
+                    // Strip the standard SWC headers from the module code since main lib.rs will have them
+                    let stripped_code = self.strip_module_headers(&code);
+                    self.imported_modules.push((
+                        module_name.clone(),
+                        stripped_code,
+                        use_stmt.imports.clone(),
+                    ));
+                    eprintln!("[EMITTER] Loaded module '{}' from {:?}", module_name, module_path);
+                    return;
+                }
+            }
+        }
+
+        eprintln!("[EMITTER] Warning: Could not find compiled module for '{}' (tried {:?})",
+            use_stmt.path, module_paths);
+    }
+
+    /// Strip standard headers from module code (since main lib.rs will have them)
+    fn strip_module_headers(&self, code: &str) -> String {
+        let mut lines: Vec<&str> = code.lines().collect();
+        let mut start_idx = 0;
+
+        // Skip comment headers and use statements
+        for (i, line) in lines.iter().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("//")
+                || trimmed.starts_with("use swc_")
+                || trimmed.starts_with("use std::collections")
+                || trimmed.is_empty()
+            {
+                start_idx = i + 1;
+            } else {
+                break;
+            }
+        }
+
+        lines[start_idx..].join("\n")
+    }
+
+    /// Get the imported modules for generating separate files or inline modules
+    pub fn get_imported_modules(&self) -> &[(String, String, Vec<String>)] {
+        &self.imported_modules
+    }
+
+    /// Generate module declarations to be added at the top of lib.rs
+    pub fn generate_mod_declarations(&self) -> String {
+        let mut output = String::new();
+        for (module_name, _, _) in &self.imported_modules {
+            output.push_str(&format!("mod {};\n", module_name));
+        }
+        output
+    }
+
+    /// Generate use statements for imported symbols
+    pub fn generate_use_statements(&self) -> String {
+        let mut output = String::new();
+        for (module_name, _, imports) in &self.imported_modules {
+            if !imports.is_empty() {
+                output.push_str(&format!("use {}::{{{}}};\n", module_name, imports.join(", ")));
+            } else {
+                output.push_str(&format!("use {}::*;\n", module_name));
+            }
+        }
+        output
     }
 }
 

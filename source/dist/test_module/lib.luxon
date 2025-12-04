@@ -1,0 +1,32 @@
+{
+  "name": "test_module",
+  "structs": {
+    "Counter": {
+      "fields": {
+        "value": "Number"
+      },
+      "derives": [
+        "Default"
+      ]
+    }
+  },
+  "functions": {
+    "is_positive": {
+      "params": [
+        {
+          "name": "n",
+          "type": "Number"
+        }
+      ],
+      "returns": "Bool"
+    },
+    "increment": {
+      "params": [
+        {
+          "name": "c",
+          "type": "&mut Counter"
+        }
+      ]
+    }
+  }
+}

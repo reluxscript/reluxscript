@@ -96,6 +96,7 @@ pub struct StaticDecl {
 /// Struct declaration
 #[derive(Debug, Clone)]
 pub struct StructDecl {
+    pub is_pub: bool,
     pub name: String,
     pub fields: Vec<StructField>,
     pub derives: Vec<String>,  // Traits to derive (e.g., "Clone", "Debug")
@@ -108,6 +109,7 @@ pub struct StructDecl {
 /// Struct field
 #[derive(Debug, Clone)]
 pub struct StructField {
+    pub is_pub: bool,
     pub name: String,
     pub ty: Type,
     pub span: Span,
@@ -116,6 +118,7 @@ pub struct StructField {
 /// Enum declaration
 #[derive(Debug, Clone)]
 pub struct EnumDecl {
+    pub is_pub: bool,
     pub name: String,
     pub variants: Vec<EnumVariant>,
     pub derives: Vec<String>,  // Traits to derive (e.g., "Clone", "Debug")
