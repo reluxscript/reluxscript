@@ -1211,13 +1211,16 @@ impl SwcDecorator {
             (Pattern::Ident(name), _) => {
                 // Simple identifier - use the expected type from parent, or fall back to swc_pattern
                 let swc_type = expected_type.unwrap_or_else(|| decorated.metadata.swc_pattern.clone());
-                eprintln!("[MATCH BINDING] Adding {} -> {}", name, swc_type);
+                // Determine needs_deref: true if type is &Box<...> (reference to Box)
+                // This occurs when binding from Option<&Box<T>>.as_ref() which gives &Box<T>
+                let needs_deref = swc_type.starts_with("&Box<") || swc_type.starts_with("& Box<");
+                eprintln!("[MATCH BINDING] Adding {} -> {} (needs_deref: {})", name, swc_type, needs_deref);
                 self.type_env.insert(name.clone(), TypeContext {
                     reluxscript_type: swc_type.clone(),
                     swc_type: swc_type.clone(),
                     kind: SwcTypeKind::Struct,
                     known_variant: None,
-                    needs_deref: false,
+                    needs_deref,
                 });
             }
             (Pattern::Variant { inner: Some(inner_pat), ..  }, DecoratedPatternKind::Variant { inner: Some(inner_dec), .. }) => {
@@ -1245,6 +1248,10 @@ impl SwcDecorator {
                         } else if enum_name == "Option" {
                             // Option::Some wraps the inner type from Option<T> or &Option<T>
                             // Need to extract T from the expected_type and preserve & prefix
+                            //
+                            // IMPORTANT: When the inner type is Box<T>, the rewriter will add .as_ref()
+                            // to the scrutinee, which changes Option<Box<T>> to Option<&Box<T>>.
+                            // So the bound variable will be &Box<T>, not Box<T>.
                             if let Some(ref outer_type) = expected_type {
                                 eprintln!("[STEP 3] Option::Some - outer_type: '{}'", outer_type);
                                 // Check if outer_type is a reference
@@ -1256,7 +1263,16 @@ impl SwcDecorator {
                                     ("", outer_type.as_str())
                                 };
                                 let extracted = Self::extract_generic_param(base_type).unwrap_or_else(|| variant_name.to_string());
-                                let full_type = format!("{}{}", ref_prefix, extracted);
+
+                                // If the extracted type is Box<T>, the rewriter will add .as_ref()
+                                // so the actual bound type will be &Box<T>
+                                let full_type = if extracted.starts_with("Box<") && ref_prefix.is_empty() {
+                                    let with_ref = format!("&{}", extracted);
+                                    eprintln!("[STEP 3] Inner is Box<T>, anticipating .as_ref(): {} -> {}", extracted, with_ref);
+                                    with_ref
+                                } else {
+                                    format!("{}{}", ref_prefix, extracted)
+                                };
                                 eprintln!("[STEP 3] Extracted: '{}' (with ref_prefix: '{}')", full_type, ref_prefix);
                                 full_type
                             } else {

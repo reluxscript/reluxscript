@@ -141,7 +141,7 @@ impl VisitMut for KitchenSink {
                     }
                 }
             }
-            match &*declarator.init.as_ref() {
+            match declarator.init.as_ref() {
                 Option::Some(init) => {
                     match &*init {
                         Expr::Arrow(arrow) => {
@@ -323,7 +323,7 @@ impl VisitMut for KitchenSink {
             let slice = &value[0..3];
         }
         let diff = ((self.state.count - 10)).abs();
-        let num = 3.14;
+        let num = 3.14_f64;
         let fractional = num.fract();
         let hex_str = format!("{:x}", self.state.count);
         let formatted = format!("{:08x}", self.state.count);

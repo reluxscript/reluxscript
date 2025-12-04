@@ -1166,10 +1166,12 @@ impl SwcEmitter {
         self.emit_indent();
         self.output.push_str("match ");
 
-        // If the condition is a Box<T>, we need to dereference it
+        // If the condition is a Box<T> (but NOT Option<Box<T>>), we need to dereference it
         // Use &* instead of .as_ref() to avoid double-calling as_ref()
-        if if_stmt.condition.metadata.is_boxed {
-            eprintln!("[EMIT IF-LET MATCH] Condition is boxed, emitting &* prefix");
+        // For Option<Box<T>>, the Option is matched first, so no &* needed on the scrutinee
+        let is_option_boxed = if_stmt.condition.metadata.swc_type.starts_with("Option<Box<");
+        if if_stmt.condition.metadata.is_boxed && !is_option_boxed {
+            eprintln!("[EMIT IF-LET MATCH] Condition is boxed (not Option<Box>), emitting &* prefix");
             self.output.push_str("&*");
         }
         self.emit_expr(&if_stmt.condition);
@@ -1233,8 +1235,21 @@ impl SwcEmitter {
         // If the scrutinee is an Option<Box<T>> or Option<T>, we need to borrow with &
         // to avoid moving out of the reference
         let scrutinee_type = &match_stmt.expr.metadata.swc_type;
-        eprintln!("[EMIT MATCH] scrutinee type='{}', is_boxed={}", scrutinee_type, match_stmt.expr.metadata.is_boxed);
-        if match_stmt.expr.metadata.is_boxed {
+        let is_optional = match_stmt.expr.metadata.is_optional;
+        eprintln!("[EMIT MATCH] scrutinee type='{}', is_boxed={}, is_optional={}",
+            scrutinee_type, match_stmt.expr.metadata.is_boxed, is_optional);
+
+        // Check if scrutinee is &Box<T> (reference to Box) - needs &** to get &T
+        let is_ref_to_box = scrutinee_type.starts_with("&Box<") || scrutinee_type.starts_with("& Box<");
+
+        // If the scrutinee is a boxed type that came from Option.as_ref() binding,
+        // it's actually &Box<T>, not Box<T>, so we need &** to get &T
+        let is_boxed_from_option = match_stmt.expr.metadata.is_boxed && is_optional;
+
+        if is_ref_to_box || is_boxed_from_option {
+            eprintln!("[EMIT MATCH] Emitting &** for &Box<T> or boxed-from-option scrutinee");
+            self.output.push_str("&**");
+        } else if match_stmt.expr.metadata.is_boxed {
             eprintln!("[EMIT MATCH] Emitting &* for boxed scrutinee");
             self.output.push_str("&*");
         } else if scrutinee_type.starts_with("Option<") {
@@ -2082,7 +2097,8 @@ impl SwcEmitter {
                 self.output.push_str(&n.to_string());
             }
             Literal::Float(f) => {
-                self.output.push_str(&f.to_string());
+                // Add _f64 suffix to avoid ambiguous numeric type errors
+                self.output.push_str(&format!("{}_f64", f));
             }
             Literal::Bool(b) => {
                 self.output.push_str(if *b { "true" } else { "false" });

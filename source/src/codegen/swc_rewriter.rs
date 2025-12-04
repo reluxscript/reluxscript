@@ -719,6 +719,18 @@ impl SwcRewriter {
 
         if is_ident_with_box && is_variant_pattern {
             // Wrap scrutinee with .as_ref() call
+            // Update the type: Option<Box<T>> -> Option<&Box<T>>
+            // This is important because the bound variable from Some(x) will be &Box<T>, not Box<T>
+            let new_swc_type = if scrutinee.metadata.swc_type.starts_with("Option<") {
+                // Transform Option<Box<T>> to Option<&Box<T>>
+                let inner = &scrutinee.metadata.swc_type[7..scrutinee.metadata.swc_type.len()-1];
+                format!("Option<&{}>", inner)
+            } else {
+                // Just add & prefix
+                format!("&{}", scrutinee.metadata.swc_type)
+            };
+            eprintln!("[REWRITER] add_asref_for_box_match: {} -> {}", scrutinee.metadata.swc_type, new_swc_type);
+
             DecoratedExpr {
                 kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
                     callee: DecoratedExpr {
@@ -730,13 +742,13 @@ impl SwcRewriter {
                             is_path: false,
                             field_metadata: SwcFieldMetadata::direct("as_ref".to_string(), "fn".to_string()),
                         },
-                        metadata: SwcExprMetadata { needs_enum_unwrap: None, 
+                        metadata: SwcExprMetadata { needs_enum_unwrap: None,
                             swc_type: "fn".to_string(),
                             is_boxed: false,
                             is_optional: false,
                             type_kind: SwcTypeKind::Unknown,
                             span: None,
-                        
+
                         needs_to_string: false,},
                     },
                     args: vec![],
@@ -745,7 +757,12 @@ impl SwcRewriter {
                     is_macro: false,
                     span: Span::new(0, 0, 0, 0),
                 })),
-                metadata: scrutinee.metadata,
+                metadata: SwcExprMetadata {
+                    swc_type: new_swc_type,
+                    is_boxed: false,  // The result of .as_ref() is not boxed, it's a reference
+                    is_optional: true, // Still Option<...>
+                    ..scrutinee.metadata
+                },
             }
         } else {
             // No transformation needed
