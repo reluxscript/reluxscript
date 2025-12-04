@@ -1,7 +1,7 @@
 # ReluxScript Language Specification
 
-**Version:** 0.9.0
-**Status:** Draft (Program Hooks & Verbatim Blocks Added)
+**Version:** 0.10.0
+**Status:** Draft (Compiled Modules & Project Builds Added)
 **Target Platforms:** Babel (JavaScript) & SWC (Rust/WASM)
 
 ---
@@ -1249,9 +1249,267 @@ pub fn extract_props(node: &FunctionDeclaration) -> Vec<PropInfo> {
 
 ---
 
-## 19. Visitor Methods
+## 6. Compiled Modules & Project Builds
 
-### 6.1 Visitor Function Signature
+ReluxScript supports compiling modules into standalone "DLLs" (compiled module packages) that can be imported by other modules or plugins. This enables code reuse across projects and supports large-scale codebases with complex dependency graphs.
+
+### 6.1 The `.luxon` Manifest Format
+
+When a module is compiled with `build-module`, it produces:
+- A `.rs` file containing the compiled Rust code
+- A `.luxon` manifest file describing the module's exports
+
+```json
+{
+  "name": "my_module",
+  "version": "1.0.0",
+  "structs": {
+    "Point": {
+      "fields": [
+        { "name": "x", "type": "i32", "is_pub": true },
+        { "name": "y", "type": "i32", "is_pub": true }
+      ],
+      "derives": ["Clone", "Debug", "Default"]
+    }
+  },
+  "enums": {},
+  "functions": ["distance_squared", "origin"]
+}
+```
+
+### 6.2 Building Standalone Modules
+
+Compile a `.lux` file into a reusable module:
+
+```bash
+relux build-module my_module.lux --output dist/my_module
+```
+
+This produces:
+```
+dist/my_module/
+  lib.rs        # Compiled Rust code
+  lib.luxon     # Module manifest
+```
+
+**Source (`my_module.lux`):**
+```reluxscript
+pub struct Point {
+    pub x: i32,
+    pub y: i32,
+}
+
+pub fn distance_squared(p: &Point) -> i32 {
+    (p.x * p.x) + (p.y * p.y)
+}
+
+pub fn origin() -> Point {
+    Point { x: 0, y: 0 }
+}
+```
+
+### 6.3 Importing Compiled Modules
+
+Use `pub use` to import from compiled modules:
+
+```reluxscript
+// Import from compiled module (note: path to output directory, not .lux file)
+pub use "./dist/my_module" { Point, distance_squared, origin };
+
+pub struct Rectangle {
+    pub top_left: Point,
+    pub bottom_right: Point,
+}
+
+pub fn area(r: &Rectangle) -> i32 {
+    let width = (r.bottom_right.x - r.top_left.x);
+    let height = (r.bottom_right.y - r.top_left.y);
+    (width * height)
+}
+```
+
+**Compiles to (SWC):**
+```rust
+#[path = "my_module.rs"]
+mod my_module;
+pub use my_module::{Point, distance_squared, origin};
+
+#[derive(Clone, Debug, Default)]
+pub struct Rectangle {
+    pub top_left: Point,
+    pub bottom_right: Point,
+}
+
+pub fn area(r: &Rectangle) -> i32 {
+    let width = (r.bottom_right.x - r.top_left.x);
+    let height = (r.bottom_right.y - r.top_left.y);
+    (width * height)
+}
+```
+
+### 6.4 Chained Module Dependencies
+
+Modules can import from other compiled modules, forming dependency chains:
+
+```
+module_a.lux → compile → dist/module_a/
+                              ↓
+module_b.lux → compile → dist/module_b/ (imports from module_a)
+                              ↓
+plugin_c.lux → compile → dist/plugin_c/ (imports from module_b)
+```
+
+When `module_b` imports from `module_a` and re-exports symbols with `pub use`, those symbols become available to anything that imports `module_b`. The compiler automatically:
+1. Detects transitive dependencies via `mod xxx;` declarations
+2. Loads transitive modules and copies their `.rs` files
+3. Adds `#[path = "xxx.rs"]` attributes for Rust module resolution
+4. Updates the `.luxon` manifest with re-exported symbols
+
+### 6.5 Declarative Project Builds (`lux.manifest.json`)
+
+For projects with multiple modules and complex dependencies, use a JSON manifest to declare the build graph:
+
+**`lux.manifest.json`:**
+```json
+{
+  "modules": [
+    {
+      "name": "module_a",
+      "path": "module_a.lux",
+      "output": "dist/module_a"
+    },
+    {
+      "name": "module_b",
+      "path": "module_b.lux",
+      "output": "dist/module_b",
+      "deps": ["module_a"]
+    },
+    {
+      "name": "module_c",
+      "path": "module_c.lux",
+      "output": "dist/module_c",
+      "deps": ["module_a", "module_b"]
+    }
+  ],
+  "plugin": {
+    "path": "my_plugin.lux",
+    "output": "dist/my_plugin",
+    "deps": ["module_c"]
+  }
+}
+```
+
+**Build with:**
+```bash
+relux build-project lux.manifest.json
+```
+
+**Output:**
+```
+Building project from "lux.manifest.json"
+Build order: module_a → module_b → module_c
+
+[module_a] Building module...
+[module_a] ✓ Built successfully
+
+[module_b] Building module...
+[module_b] ✓ Built successfully
+
+[module_c] Building module...
+[module_c] ✓ Built successfully
+
+[plugin] Building plugin...
+[plugin] ✓ Built successfully
+
+✓ Project build complete!
+```
+
+### 6.6 Manifest Schema
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `modules` | `ModuleEntry[]` | Array of library modules to build |
+| `plugin` | `TargetEntry?` | Optional plugin to build (mutually exclusive with `writer`) |
+| `writer` | `TargetEntry?` | Optional writer to build (mutually exclusive with `plugin`) |
+
+**ModuleEntry:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | `string` | Module identifier (used in `deps` references) |
+| `path` | `string` | Path to `.lux` source file |
+| `output` | `string` | Output directory for compiled module |
+| `deps` | `string[]?` | Names of modules this depends on |
+
+**TargetEntry:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `path` | `string` | Path to `.lux` source file |
+| `output` | `string` | Output directory |
+| `deps` | `string[]?` | Names of modules this depends on |
+
+### 6.7 Topological Sort & Cycle Detection
+
+The build system uses Kahn's algorithm to determine the correct build order:
+1. Modules with no dependencies are built first
+2. Each module is built only after all its dependencies
+3. Circular dependencies are detected and reported as errors
+
+```
+error: Circular dependency detected involving: module_a, module_b
+```
+
+### 6.8 Example: Large-Scale Project Structure
+
+```
+my-project/
+  lux.manifest.json
+  src/
+    core/
+      types.lux           # Core type definitions
+      utils.lux           # Utility functions
+    extractors/
+      props.lux           # Prop extraction (depends on core/types)
+      hooks.lux           # Hook extraction (depends on core/types)
+      components.lux      # Component extraction (depends on props, hooks)
+    plugin.lux            # Main plugin (depends on extractors/components)
+  dist/
+    core_types/
+    core_utils/
+    extractors_props/
+    extractors_hooks/
+    extractors_components/
+    plugin/
+```
+
+**`lux.manifest.json`:**
+```json
+{
+  "modules": [
+    { "name": "core_types", "path": "src/core/types.lux", "output": "dist/core_types" },
+    { "name": "core_utils", "path": "src/core/utils.lux", "output": "dist/core_utils", "deps": ["core_types"] },
+    { "name": "extractors_props", "path": "src/extractors/props.lux", "output": "dist/extractors_props", "deps": ["core_types"] },
+    { "name": "extractors_hooks", "path": "src/extractors/hooks.lux", "output": "dist/extractors_hooks", "deps": ["core_types"] },
+    { "name": "extractors_components", "path": "src/extractors/components.lux", "output": "dist/extractors_components", "deps": ["extractors_props", "extractors_hooks"] }
+  ],
+  "plugin": {
+    "path": "src/plugin.lux",
+    "output": "dist/plugin",
+    "deps": ["extractors_components", "core_utils"]
+  }
+}
+```
+
+This structure enables:
+- **Parallel development**: Teams can work on different modules independently
+- **Incremental builds**: Only rebuild changed modules and their dependents
+- **Code reuse**: Share modules across multiple plugins/writers
+- **Clear boundaries**: Explicit dependency declarations prevent spaghetti code
+
+---
+
+## 7. Visitor Methods
+
+### 7.1 Visitor Function Signature
 
 ```reluxscript
 plugin MyPlugin {
@@ -1266,7 +1524,7 @@ plugin MyPlugin {
 - `visit_call_expression` → visits `CallExpression` nodes
 - Snake_case function name maps to PascalCase node type
 
-### 6.2 Context Object
+### 7.2 Context Object
 
 The `Context` provides limited scope analysis available in both engines:
 
@@ -1276,7 +1534,7 @@ ctx.filename           // Source filename
 ctx.generate_uid(hint) // Generate unique identifier
 ```
 
-### 6.3 Node Replacement (Statement Lowering)
+### 7.3 Node Replacement (Statement Lowering)
 
 Direct assignment to the visitor argument triggers replacement:
 
@@ -1309,7 +1567,7 @@ path.replaceWith(t.callExpression(
 };
 ```
 
-### 6.4 Node Removal
+### 7.4 Node Removal
 
 In Babel, this is `path.remove()`. In SWC, this requires replacing with a NoOp or filtering. ReluxScript standardizes this:
 
@@ -1337,7 +1595,7 @@ if should_remove(node) {
 }
 ```
 
-### 6.5 List/Sibling Manipulation
+### 7.5 List/Sibling Manipulation
 
 Inserting siblings is difficult in SWC's VisitMut. ReluxScript solves this by exposing a `flat_map_in_place` helper:
 
@@ -1391,7 +1649,7 @@ let new_stmts: Vec<Stmt> = node.stmts.iter().flat_map(|stmt| {
 node.stmts = new_stmts;
 ```
 
-### 6.6 Property Mutation (Forbidden)
+### 7.6 Property Mutation (Forbidden)
 
 Direct property mutation is NOT allowed:
 
@@ -1402,7 +1660,7 @@ node.name = "newName";
 
 **Rationale:** Babel's scope tracker may not be notified. Always replace the whole node or use clone-and-rebuild pattern.
 
-### 6.7 Traversal Control
+### 7.7 Traversal Control
 
 ```reluxscript
 fn visit_call_expression(node: &mut CallExpression, ctx: &Context) {
@@ -1414,11 +1672,11 @@ fn visit_call_expression(node: &mut CallExpression, ctx: &Context) {
 }
 ```
 
-### 6.8 Scoped Traversal (`traverse`)
+### 7.8 Scoped Traversal (`traverse`)
 
 ReluxScript allows interrupting the current visitor to perform a scoped traversal on a specific node using a different set of rules. This bridges the impedance mismatch between Babel's `path.traverse` (graph walk) and SWC's `visit_mut_with` (recursive function call).
 
-#### 5.8.1 Inline Traversal
+#### 7.8.1 Inline Traversal
 
 Use `traverse(node) { ... }` to define a one-off visitor for a subtree:
 
