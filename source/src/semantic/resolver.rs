@@ -208,6 +208,30 @@ impl Resolver {
             return Ok(exports.clone());
         }
 
+        // Try to load from .luxon manifest first (pre-compiled module)
+        // Look for lib.luxon in the same directory or with .luxon extension
+        let luxon_paths = [
+            resolved_path.with_extension("luxon"),                              // ./module.luxon
+            self.base_dir.join(module_path.trim_start_matches("./")).join("lib.luxon"),  // ./module/lib.luxon
+            resolved_path.parent().unwrap_or(&resolved_path).join("lib.luxon"), // ./lib.luxon (if module_path is a dir)
+        ];
+
+        for luxon_path in &luxon_paths {
+            if luxon_path.exists() {
+                eprintln!("[RESOLVER] Loading from .luxon manifest: {:?}", luxon_path);
+                match self.load_from_luxon(luxon_path, import_span) {
+                    Ok(exports) => {
+                        self.module_cache.insert(canonical_path.clone(), exports.clone());
+                        return Ok(exports);
+                    }
+                    Err(e) => {
+                        eprintln!("[RESOLVER] Warning: Failed to load .luxon: {}", e.message);
+                        // Fall through to try loading .lux source
+                    }
+                }
+            }
+        }
+
         // Check if we're already resolving this module (circular dependency)
         // In this case, return empty exports - the actual exports will be available
         // once the module finishes loading
@@ -220,7 +244,7 @@ impl Resolver {
             });
         }
 
-        // Load the file
+        // Load the .lux source file
         let source = fs::read_to_string(&resolved_path).map_err(|e| {
             SemanticError::new(
                 "RS009",
@@ -272,6 +296,157 @@ impl Resolver {
         self.resolving_stack.pop();
 
         Ok(exports)
+    }
+
+    /// Load module exports from a .luxon manifest file
+    fn load_from_luxon(&self, luxon_path: &std::path::Path, import_span: Span) -> Result<ModuleExports, SemanticError> {
+        use crate::luxon::LuxonManifest;
+
+        let manifest = LuxonManifest::load(luxon_path).map_err(|e| {
+            SemanticError::new("RS011", e, import_span)
+        })?;
+
+        let mut exports = ModuleExports {
+            functions: HashMap::new(),
+            structs: HashMap::new(),
+            enums: HashMap::new(),
+        };
+
+        // Convert structs
+        for (name, luxon_struct) in manifest.structs {
+            let fields: HashMap<String, TypeInfo> = luxon_struct.fields.iter()
+                .map(|(field_name, type_str)| {
+                    (field_name.clone(), self.luxon_type_to_type_info(type_str))
+                })
+                .collect();
+            exports.structs.insert(name.clone(), TypeInfo::Struct { name, fields });
+        }
+
+        // Convert enums
+        for (name, luxon_enum) in manifest.enums {
+            let variants: HashMap<String, Option<Vec<TypeInfo>>> = luxon_enum.variants.iter()
+                .map(|(variant_name, variant)| {
+                    use crate::luxon::LuxonVariant;
+                    let fields = match variant {
+                        LuxonVariant::Unit => None,
+                        LuxonVariant::Tuple(types) => {
+                            Some(types.iter().map(|t| self.luxon_type_to_type_info(t)).collect())
+                        }
+                        LuxonVariant::Struct(fields) => {
+                            Some(fields.values().map(|t| self.luxon_type_to_type_info(t)).collect())
+                        }
+                    };
+                    (variant_name.clone(), fields)
+                })
+                .collect();
+            exports.enums.insert(name.clone(), TypeInfo::Enum { name, variants });
+        }
+
+        // Convert functions
+        for (name, luxon_func) in manifest.functions {
+            let params: Vec<TypeInfo> = luxon_func.params.iter()
+                .map(|p| self.luxon_type_to_type_info(&p.ty))
+                .collect();
+            let ret = luxon_func.returns
+                .map(|r| self.luxon_type_to_type_info(&r))
+                .unwrap_or(TypeInfo::Unit);
+            exports.functions.insert(name, TypeInfo::Function {
+                params,
+                ret: Box::new(ret),
+            });
+        }
+
+        Ok(exports)
+    }
+
+    /// Convert a LUXON type string to TypeInfo
+    fn luxon_type_to_type_info(&self, type_str: &str) -> TypeInfo {
+        // Handle references
+        if type_str.starts_with("&mut ") {
+            let inner = &type_str[5..];
+            return TypeInfo::Ref {
+                mutable: true,
+                inner: Box::new(self.luxon_type_to_type_info(inner)),
+            };
+        }
+        if type_str.starts_with("&") {
+            let inner = &type_str[1..];
+            return TypeInfo::Ref {
+                mutable: false,
+                inner: Box::new(self.luxon_type_to_type_info(inner)),
+            };
+        }
+
+        // Handle Option<T>
+        if type_str.starts_with("Option<") && type_str.ends_with(">") {
+            let inner = &type_str[7..type_str.len()-1];
+            return TypeInfo::Option(Box::new(self.luxon_type_to_type_info(inner)));
+        }
+
+        // Handle Result<T, E>
+        if type_str.starts_with("Result<") && type_str.ends_with(">") {
+            let inner = &type_str[7..type_str.len()-1];
+            if let Some(comma_pos) = inner.find(", ") {
+                let ok = &inner[..comma_pos];
+                let err = &inner[comma_pos+2..];
+                return TypeInfo::Result(
+                    Box::new(self.luxon_type_to_type_info(ok)),
+                    Box::new(self.luxon_type_to_type_info(err)),
+                );
+            }
+        }
+
+        // Handle Vec<T>, HashSet<T>, HashMap<K, V>
+        if let Some(bracket_pos) = type_str.find('<') {
+            if type_str.ends_with(">") {
+                let container = &type_str[..bracket_pos];
+                let inner = &type_str[bracket_pos+1..type_str.len()-1];
+                let args: Vec<TypeInfo> = inner.split(", ")
+                    .map(|t| self.luxon_type_to_type_info(t.trim()))
+                    .collect();
+
+                match container {
+                    "Vec" => return TypeInfo::Vec(Box::new(args.into_iter().next().unwrap_or(TypeInfo::Unknown))),
+                    "HashSet" => return TypeInfo::HashSet(Box::new(args.into_iter().next().unwrap_or(TypeInfo::Unknown))),
+                    "HashMap" => {
+                        let mut iter = args.into_iter();
+                        return TypeInfo::HashMap(
+                            Box::new(iter.next().unwrap_or(TypeInfo::Unknown)),
+                            Box::new(iter.next().unwrap_or(TypeInfo::Unknown)),
+                        );
+                    }
+                    _ => {
+                        // Generic container type
+                        return TypeInfo::Unknown;
+                    }
+                }
+            }
+        }
+
+        // Handle tuples
+        if type_str.starts_with("(") && type_str.ends_with(")") {
+            let inner = &type_str[1..type_str.len()-1];
+            if inner.is_empty() {
+                return TypeInfo::Unit;
+            }
+            let elements: Vec<TypeInfo> = inner.split(", ")
+                .map(|t| self.luxon_type_to_type_info(t.trim()))
+                .collect();
+            return TypeInfo::Tuple(elements);
+        }
+
+        // Handle primitives and named types
+        match type_str {
+            "()" => TypeInfo::Unit,
+            "Bool" | "bool" => TypeInfo::Bool,
+            "Number" | "i32" | "i64" | "f32" | "f64" | "usize" | "isize" => TypeInfo::F64, // ReluxScript uses f64 for all numbers
+            "Str" | "String" | "str" => TypeInfo::Str,
+            _ => {
+                // Check if it's a known struct in our cache
+                // For now, treat as a user-defined type (could be an AST node type too)
+                TypeInfo::AstNode(type_str.to_string())
+            }
+        }
     }
 
     /// Extract all exported symbols from a module
@@ -387,7 +562,14 @@ impl Resolver {
         // Enter plugin scope
         self.env.push_scope();
 
-        // First pass: collect all struct and enum definitions
+        // First pass: resolve pub use statements (imports from modules)
+        for item in &plugin.body {
+            if let PluginItem::PubUse(use_stmt) = item {
+                self.resolve_use(use_stmt);
+            }
+        }
+
+        // Second pass: collect all struct and enum definitions
         for item in &plugin.body {
             match item {
                 PluginItem::Struct(s) => self.declare_struct(s),
@@ -396,14 +578,14 @@ impl Resolver {
             }
         }
 
-        // Second pass: collect function signatures
+        // Third pass: collect function signatures
         for item in &plugin.body {
             if let PluginItem::Function(f) = item {
                 self.declare_function(f);
             }
         }
 
-        // Third pass: resolve function bodies
+        // Fourth pass: resolve function bodies
         for item in &plugin.body {
             if let PluginItem::Function(f) = item {
                 self.resolve_function(f);
@@ -425,6 +607,14 @@ impl Resolver {
 
         self.env.push_scope();
 
+        // First pass: resolve pub use statements (imports from modules)
+        for item in &writer.body {
+            if let PluginItem::PubUse(use_stmt) = item {
+                self.resolve_use(use_stmt);
+            }
+        }
+
+        // Second pass: declare structs and enums
         for item in &writer.body {
             match item {
                 PluginItem::Struct(s) => self.declare_struct(s),
@@ -433,12 +623,14 @@ impl Resolver {
             }
         }
 
+        // Third pass: declare functions
         for item in &writer.body {
             if let PluginItem::Function(f) = item {
                 self.declare_function(f);
             }
         }
 
+        // Fourth pass: resolve function bodies
         for item in &writer.body {
             if let PluginItem::Function(f) = item {
                 self.resolve_function(f);
@@ -453,7 +645,14 @@ impl Resolver {
         // Just resolve their contents
         self.env.push_scope();
 
-        // First pass: declare structs and enums
+        // First pass: resolve pub use statements (imports from other modules)
+        for item in &module.items {
+            if let PluginItem::PubUse(use_stmt) = item {
+                self.resolve_use(use_stmt);
+            }
+        }
+
+        // Second pass: declare structs and enums
         for item in &module.items {
             match item {
                 PluginItem::Struct(s) => self.declare_struct(s),
@@ -462,14 +661,14 @@ impl Resolver {
             }
         }
 
-        // Second pass: declare functions
+        // Third pass: declare functions
         for item in &module.items {
             if let PluginItem::Function(f) = item {
                 self.declare_function(f);
             }
         }
 
-        // Third pass: resolve function bodies
+        // Fourth pass: resolve function bodies
         for item in &module.items {
             if let PluginItem::Function(f) = item {
                 self.resolve_function(f);
@@ -885,9 +1084,11 @@ impl Resolver {
         match expr {
             Expr::Ident(ident) => {
                 if self.env.lookup(&ident.name).is_none() {
-                    // Check for special names and built-in macros
+                    // Check for special names, built-in macros, and primitive types used as type paths
                     let is_special = matches!(ident.name.as_str(),
-                        "self" | "Self" | "matches!" | "format!" | "format" | "vec!" | "Some" | "None" | "Ok" | "Err" | "String" | "HashMap" | "HashSet" | "Vec" | "Option" | "Result" | "Box" | "CodeBuilder" | "_"
+                        "self" | "Self" | "matches!" | "format!" | "format" | "vec!" | "Some" | "None" | "Ok" | "Err" | "String" | "HashMap" | "HashSet" | "Vec" | "Option" | "Result" | "Box" | "CodeBuilder" | "_" |
+                        // Primitive types used as type paths (e.g., usize::from_str_radix)
+                        "usize" | "isize" | "i8" | "i16" | "i32" | "i64" | "i128" | "u8" | "u16" | "u32" | "u64" | "u128" | "f32" | "f64" | "bool" | "char"
                     );
                     // Check if it's a known AST node type (used in matches!)
                     let is_ast_type = get_node_mapping(&ident.name).is_some();

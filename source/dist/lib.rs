@@ -6,29 +6,39 @@ use swc_common::{Span, DUMMY_SP, SyntaxContext};
 use swc_ecma_ast::*;
 use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 
-pub struct TestTurbofish {
+#[derive(Clone, Debug)]
+struct Dependency {
+    name: String,
+    dep_type: String,
 }
 
-impl VisitMut for TestTurbofish {
-    fn visit_mut_ident(&mut self, node: &mut Ident) {
-        let x = "42";
-        match x.parse::<Float>() {
-            Ok(num) => {
-                let _y = num.to_string();
-            }
-            _ => {}
+
+pub fn classify_node(deps: &HashSet<Dependency>) -> String {
+    if deps.is_empty() {
+        return "static".to_string();
+    }
+    let mut types = HashSet::new();
+    for dep in deps {
+        types.insert(dep.dep_type.clone());
+    }
+    if (types.len() == 1) {
+        if types.contains("client") {
+            return "client".to_string();
+        } else {
+            return "server".to_string();
         }
-        let items = vec!["a", "b", "c"];
-        let result = items.iter().map(|s| s.to_uppercase()).collect::<Vec<String>>();
-        let _joined = result.join(", ");
     }
-    
+    "hybrid"
 }
 
-impl TestTurbofish {
-    pub fn new() -> Self {
-        Self {}
-    }
-    
+
+pub fn is_static(deps: &HashSet<Dependency>) -> bool {
+    deps.is_empty()
 }
+
+
+pub fn is_hybrid(deps: &HashSet<Dependency>) -> bool {
+    (Self::classify_node(deps) == "hybrid")
+}
+
 

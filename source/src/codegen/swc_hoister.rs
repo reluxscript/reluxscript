@@ -122,6 +122,7 @@ impl SwcHoister {
         DecoratedProgram {
             uses: program.uses,
             decl: new_decl,
+            uses_custom_props: program.uses_custom_props,
         }
     }
 
@@ -313,6 +314,7 @@ impl SwcHoister {
                     };
 
                     struct_fields.push(StructField {
+                        is_pub: false,
                         name: capture.name.clone(),
                         ty: field_type,
                         span: capture.span,
@@ -329,6 +331,7 @@ impl SwcHoister {
                         };
 
                         struct_fields.push(StructField {
+                            is_pub: false,
                             name: name.clone(),
                             ty: field_type,
                             span: let_stmt.span,
@@ -338,11 +341,13 @@ impl SwcHoister {
 
                 // Create the struct
                 let hoisted_struct = StructDecl {
+                    is_pub: false,
                     name: struct_name.clone(),
                     fields: struct_fields,
                     derives: vec![], // TODO: Add derives if needed
                     lifetimes: if has_captures { vec!["'a".to_string()] } else { vec![] },
                     span: traverse.span,
+                    path: format!("{}[G000]", struct_name),  // Generated path
                 };
 
                 self.hoisted_structs.push(hoisted_struct);
@@ -399,7 +404,8 @@ impl SwcHoister {
                     );
 
                     let impl_method = DecoratedFnDecl {
-                        name: swc_method_name,
+                        name: swc_method_name.clone(),
+                        type_params: vec![],
                         params: vec![
                             Param {
                                 name: "self".to_string(),
@@ -408,17 +414,20 @@ impl SwcHoister {
                                     mutable: true,
                                 },
                                 span: Span { start: 0, end: 0, line: 0, column: 0 },
+                                path: format!("{}.self[G001]", swc_method_name),
                             },
                             Param {
-                                name: param_name,
+                                name: param_name.clone(),
                                 ty: Type::Reference {
                                     inner: Box::new(param_type),
                                     mutable: true,
                                 },
                                 span: Span { start: 0, end: 0, line: 0, column: 0 },
+                                path: format!("{}.{}[G002]", swc_method_name, param_name),
                             },
                         ],
                         return_type: None,
+                        where_clause: vec![],
                         body: method_body,
                     };
 
@@ -456,7 +465,8 @@ impl SwcHoister {
                         is_optional: false,
                         type_kind: crate::type_system::SwcTypeKind::Unknown,
                         span: Some(traverse.span),
-                    },
+                    
+                    needs_to_string: false,},
                 })
             }
         }
@@ -497,7 +507,8 @@ impl SwcHoister {
                                 is_optional: false,
                                 type_kind: crate::type_system::SwcTypeKind::Unknown,
                                 span: Some(capture.span),
-                            },
+                            
+                            needs_to_string: false,},
                         }),
                         unary_metadata: crate::codegen::swc_metadata::SwcUnaryMetadata {
                             override_op: None,
@@ -510,7 +521,8 @@ impl SwcHoister {
                         is_optional: false,
                         type_kind: crate::type_system::SwcTypeKind::Unknown,
                         span: Some(capture.span),
-                    },
+                    
+                    needs_to_string: false,},
                 }
             } else {
                 // &capture
@@ -532,7 +544,8 @@ impl SwcHoister {
                                 is_optional: false,
                                 type_kind: crate::type_system::SwcTypeKind::Unknown,
                                 span: Some(capture.span),
-                            },
+                            
+                            needs_to_string: false,},
                         }),
                         unary_metadata: crate::codegen::swc_metadata::SwcUnaryMetadata {
                             override_op: None,
@@ -545,7 +558,8 @@ impl SwcHoister {
                         is_optional: false,
                         type_kind: crate::type_system::SwcTypeKind::Unknown,
                         span: Some(capture.span),
-                    },
+                    
+                    needs_to_string: false,},
                 }
             };
 
@@ -577,7 +591,8 @@ impl SwcHoister {
                 is_optional: false,
                 type_kind: crate::type_system::SwcTypeKind::Unknown,
                 span: Some(traverse.span),
-            },
+            
+            needs_to_string: false,},
         };
 
         // Generate: target.visit_mut_with(&mut visitor)
@@ -623,7 +638,8 @@ impl SwcHoister {
                     is_optional: false,
                     type_kind: crate::type_system::SwcTypeKind::Unknown,
                     span: traverse.target.metadata.span,
-                },
+                
+                needs_to_string: false,},
             };
 
             // Create clone() call
@@ -656,7 +672,8 @@ impl SwcHoister {
                             is_optional: false,
                             type_kind: crate::type_system::SwcTypeKind::Unknown,
                             span: traverse.target.metadata.span,
-                        },
+                        
+                        needs_to_string: false,},
                     },
                     args: vec![],
                     type_args: vec![],
@@ -671,7 +688,8 @@ impl SwcHoister {
                     is_optional: false,
                     type_kind: crate::type_system::SwcTypeKind::Unknown,
                     span: traverse.target.metadata.span,
-                },
+                
+                needs_to_string: false,},
             };
 
             // Create let mut clone_var = target.clone()
@@ -721,7 +739,8 @@ impl SwcHoister {
                         is_optional: false,
                         type_kind: crate::type_system::SwcTypeKind::Unknown,
                         span: Some(traverse.span),
-                    },
+                    
+                    needs_to_string: false,},
                 },
                 args: vec![
                     DecoratedExpr {
@@ -739,7 +758,8 @@ impl SwcHoister {
                             is_optional: false,
                             type_kind: crate::type_system::SwcTypeKind::Unknown,
                             span: Some(traverse.span),
-                        },
+                        
+                        needs_to_string: false,},
                     }
                 ],
                 type_args: vec![],
@@ -753,7 +773,8 @@ impl SwcHoister {
                 is_optional: false,
                 type_kind: crate::type_system::SwcTypeKind::Unknown,
                 span: Some(traverse.span),
-            },
+            
+            needs_to_string: false,},
         };
 
         // STEP 4: Add clone statement to pending_stmts if needed
@@ -907,7 +928,8 @@ impl CaptureTransformer {
                                     is_optional: false,
                                     type_kind: crate::type_system::SwcTypeKind::Unknown,
                                     span: expr.metadata.span,
-                                },
+                                
+                                needs_to_string: false,},
                             }),
                             property: name_clone.clone(),
                             optional: false,
@@ -1056,7 +1078,8 @@ impl CaptureTransformer {
                                         is_optional: false,
                                         type_kind: crate::type_system::SwcTypeKind::Unknown,
                                         span: call.callee.metadata.span,
-                                    },
+                                    
+                                    needs_to_string: false,},
                                 }),
                                 property: name.clone(),
                                 optional: false,

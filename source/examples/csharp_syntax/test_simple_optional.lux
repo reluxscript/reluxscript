@@ -1,0 +1,26 @@
+/**
+ * Test: Simple Null-Conditional Operator (?.)
+ */
+plugin TestSimpleOptional {
+
+    struct State {
+        result: Str,
+    }
+
+    fn init() -> State {
+        State { result: "" }
+    }
+
+    pub fn visit_variable_declarator(node: &VariableDeclarator) {
+        // Test ?? (null-coalescing) with Options
+        let opt1: Option<Str> = Some("a".to_string());
+        let opt2: Option<Str> = Some("b".to_string());
+        let result = opt1 ?? opt2 ?? "c".to_string();
+
+        self.state.result = result;
+    }
+
+    fn finish() -> Str {
+        self.state.result
+    }
+}

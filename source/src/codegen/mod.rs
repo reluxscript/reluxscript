@@ -41,6 +41,15 @@ pub struct GeneratedCode {
     pub swc: Option<String>,
 }
 
+/// Extended result with module information for multi-file output
+#[derive(Debug)]
+pub struct GeneratedCodeWithModules {
+    pub babel: Option<String>,
+    pub swc: Option<String>,
+    /// Imported modules: (module_name, code, imported_symbols, is_transitive)
+    pub swc_modules: Vec<(String, String, Vec<String>, bool)>,
+}
+
 /// Generate code for the given target(s)
 pub fn generate(program: &crate::parser::Program, target: Target) -> GeneratedCode {
     let babel = if target == Target::Babel || target == Target::Both {
@@ -72,13 +81,27 @@ pub fn generate_with_types(
     type_env: crate::semantic::TypeEnv,
     target: Target,
 ) -> GeneratedCode {
+    let result = generate_with_types_and_base_dir(program, type_env, target, std::path::PathBuf::from("."));
+    GeneratedCode {
+        babel: result.babel,
+        swc: result.swc,
+    }
+}
+
+/// Generate code with semantic type information and base directory for module resolution
+pub fn generate_with_types_and_base_dir(
+    program: &crate::parser::Program,
+    type_env: crate::semantic::TypeEnv,
+    target: Target,
+    base_dir: std::path::PathBuf,
+) -> GeneratedCodeWithModules {
     let babel = if target == Target::Babel || target == Target::Both {
         Some(BabelGenerator::new().generate(program))
     } else {
         None
     };
 
-    let swc = if target == Target::Swc || target == Target::Both {
+    let (swc, swc_modules) = if target == Target::Swc || target == Target::Both {
         // NEW 4-STAGE PIPELINE: Decorate (with types) → Rewrite → Hoist → Emit
         let mut decorator = SwcDecorator::with_semantic_types(type_env.clone());
         let decorated_program = decorator.decorate_program(program);
@@ -89,11 +112,54 @@ pub fn generate_with_types(
         let mut hoister = SwcHoister::new(type_env);
         let hoisted_program = hoister.hoist_program(rewritten_program);
 
-        let mut emitter = SwcEmitter::new();
-        Some(emitter.emit_program(&hoisted_program))
+        let mut emitter = SwcEmitter::with_base_dir(base_dir);
+        let code = emitter.emit_program(&hoisted_program);
+
+        // Get imported modules and inject mod declarations + use statements
+        let modules = emitter.get_imported_modules().to_vec();
+        let final_code = if !modules.is_empty() {
+            let mod_decls = emitter.generate_mod_declarations();
+            let use_stmts = emitter.generate_use_statements();
+            inject_module_imports(&code, &mod_decls, &use_stmts)
+        } else {
+            code
+        };
+
+        (Some(final_code), modules)
     } else {
-        None
+        (None, Vec::new())
     };
 
-    GeneratedCode { babel, swc }
+    GeneratedCodeWithModules { babel, swc, swc_modules }
+}
+
+/// Inject mod declarations and use statements into the generated code
+fn inject_module_imports(code: &str, mod_decls: &str, use_stmts: &str) -> String {
+    // Find the position after the use statements in the generated code
+    let lines: Vec<&str> = code.lines().collect();
+    let mut insert_pos = 0;
+
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("use ") || trimmed.starts_with("//") || trimmed.is_empty() {
+            insert_pos = i + 1;
+        } else {
+            break;
+        }
+    }
+
+    // Build the result
+    let mut result = String::new();
+    for (i, line) in lines.iter().enumerate() {
+        result.push_str(line);
+        result.push('\n');
+        if i + 1 == insert_pos {
+            // Insert mod declarations and use statements
+            result.push_str(mod_decls);
+            result.push_str(use_stmts);
+            result.push('\n');
+        }
+    }
+
+    result
 }

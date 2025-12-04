@@ -7,7 +7,7 @@
 //!
 //! The emitter is "dumb" by design - all transformations happened in earlier stages.
 
-use super::swc_decorator::{DecoratedProgram, DecoratedTopLevelDecl, DecoratedPlugin, DecoratedWriter, DecoratedPluginItem, DecoratedFnDecl, DecoratedImplBlock};
+use super::swc_decorator::{DecoratedProgram, DecoratedTopLevelDecl, DecoratedPlugin, DecoratedWriter, DecoratedModule, DecoratedPluginItem, DecoratedFnDecl, DecoratedImplBlock};
 use super::decorated_ast::*;
 use super::swc_metadata::*;
 use crate::parser::*;
@@ -58,6 +58,14 @@ pub struct SwcEmitter {
 
     /// Set of custom types used in custom properties (for CustomPropValue enum)
     custom_prop_types: std::collections::HashSet<String>,
+
+    /// Imported modules: (module_name, code, imports, is_transitive)
+    /// Used for generating proper mod structure
+    /// is_transitive: true if this module was loaded as a dependency of another module
+    imported_modules: Vec<(String, String, Vec<String>, bool)>,
+
+    /// Base directory for resolving module paths
+    base_dir: std::path::PathBuf,
 }
 
 impl SwcEmitter {
@@ -79,6 +87,16 @@ impl SwcEmitter {
             uses_regex: false,
             uses_custom_props: false,
             custom_prop_types: std::collections::HashSet::new(),
+            imported_modules: Vec::new(),
+            base_dir: std::path::PathBuf::from("."),
+        }
+    }
+
+    /// Create emitter with base directory for resolving module imports
+    pub fn with_base_dir(base_dir: std::path::PathBuf) -> Self {
+        Self {
+            base_dir,
+            ..Self::new()
         }
     }
 
@@ -140,6 +158,12 @@ impl SwcEmitter {
             }
         }
 
+        // Check if custom properties are used (set by rewriter)
+        if program.uses_custom_props {
+            self.uses_custom_props = true;
+            self.uses_hashmap = true; // Custom props use HashMap
+        }
+
         // Walk AST to detect regex usage
         self.detect_regex_usage_in_decl(&program.decl);
     }
@@ -155,6 +179,14 @@ impl SwcEmitter {
                         }
                         DecoratedPluginItem::Struct(struct_decl) => {
                             self.detect_hashmap_hashset_in_struct(struct_decl);
+                        }
+                        DecoratedPluginItem::Impl(impl_block) => {
+                            for method in &impl_block.items {
+                                self.detect_regex_usage_in_block(&method.body);
+                            }
+                        }
+                        DecoratedPluginItem::PreHook(func) | DecoratedPluginItem::ExitHook(func) => {
+                            self.detect_regex_usage_in_block(&func.body);
                         }
                         _ => {}
                     }
@@ -180,6 +212,14 @@ impl SwcEmitter {
                         DecoratedPluginItem::Struct(struct_decl) => {
                             self.detect_hashmap_hashset_in_struct(struct_decl);
                         }
+                        DecoratedPluginItem::Impl(impl_block) => {
+                            for method in &impl_block.items {
+                                self.detect_regex_usage_in_block(&method.body);
+                            }
+                        }
+                        DecoratedPluginItem::PreHook(func) | DecoratedPluginItem::ExitHook(func) => {
+                            self.detect_regex_usage_in_block(&func.body);
+                        }
                         _ => {}
                     }
                 }
@@ -192,6 +232,25 @@ impl SwcEmitter {
                         if let PluginItem::Struct(struct_decl) = item {
                             self.detect_hashmap_hashset_in_struct(struct_decl);
                         }
+                    }
+                }
+            }
+            DecoratedTopLevelDecl::Module(module) => {
+                use crate::codegen::swc_decorator::DecoratedModuleItem;
+                for item in &module.items {
+                    match item {
+                        DecoratedModuleItem::Function(func) => {
+                            self.detect_regex_usage_in_block(&func.body);
+                        }
+                        DecoratedModuleItem::Struct(struct_decl) => {
+                            self.detect_hashmap_hashset_in_struct(struct_decl);
+                        }
+                        DecoratedModuleItem::Impl(impl_block) => {
+                            for method in &impl_block.items {
+                                self.detect_regex_usage_in_block(&method.body);
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -270,6 +329,11 @@ impl SwcEmitter {
                 DecoratedStmt::Return(Some(expr)) => {
                     self.detect_regex_usage_in_expr(expr);
                 }
+                DecoratedStmt::CustomPropAssignment(_) => {
+                    // Custom property assignment will be rewritten to self.state.set_custom_prop()
+                    self.uses_custom_props = true;
+                    self.uses_hashmap = true; // Custom props use HashMap
+                }
                 _ => {}
             }
         }
@@ -333,6 +397,12 @@ impl SwcEmitter {
                 for arm in &match_expr.arms {
                     self.detect_regex_usage_in_block(&arm.body);
                 }
+            }
+            DecoratedExprKind::CustomPropAccess(_) => {
+                // Custom property access - should have been handled by rewriter flag
+                // This is a fallback in case it's still present in the AST
+                self.uses_custom_props = true;
+                self.uses_hashmap = true;
             }
             _ => {}
         }
@@ -451,6 +521,9 @@ impl SwcEmitter {
                 self.is_writer = true;
                 self.emit_writer(writer);
             }
+            DecoratedTopLevelDecl::Module(module) => {
+                self.emit_module(module);
+            }
             DecoratedTopLevelDecl::Undecorated(_) => {
                 self.emit_line("// Undecorated top-level declaration (not yet supported)");
             }
@@ -474,7 +547,14 @@ impl SwcEmitter {
             self.emit_custom_prop_value_enum();
         }
 
-        // Emit structs, enums, and impl blocks FIRST (at module level)
+        // Process pub use imports FIRST (to load module code)
+        for item in &plugin.body {
+            if let DecoratedPluginItem::PubUse(_) = item {
+                self.emit_plugin_item(item);
+            }
+        }
+
+        // Emit structs, enums, and impl blocks (at module level)
         for item in &plugin.body {
             match item {
                 DecoratedPluginItem::Struct(_) |
@@ -639,7 +719,67 @@ impl SwcEmitter {
         self.emit_line("}");
     }
 
+    /// Emit a standalone module (like a C# DLL) - just functions, structs, enums at module level
+    fn emit_module(&mut self, module: &DecoratedModule) {
+        use super::swc_decorator::DecoratedModuleItem;
+
+        // First pass: process pub use statements to load imported modules
+        for item in &module.items {
+            if let DecoratedModuleItem::PubUse(use_stmt) = item {
+                eprintln!("[EMITTER] emit_module processing PubUse: {:?}", use_stmt.path);
+                self.process_pub_use(use_stmt);
+            }
+        }
+
+        // Emit mod declarations and use statements for imported modules
+        // Use `pub use` for modules so symbols are re-exported
+        let mod_decls = self.generate_mod_declarations();
+        let use_stmts = self.generate_use_statements_with_visibility(true);
+        if !mod_decls.is_empty() {
+            self.output.push_str(&mod_decls);
+            self.output.push_str(&use_stmts);
+            self.emit_line("");
+        }
+
+        // Second pass: emit other items
+        for item in &module.items {
+            match item {
+                DecoratedModuleItem::Function(func) => {
+                    // Emit function with pub visibility
+                    self.emit_function_with_visibility(func, func.name.starts_with("pub ") || !func.name.starts_with("_"));
+                }
+                DecoratedModuleItem::Struct(struct_decl) => {
+                    self.emit_struct(struct_decl);
+                }
+                DecoratedModuleItem::Enum(enum_decl) => {
+                    self.emit_enum(enum_decl);
+                }
+                DecoratedModuleItem::Impl(impl_block) => {
+                    self.emit_impl_block(impl_block);
+                }
+                DecoratedModuleItem::Static(static_decl) => {
+                    self.emit_static(static_decl);
+                }
+                DecoratedModuleItem::PubUse(_) => {
+                    // Already processed in first pass
+                }
+            }
+            self.emit_line("");
+        }
+    }
+
     fn emit_plugin_item(&mut self, item: &DecoratedPluginItem) {
+        let item_name = match item {
+            DecoratedPluginItem::Function(_) => "Function",
+            DecoratedPluginItem::Struct(_) => "Struct",
+            DecoratedPluginItem::Enum(_) => "Enum",
+            DecoratedPluginItem::Impl(_) => "Impl",
+            DecoratedPluginItem::PreHook(_) => "PreHook",
+            DecoratedPluginItem::ExitHook(_) => "ExitHook",
+            DecoratedPluginItem::Static(_) => "Static",
+            DecoratedPluginItem::PubUse(_) => "PubUse",
+        };
+        eprintln!("[EMITTER] emit_plugin_item: {}", item_name);
         match item {
             DecoratedPluginItem::Function(func) => {
                 self.emit_function(func);
@@ -665,16 +805,8 @@ impl SwcEmitter {
                 self.emit_static(static_decl);
             }
             DecoratedPluginItem::PubUse(use_stmt) => {
-                // Emit pub use as Rust re-export
-                self.emit_indent();
-                self.output.push_str("pub use ");
-                self.output.push_str(&use_stmt.path);
-                if !use_stmt.imports.is_empty() {
-                    self.output.push_str("::{");
-                    self.output.push_str(&use_stmt.imports.join(", "));
-                    self.output.push_str("}");
-                }
-                self.output.push_str(";\n");
+                // Load the compiled module and track it for later emission
+                self.process_pub_use(use_stmt);
             }
         }
     }
@@ -700,21 +832,25 @@ impl SwcEmitter {
     // ========================================================================
 
     fn emit_struct(&mut self, struct_decl: &StructDecl) {
-        // Emit derives if any, or default to Clone + Debug for SWC
-        if !struct_decl.derives.is_empty() {
-            self.emit_line(&format!("#[derive({})]", struct_decl.derives.join(", ")));
-        } else {
-            // Default derives for user structs in SWC
-            // Don't derive Clone if struct has mutable reference fields (can't be cloned)
-            let has_mut_refs = struct_decl.fields.iter().any(|f| {
-                matches!(f.ty, Type::Reference { mutable: true, .. })
-            });
-            if has_mut_refs {
-                self.emit_line("#[derive(Debug)]");
-            } else {
-                self.emit_line("#[derive(Clone, Debug)]");
-            }
+        // Combine explicit derives with defaults (Clone, Debug)
+        // Don't derive Clone if struct has mutable reference fields (can't be cloned)
+        let has_mut_refs = struct_decl.fields.iter().any(|f| {
+            matches!(f.ty, Type::Reference { mutable: true, .. })
+        });
+
+        let mut derives: Vec<String> = struct_decl.derives.clone();
+
+        // Add default derives if not already present
+        if !derives.iter().any(|d| d == "Clone") && !has_mut_refs {
+            derives.insert(0, "Clone".to_string());
         }
+        if !derives.iter().any(|d| d == "Debug") {
+            // Insert Debug after Clone if present, otherwise at beginning
+            let pos = if derives.iter().any(|d| d == "Clone") { 1 } else { 0 };
+            derives.insert(pos, "Debug".to_string());
+        }
+
+        self.emit_line(&format!("#[derive({})]", derives.join(", ")));
 
         // Emit struct with optional lifetime parameters
         let lifetimes_str = if !struct_decl.lifetimes.is_empty() {
@@ -722,7 +858,8 @@ impl SwcEmitter {
         } else {
             String::new()
         };
-        self.emit_line(&format!("struct {}{} {{", struct_decl.name, lifetimes_str));
+        let pub_prefix = if struct_decl.is_pub { "pub " } else { "" };
+        self.emit_line(&format!("{}struct {}{} {{", pub_prefix, struct_decl.name, lifetimes_str));
         self.indent += 1;
 
         // If struct has lifetimes, add lifetime annotations to reference types
@@ -737,7 +874,8 @@ impl SwcEmitter {
             }
 
             let type_str = self.type_to_string_with_lifetime(&field.ty, has_lifetimes);
-            self.emit_line(&format!("{}: {},", field.name, type_str));
+            let field_pub = if field.is_pub { "pub " } else { "" };
+            self.emit_line(&format!("{}{}: {},", field_pub, field.name, type_str));
         }
 
         // If this is the State struct and custom props are used, inject the __custom_props field
@@ -757,7 +895,10 @@ impl SwcEmitter {
     }
 
     fn emit_enum(&mut self, enum_decl: &EnumDecl) {
-        self.emit_line(&format!("enum {} {{", enum_decl.name));
+        // User-defined enums need Clone + Debug for use in structs with those derives
+        self.emit_line("#[derive(Clone, Debug)]");
+        let pub_prefix = if enum_decl.is_pub { "pub " } else { "" };
+        self.emit_line(&format!("{}enum {} {{", pub_prefix, enum_decl.name));
         self.indent += 1;
 
         for variant in &enum_decl.variants {
@@ -834,8 +975,17 @@ impl SwcEmitter {
             .map(|ty| self.type_has_reference(ty))
             .unwrap_or(false);
 
-        // Add lifetime parameter if needed
-        if needs_lifetime {
+        // Add generic type parameters if any, or just lifetime if needed
+        if !func.type_params.is_empty() {
+            let type_param_strs: Vec<String> = func.type_params.iter()
+                .map(|p| p.name.clone())
+                .collect();
+            if needs_lifetime {
+                sig.push_str(&format!("<'a, {}>", type_param_strs.join(", ")));
+            } else {
+                sig.push_str(&format!("<{}>", type_param_strs.join(", ")));
+            }
+        } else if needs_lifetime {
             sig.push_str("<'a>");
         }
 
@@ -849,8 +999,10 @@ impl SwcEmitter {
 
         // Only add &mut self if:
         // 1. It's a visitor method (visit_*), OR
-        // 2. The function already has self as first parameter in source
-        let needs_self = func.name.starts_with("visit_") || first_is_self;
+        // 2. The function already has self as first parameter in source, OR
+        // 3. The function body uses self (e.g., self.state)
+        let body_uses_self = self.block_uses_self(&func.body);
+        let needs_self = func.name.starts_with("visit_") || first_is_self || body_uses_self;
 
         if needs_self && !first_is_self {
             sig.push_str("&mut self");
@@ -894,8 +1046,22 @@ impl SwcEmitter {
             sig.push_str(&self.type_to_string_with_lifetime(ret_ty, needs_lifetime));
         }
 
-        sig.push_str(" {");
-        self.emit_line(&sig);
+        // Where clause
+        if !func.where_clause.is_empty() {
+            self.emit_line(&sig);
+            self.emit_line("where");
+            self.indent += 1;
+            for (i, pred) in func.where_clause.iter().enumerate() {
+                let bound_str = self.type_to_string(&pred.bound);
+                let comma = if i < func.where_clause.len() - 1 { "," } else { "" };
+                self.emit_line(&format!("{}: {}{}", pred.target, bound_str, comma));
+            }
+            self.indent -= 1;
+            self.emit_line("{");
+        } else {
+            sig.push_str(" {");
+            self.emit_line(&sig);
+        }
 
         // Function body
         // If function has no return type or returns (), all statements need semicolons
@@ -950,6 +1116,11 @@ impl SwcEmitter {
                     self.output.push_str("let ");
                 }
                 self.emit_pattern(&let_stmt.pattern);
+                // Emit type annotation if present
+                if let Some(ref ty) = let_stmt.ty {
+                    self.output.push_str(": ");
+                    self.output.push_str(&self.type_to_string(ty));
+                }
                 if let Some(ref init) = let_stmt.init {
                     self.output.push_str(" = ");
                     self.emit_expr(init);
@@ -1039,7 +1210,23 @@ impl SwcEmitter {
             }
 
             DecoratedStmt::Function(func_decl) => {
-                self.emit_line(&format!("// Nested function: {}", func_decl.name));
+                // Emit nested function declaration
+                let pub_str = if func_decl.is_pub { "pub " } else { "" };
+                let params_str = func_decl.params.iter()
+                    .map(|p| format!("{}: {}", p.name, self.type_to_string(&p.ty)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let return_str = func_decl.return_type.as_ref()
+                    .map(|t| format!(" -> {}", self.type_to_string(t)))
+                    .unwrap_or_default();
+
+                self.emit_line(&format!("{}fn {}({}){} {{", pub_str, func_decl.name, params_str, return_str));
+                self.indent += 1;
+                for stmt in &func_decl.body.stmts {
+                    self.emit_stmt(stmt);
+                }
+                self.indent -= 1;
+                self.emit_line("}");
             }
 
             DecoratedStmt::Verbatim(verbatim) => {
@@ -1118,10 +1305,12 @@ impl SwcEmitter {
         self.emit_indent();
         self.output.push_str("match ");
 
-        // If the condition is a Box<T>, we need to dereference it
+        // If the condition is a Box<T> (but NOT Option<Box<T>>), we need to dereference it
         // Use &* instead of .as_ref() to avoid double-calling as_ref()
-        if if_stmt.condition.metadata.is_boxed {
-            eprintln!("[EMIT IF-LET MATCH] Condition is boxed, emitting &* prefix");
+        // For Option<Box<T>>, the Option is matched first, so no &* needed on the scrutinee
+        let is_option_boxed = if_stmt.condition.metadata.swc_type.starts_with("Option<Box<");
+        if if_stmt.condition.metadata.is_boxed && !is_option_boxed {
+            eprintln!("[EMIT IF-LET MATCH] Condition is boxed (not Option<Box>), emitting &* prefix");
             self.output.push_str("&*");
         }
         self.emit_expr(&if_stmt.condition);
@@ -1182,10 +1371,29 @@ impl SwcEmitter {
 
         // If the scrutinee is a Box<T>, we need to dereference it with &*
         // This allows matching against the inner type
-        eprintln!("[EMIT MATCH] scrutinee type='{}', is_boxed={}", match_stmt.expr.metadata.swc_type, match_stmt.expr.metadata.is_boxed);
-        if match_stmt.expr.metadata.is_boxed {
+        // If the scrutinee is an Option<Box<T>> or Option<T>, we need to borrow with &
+        // to avoid moving out of the reference
+        let scrutinee_type = &match_stmt.expr.metadata.swc_type;
+        let is_optional = match_stmt.expr.metadata.is_optional;
+        eprintln!("[EMIT MATCH] scrutinee type='{}', is_boxed={}, is_optional={}",
+            scrutinee_type, match_stmt.expr.metadata.is_boxed, is_optional);
+
+        // Check if scrutinee is &Box<T> (reference to Box) - needs &** to get &T
+        let is_ref_to_box = scrutinee_type.starts_with("&Box<") || scrutinee_type.starts_with("& Box<");
+
+        // If the scrutinee is a boxed type that came from Option.as_ref() binding,
+        // it's actually &Box<T>, not Box<T>, so we need &** to get &T
+        let is_boxed_from_option = match_stmt.expr.metadata.is_boxed && is_optional;
+
+        if is_ref_to_box || is_boxed_from_option {
+            eprintln!("[EMIT MATCH] Emitting &** for &Box<T> or boxed-from-option scrutinee");
+            self.output.push_str("&**");
+        } else if match_stmt.expr.metadata.is_boxed {
             eprintln!("[EMIT MATCH] Emitting &* for boxed scrutinee");
             self.output.push_str("&*");
+        } else if scrutinee_type.starts_with("Option<") {
+            eprintln!("[EMIT MATCH] Emitting & for Option scrutinee");
+            self.output.push_str("&");
         }
 
         self.emit_expr(&match_stmt.expr);
@@ -1347,13 +1555,9 @@ impl SwcEmitter {
     fn emit_expr(&mut self, expr: &DecoratedExpr) {
         match &expr.kind {
             DecoratedExprKind::Literal(lit) => {
+                // Emitter is dumb - just emit the literal
+                // The rewriter handles .to_string() wrapping via needs_to_string flag
                 self.emit_literal(lit);
-
-                // String literals need .to_string() when used as owned String values
-                // This happens in contexts like Err("str"), Ok("str"), Some("str"), etc.
-                if matches!(lit, Literal::String(_)) && expr.metadata.swc_type == "String" {
-                    self.output.push_str(".to_string()");
-                }
             }
 
             DecoratedExprKind::Ident { name, ident_metadata } => {
@@ -1391,6 +1595,21 @@ impl SwcEmitter {
             }
 
             DecoratedExprKind::Binary { left, op, right, binary_metadata } => {
+                // Special handling for null-coalescing: a ?? b
+                // If right is also an Option: a.or(b)
+                // If right is a value: a.unwrap_or(b)
+                if matches!(op, crate::parser::BinaryOp::NullCoalesce) {
+                    self.emit_expr(left);
+                    if binary_metadata.right_is_option {
+                        self.output.push_str(".or(");
+                    } else {
+                        self.output.push_str(".unwrap_or(");
+                    }
+                    self.emit_expr(right);
+                    self.output.push(')');
+                    return;
+                }
+
                 self.output.push('(');
 
                 // Left side - check for sym deref
@@ -1704,6 +1923,15 @@ impl SwcEmitter {
                     // Emit the decorated field expression
                     self.emit_expr(field_expr);
                 }
+
+                // If this is a State struct and custom props are used, add __custom_props field
+                if expr.metadata.swc_type == "State" && self.uses_custom_props {
+                    if !struct_init.fields.is_empty() {
+                        self.output.push_str(", ");
+                    }
+                    self.output.push_str("__custom_props: std::collections::HashMap::new()");
+                }
+
                 self.output.push_str(" }");
             }
 
@@ -1719,22 +1947,59 @@ impl SwcEmitter {
             }
 
             DecoratedExprKind::If(if_expr) => {
-                self.output.push_str("if ");
-                self.emit_expr(&if_expr.condition);
-                self.output.push_str(" {\n");
-                self.indent += 1;
-                self.emit_block(&if_expr.then_branch);
-                self.indent -= 1;
-                self.emit_indent();
-                self.output.push('}');
-
-                if let Some(ref else_branch) = if_expr.else_branch {
-                    self.output.push_str(" else {\n");
+                // Check if this is an if-let expression (has a pattern)
+                if let Some(ref pattern) = if_expr.pattern {
+                    // Emit as match expression for if-let
+                    self.output.push_str("match ");
+                    self.emit_expr(&if_expr.condition);
+                    self.output.push_str(" {\n");
                     self.indent += 1;
-                    self.emit_block(else_branch);
+
+                    // Pattern arm
+                    self.emit_indent();
+                    self.emit_pattern(pattern);
+                    self.output.push_str(" => {\n");
+                    self.indent += 1;
+                    self.emit_block(&if_expr.then_branch);
+                    self.indent -= 1;
+                    self.emit_line("}");
+
+                    // Wildcard arm for else branch
+                    self.emit_indent();
+                    self.output.push_str("_ => ");
+                    if let Some(ref else_branch) = if_expr.else_branch {
+                        self.output.push_str("{\n");
+                        self.indent += 1;
+                        self.emit_block(else_branch);
+                        self.indent -= 1;
+                        self.emit_indent();
+                        self.output.push_str("}\n");
+                    } else {
+                        self.output.push_str("{}\n");
+                    }
+
                     self.indent -= 1;
                     self.emit_indent();
                     self.output.push('}');
+                } else {
+                    // Regular if expression
+                    self.output.push_str("if ");
+                    self.emit_expr(&if_expr.condition);
+                    self.output.push_str(" {\n");
+                    self.indent += 1;
+                    self.emit_block(&if_expr.then_branch);
+                    self.indent -= 1;
+                    self.emit_indent();
+                    self.output.push('}');
+
+                    if let Some(ref else_branch) = if_expr.else_branch {
+                        self.output.push_str(" else {\n");
+                        self.indent += 1;
+                        self.emit_block(else_branch);
+                        self.indent -= 1;
+                        self.emit_indent();
+                        self.output.push('}');
+                    }
                 }
             }
 
@@ -1948,8 +2213,8 @@ impl SwcEmitter {
                 self.output.push('|');
                 self.output.push(' ');
 
-                // Emit the body - closure uses parser Expr, not DecoratedExpr
-                self.emit_parser_expr(&closure.body);
+                // Emit the decorated body
+                self.emit_expr(&closure.body);
             }
         }
     }
@@ -1980,7 +2245,8 @@ impl SwcEmitter {
                 self.output.push_str(&n.to_string());
             }
             Literal::Float(f) => {
-                self.output.push_str(&f.to_string());
+                // Add _f64 suffix to avoid ambiguous numeric type errors
+                self.output.push_str(&format!("{}_f64", f));
             }
             Literal::Bool(b) => {
                 self.output.push_str(if *b { "true" } else { "false" });
@@ -1997,6 +2263,127 @@ impl SwcEmitter {
     // ========================================================================
     // TYPE CONVERSIONS
     // ========================================================================
+
+    /// Check if a block uses `self` (e.g., self.state)
+    fn block_uses_self(&self, block: &DecoratedBlock) -> bool {
+        block.stmts.iter().any(|stmt| self.stmt_uses_self(stmt))
+    }
+
+    fn stmt_uses_self(&self, stmt: &DecoratedStmt) -> bool {
+        match stmt {
+            DecoratedStmt::Let(let_stmt) => {
+                let_stmt.init.as_ref().map(|e| self.expr_uses_self(e)).unwrap_or(false)
+            }
+            DecoratedStmt::Const(const_stmt) => {
+                self.expr_uses_self(&const_stmt.init)
+            }
+            DecoratedStmt::Expr(expr) => self.expr_uses_self(expr),
+            DecoratedStmt::If(if_stmt) => {
+                self.expr_uses_self(&if_stmt.condition) ||
+                self.block_uses_self(&if_stmt.then_branch) ||
+                if_stmt.else_branch.as_ref().map(|b| self.block_uses_self(b)).unwrap_or(false)
+            }
+            DecoratedStmt::For(for_stmt) => {
+                self.expr_uses_self(&for_stmt.iter) ||
+                self.block_uses_self(&for_stmt.body)
+            }
+            DecoratedStmt::While(while_stmt) => {
+                self.expr_uses_self(&while_stmt.condition) ||
+                self.block_uses_self(&while_stmt.body)
+            }
+            DecoratedStmt::Loop(loop_block) => {
+                self.block_uses_self(loop_block)
+            }
+            DecoratedStmt::Return(ret) => {
+                ret.as_ref().map(|e| self.expr_uses_self(e)).unwrap_or(false)
+            }
+            DecoratedStmt::Match(match_stmt) => {
+                self.expr_uses_self(&match_stmt.expr) ||
+                match_stmt.arms.iter().any(|arm| self.block_uses_self(&arm.body))
+            }
+            DecoratedStmt::Function(nested_fn) => {
+                self.block_uses_self(&nested_fn.body)
+            }
+            DecoratedStmt::Traverse(traverse) => {
+                // Check the traverse kind for inline visitors
+                match &traverse.kind {
+                    DecoratedTraverseKind::Inline(inline) => {
+                        inline.methods.iter().any(|m| self.block_uses_self(&m.body))
+                    }
+                    DecoratedTraverseKind::Delegated(_) => false,
+                }
+            }
+            DecoratedStmt::Unsafe(unsafe_block) => {
+                unsafe_block.stmts.iter().any(|s| self.stmt_uses_self(s))
+            }
+            DecoratedStmt::Verbatim(_) => false,
+            DecoratedStmt::CustomPropAssignment(_) => true, // Uses self by definition
+            DecoratedStmt::Break | DecoratedStmt::Continue => false,
+        }
+    }
+
+    fn expr_uses_self(&self, expr: &DecoratedExpr) -> bool {
+        match &expr.kind {
+            DecoratedExprKind::Ident { name, .. } => name == "self",
+            DecoratedExprKind::Member { object, .. } => self.expr_uses_self(object),
+            DecoratedExprKind::Call(call) => {
+                self.expr_uses_self(&call.callee) ||
+                call.args.iter().any(|a| self.expr_uses_self(a))
+            }
+            DecoratedExprKind::Binary { left, right, .. } => {
+                self.expr_uses_self(left) || self.expr_uses_self(right)
+            }
+            DecoratedExprKind::Unary { operand, .. } => self.expr_uses_self(operand),
+            DecoratedExprKind::Index { object, index } => {
+                self.expr_uses_self(object) || self.expr_uses_self(index)
+            }
+            DecoratedExprKind::Assign { left, right } => {
+                self.expr_uses_self(left) || self.expr_uses_self(right)
+            }
+            DecoratedExprKind::CompoundAssign { left, right, .. } => {
+                self.expr_uses_self(left) || self.expr_uses_self(right)
+            }
+            DecoratedExprKind::If(if_expr) => {
+                self.expr_uses_self(&if_expr.condition) ||
+                self.block_uses_self(&if_expr.then_branch) ||
+                if_expr.else_branch.as_ref().map(|b| self.block_uses_self(b)).unwrap_or(false)
+            }
+            DecoratedExprKind::Match(match_expr) => {
+                self.expr_uses_self(&match_expr.expr) ||
+                match_expr.arms.iter().any(|arm| self.block_uses_self(&arm.body))
+            }
+            DecoratedExprKind::Block(block) => self.block_uses_self(block),
+            DecoratedExprKind::Paren(inner) => self.expr_uses_self(inner),
+            DecoratedExprKind::Closure(closure) => self.expr_uses_self(&closure.body),
+            DecoratedExprKind::StructInit(struct_init) => {
+                struct_init.fields.iter().any(|(_, v)| self.expr_uses_self(v))
+            }
+            DecoratedExprKind::VecInit(elements) => {
+                elements.iter().any(|e| self.expr_uses_self(e))
+            }
+            DecoratedExprKind::Range { start, end, .. } => {
+                start.as_ref().map(|e| self.expr_uses_self(e)).unwrap_or(false) ||
+                end.as_ref().map(|e| self.expr_uses_self(e)).unwrap_or(false)
+            }
+            DecoratedExprKind::Tuple(elements) => {
+                elements.iter().any(|e| self.expr_uses_self(e))
+            }
+            DecoratedExprKind::Ref { expr: inner, .. } => self.expr_uses_self(inner),
+            DecoratedExprKind::Deref(inner) => self.expr_uses_self(inner),
+            DecoratedExprKind::Try(inner) => self.expr_uses_self(inner),
+            DecoratedExprKind::Matches { expr: inner, .. } => self.expr_uses_self(inner),
+            DecoratedExprKind::Return(ret) => {
+                ret.as_ref().map(|e| self.expr_uses_self(e)).unwrap_or(false)
+            }
+            DecoratedExprKind::RegexCall(regex_call) => {
+                self.expr_uses_self(&regex_call.text_arg) ||
+                regex_call.replacement_arg.as_ref().map(|e| self.expr_uses_self(e)).unwrap_or(false)
+            }
+            DecoratedExprKind::CustomPropAccess(_) => true, // Uses self by definition
+            DecoratedExprKind::Literal(_) => false,
+            DecoratedExprKind::Break | DecoratedExprKind::Continue => false,
+        }
+    }
 
     /// Check if a type contains any references
     fn type_has_reference(&self, ty: &Type) -> bool {
@@ -2128,7 +2515,7 @@ impl SwcEmitter {
             }
             Type::FnTrait { params, return_type } => {
                 format!(
-                    "fn({}) -> {}",
+                    "Fn({}) -> {}",
                     params.iter()
                         .map(|t| self.type_to_string(t))
                         .collect::<Vec<_>>()
@@ -2142,6 +2529,10 @@ impl SwcEmitter {
                     if *mutable { "mut" } else { "const" },
                     self.type_to_string_with_lifetime(inner, add_lifetime)
                 )
+            }
+            Type::AstNode(name) => {
+                // AST node types are emitted as-is, no conversion
+                name.clone()
             }
         }
     }
@@ -2244,6 +2635,8 @@ impl SwcEmitter {
             BinaryOp::GtEq => ">=",
             BinaryOp::And => "&&",
             BinaryOp::Or => "||",
+            // NullCoalesce is handled specially in emit_decorated_binary, not here
+            BinaryOp::NullCoalesce => "unwrap_or",
         }
         .to_string()
     }
@@ -2451,6 +2844,7 @@ impl SwcEmitter {
             }
             _ => {
                 // For other expression types, emit a placeholder
+                // Note: Closures should be decorated and handled via emit_expr, not here
                 self.output.push_str("/* complex expr */");
             }
         }
@@ -3017,6 +3411,185 @@ impl SwcEmitter {
         // Traverse statements should have been transformed by the Hoister stage
         // If we see one here, it's a placeholder that should emit a comment
         self.emit_line("// Traverse statement (should have been hoisted)");
+    }
+
+    /// Process a pub use statement - load compiled module code and track for emission
+    fn process_pub_use(&mut self, use_stmt: &UseStmt) {
+        // Only process file-based imports
+        if !use_stmt.path.starts_with("./") && !use_stmt.path.starts_with("../") {
+            return;
+        }
+
+        // Derive module name from path (use last segment only to avoid nested underscores)
+        let path_segments: Vec<&str> = use_stmt.path.split('/').collect();
+        let module_name = path_segments.last()
+            .unwrap_or(&"module")
+            .replace("-", "_");
+
+        eprintln!("[EMITTER] Processing pub use: path='{}', base_dir={:?}, module_name='{}'",
+            use_stmt.path, self.base_dir, module_name);
+
+        // Try to find the compiled module's lib.rs
+        let stripped_path = use_stmt.path.trim_start_matches("./").trim_start_matches("../");
+        let module_dir = self.base_dir.join(stripped_path);
+        let module_paths = [
+            module_dir.join("lib.rs"),  // base/module/lib.rs
+            self.base_dir.join(format!("{}.rs", stripped_path)),  // base/module.rs
+        ];
+
+        for module_path in &module_paths {
+            eprintln!("[EMITTER] Checking path: {:?} (exists: {})", module_path, module_path.exists());
+            if module_path.exists() {
+                if let Ok(code) = std::fs::read_to_string(module_path) {
+                    // Strip the standard SWC headers from the module code since main lib.rs will have them
+                    let stripped_code = self.strip_module_headers(&code);
+
+                    // Check for transitive dependencies (mod declarations in the loaded code)
+                    let module_parent = module_path.parent()
+                        .map(|p| p.to_path_buf())
+                        .unwrap_or_else(|| self.base_dir.clone());
+                    self.load_transitive_dependencies(&stripped_code, &module_parent);
+
+                    self.imported_modules.push((
+                        module_name.clone(),
+                        stripped_code,
+                        use_stmt.imports.clone(),
+                        false,  // Not a transitive dep, directly imported
+                    ));
+                    eprintln!("[EMITTER] Loaded module '{}' from {:?}", module_name, module_path);
+                    return;
+                }
+            }
+        }
+
+        eprintln!("[EMITTER] Warning: Could not find compiled module for '{}' (tried {:?})",
+            use_stmt.path, module_paths);
+    }
+
+    /// Load transitive dependencies by scanning for `mod xxx;` declarations in module code
+    fn load_transitive_dependencies(&mut self, code: &str, module_dir: &std::path::Path) {
+        // Find all `mod xxx;` declarations (not `mod xxx { ... }` inline modules)
+        for line in code.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("mod ") && trimmed.ends_with(';') {
+                // Extract module name: "mod foo;" -> "foo"
+                let mod_name = trimmed
+                    .trim_start_matches("mod ")
+                    .trim_end_matches(';')
+                    .trim();
+
+                // Skip if we already have this module loaded
+                if self.imported_modules.iter().any(|(name, _, _, _)| name == mod_name) {
+                    eprintln!("[EMITTER] Transitive dep '{}' already loaded, skipping", mod_name);
+                    continue;
+                }
+
+                // Try to find the corresponding .rs file
+                let dep_path = module_dir.join(format!("{}.rs", mod_name));
+                eprintln!("[EMITTER] Looking for transitive dep '{}' at {:?}", mod_name, dep_path);
+
+                if dep_path.exists() {
+                    if let Ok(dep_code) = std::fs::read_to_string(&dep_path) {
+                        let stripped_dep_code = self.strip_module_headers(&dep_code);
+
+                        // Recursively load this module's transitive dependencies
+                        self.load_transitive_dependencies(&stripped_dep_code, module_dir);
+
+                        self.imported_modules.push((
+                            mod_name.to_string(),
+                            stripped_dep_code,
+                            vec![],  // No specific imports for transitive deps
+                            true,    // This IS a transitive dep
+                        ));
+                        eprintln!("[EMITTER] Loaded transitive dep '{}' from {:?}", mod_name, dep_path);
+                    }
+                } else {
+                    eprintln!("[EMITTER] Warning: Transitive dep '{}' not found at {:?}", mod_name, dep_path);
+                }
+            }
+        }
+    }
+
+    /// Strip standard headers from module code (since main lib.rs will have them)
+    /// Also adds #[path="..."] attributes to mod declarations so they can find sibling files
+    fn strip_module_headers(&self, code: &str) -> String {
+        let mut lines: Vec<&str> = code.lines().collect();
+        let mut start_idx = 0;
+
+        // Skip comment headers and use statements
+        for (i, line) in lines.iter().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("//")
+                || trimmed.starts_with("use swc_")
+                || trimmed.starts_with("use std::collections")
+                || trimmed.is_empty()
+            {
+                start_idx = i + 1;
+            } else {
+                break;
+            }
+        }
+
+        // Process remaining lines, adding #[path] attributes to mod declarations
+        let mut result = Vec::new();
+        for line in &lines[start_idx..] {
+            let trimmed = line.trim();
+            // Check for `mod xxx;` declarations (not inline modules with braces)
+            if trimmed.starts_with("mod ") && trimmed.ends_with(';') {
+                let mod_name = trimmed
+                    .trim_start_matches("mod ")
+                    .trim_end_matches(';')
+                    .trim();
+                // Add path attribute so Rust can find the sibling file
+                result.push(format!("#[path = \"{}.rs\"]", mod_name));
+            }
+            result.push(line.to_string());
+        }
+
+        result.join("\n")
+    }
+
+    /// Get the imported modules for generating separate files or inline modules
+    /// Returns (module_name, code, imports, is_transitive)
+    pub fn get_imported_modules(&self) -> &[(String, String, Vec<String>, bool)] {
+        &self.imported_modules
+    }
+
+    /// Generate module declarations to be added at the top of lib.rs
+    /// Only includes direct imports, not transitive deps (those are sub-modules of their parents)
+    pub fn generate_mod_declarations(&self) -> String {
+        let mut output = String::new();
+        for (module_name, _, _, is_transitive) in &self.imported_modules {
+            if !is_transitive {
+                output.push_str(&format!("mod {};\n", module_name));
+            }
+        }
+        output
+    }
+
+    /// Generate use statements for imported symbols
+    /// If `public` is true, generates `pub use` for re-exporting (modules)
+    /// If `public` is false, generates `use` for private imports (plugins)
+    /// Only includes direct imports, not transitive deps
+    pub fn generate_use_statements(&self) -> String {
+        self.generate_use_statements_with_visibility(false)
+    }
+
+    pub fn generate_use_statements_with_visibility(&self, public: bool) -> String {
+        let mut output = String::new();
+        let prefix = if public { "pub use" } else { "use" };
+        for (module_name, _, imports, is_transitive) in &self.imported_modules {
+            // Only generate use statements for direct imports, not transitive deps
+            if *is_transitive {
+                continue;
+            }
+            if !imports.is_empty() {
+                output.push_str(&format!("{} {}::{{{}}};\n", prefix, module_name, imports.join(", ")));
+            } else {
+                output.push_str(&format!("{} {}::*;\n", prefix, module_name));
+            }
+        }
+        output
     }
 }
 

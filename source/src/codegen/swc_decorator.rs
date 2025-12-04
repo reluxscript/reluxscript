@@ -140,6 +140,21 @@ impl SwcDecorator {
         None
     }
 
+    /// Look up type by XPath - uses path-based resolution for member expressions
+    fn lookup_type_by_path(&self, xpath: &str) -> Option<String> {
+        if let Some(ref type_env) = self.semantic_type_env {
+            // Try resolve_member_path which handles field access chains
+            if let Some(type_info) = type_env.resolve_member_path(xpath) {
+                let swc_type = Self::type_info_to_swc_type(&type_info);
+                eprintln!("[DEBUG PATH LOOKUP] '{}' resolved to: {:?} -> {}", xpath, type_info, swc_type);
+                return Some(swc_type);
+            } else {
+                eprintln!("[DEBUG PATH LOOKUP] '{}' NOT found via resolve_member_path", xpath);
+            }
+        }
+        None
+    }
+
     /// Convert semantic TypeInfo to SWC type string
     fn type_info_to_swc_type(type_info: &crate::semantic::TypeInfo) -> String {
         use crate::semantic::TypeInfo;
@@ -164,6 +179,8 @@ impl SwcDecorator {
                 // e.g., "MemberExpression" -> "MemberExpr"
                 map_reluxscript_to_swc(name).0
             }
+            TypeInfo::Struct { name, .. } => name.clone(),
+            TypeInfo::Enum { name, .. } => name.clone(),
             _ => "Unknown".to_string(),
         }
     }
@@ -173,6 +190,7 @@ impl SwcDecorator {
         DecoratedProgram {
             uses: program.uses.clone(),
             decl: self.decorate_top_level_decl(&program.decl),
+            uses_custom_props: false, // Will be set by rewriter if CustomPropAccess is found
         }
     }
 
@@ -186,9 +204,11 @@ impl SwcDecorator {
                 self.is_writer = true;
                 DecoratedTopLevelDecl::Writer(self.decorate_writer_decl(writer))
             }
-            TopLevelDecl::Interface(_) | TopLevelDecl::Module(_) => {
-                // For now, pass through undecorated
-                // These don't need SWC-specific decoration
+            TopLevelDecl::Module(module) => {
+                DecoratedTopLevelDecl::Module(self.decorate_module_decl(module))
+            }
+            TopLevelDecl::Interface(_) => {
+                // Interfaces don't need SWC-specific decoration
                 DecoratedTopLevelDecl::Undecorated(decl.clone())
             }
         }
@@ -244,6 +264,42 @@ impl SwcDecorator {
             hoisted_structs,
             state_struct,
         }
+    }
+
+    /// Decorate a standalone module (like a C# DLL)
+    fn decorate_module_decl(&mut self, module: &ModuleDecl) -> DecoratedModule {
+        let items = module.items.iter().filter_map(|item| {
+            match item {
+                PluginItem::Function(func) => {
+                    Some(DecoratedModuleItem::Function(self.decorate_fn_decl(func)))
+                }
+                PluginItem::Struct(s) => {
+                    Some(DecoratedModuleItem::Struct(s.clone()))
+                }
+                PluginItem::Enum(e) => {
+                    Some(DecoratedModuleItem::Enum(e.clone()))
+                }
+                PluginItem::Impl(impl_block) => {
+                    Some(DecoratedModuleItem::Impl(self.decorate_impl_block(impl_block)))
+                }
+                PluginItem::Static(static_decl) => {
+                    Some(DecoratedModuleItem::Static(DecoratedStaticDecl {
+                        name: static_decl.name.clone(),
+                        ty: static_decl.ty.clone(),
+                        init: self.decorate_expr(&static_decl.init),
+                        is_mut: static_decl.is_mut,
+                        span: static_decl.span,
+                    }))
+                }
+                PluginItem::PubUse(use_stmt) => {
+                    Some(DecoratedModuleItem::PubUse(use_stmt.clone()))
+                }
+                // Skip hooks in standalone modules
+                PluginItem::PreHook(_) | PluginItem::ExitHook(_) => None,
+            }
+        }).collect();
+
+        DecoratedModule { items }
     }
 
     fn decorate_plugin_item(&mut self, item: &PluginItem) -> DecoratedPluginItem {
@@ -347,10 +403,21 @@ impl SwcDecorator {
             param
         }).collect();
 
+        // Map where clause bounds to SWC types
+        let swc_where_clause: Vec<WherePredicate> = func.where_clause.iter().map(|pred| {
+            WherePredicate {
+                target: pred.target.clone(),
+                bound: self.map_type_to_swc(&pred.bound),
+                span: pred.span,
+            }
+        }).collect();
+
         DecoratedFnDecl {
             name: swc_name,
+            type_params: func.type_params.clone(),
             params: swc_params,
             return_type: func.return_type.as_ref().map(|ty| self.map_type_to_swc(ty)),
+            where_clause: swc_where_clause,
             body: decorated_body,
         }
     }
@@ -390,7 +457,7 @@ impl SwcDecorator {
                 DecoratedStmt::Let(DecoratedLetStmt {
                     mutable: let_stmt.mutable,
                     pattern,
-                    ty: let_stmt.ty.clone(),
+                    ty: let_stmt.ty.as_ref().map(|t| self.map_type_to_swc(t)),
                     init,
                 })
             }
@@ -425,7 +492,8 @@ impl SwcDecorator {
                     let decorated_pattern = self.decorate_pattern_with_context(&arm.pattern, &scrutinee_type);
 
                     // Extract pattern bindings and add them to type_env before decorating body
-                    self.add_pattern_bindings_to_env(&arm.pattern, &decorated_pattern);
+                    // Pass scrutinee_type so Option<T> patterns can extract the inner T
+                    self.add_pattern_bindings_to_env_with_type(&arm.pattern, &decorated_pattern, Some(scrutinee_type.clone()));
 
                     let decorated_body_expr = self.decorate_expr(&arm.body);
 
@@ -553,7 +621,20 @@ impl SwcDecorator {
                 }))
             }
 
-            Stmt::Function(func_decl) => DecoratedStmt::Function(func_decl.clone()),
+            Stmt::Function(func_decl) => {
+                // Recursively decorate the function body
+                let decorated_body = self.decorate_block(&func_decl.body);
+                DecoratedStmt::Function(DecoratedNestedFnDecl {
+                    is_pub: func_decl.is_pub,
+                    name: func_decl.name.clone(),
+                    type_params: func_decl.type_params.clone(),
+                    params: func_decl.params.clone(),
+                    return_type: func_decl.return_type.clone(),
+                    where_clause: func_decl.where_clause.clone(),
+                    body: decorated_body,
+                    span: func_decl.span,
+                })
+            }
 
             Stmt::Verbatim(verbatim) => DecoratedStmt::Verbatim(verbatim.clone()),
 
@@ -1169,13 +1250,16 @@ impl SwcDecorator {
             (Pattern::Ident(name), _) => {
                 // Simple identifier - use the expected type from parent, or fall back to swc_pattern
                 let swc_type = expected_type.unwrap_or_else(|| decorated.metadata.swc_pattern.clone());
-                eprintln!("[MATCH BINDING] Adding {} -> {}", name, swc_type);
+                // Determine needs_deref: true if type is &Box<...> (reference to Box)
+                // This occurs when binding from Option<&Box<T>>.as_ref() which gives &Box<T>
+                let needs_deref = swc_type.starts_with("&Box<") || swc_type.starts_with("& Box<");
+                eprintln!("[MATCH BINDING] Adding {} -> {} (needs_deref: {})", name, swc_type, needs_deref);
                 self.type_env.insert(name.clone(), TypeContext {
                     reluxscript_type: swc_type.clone(),
                     swc_type: swc_type.clone(),
                     kind: SwcTypeKind::Struct,
                     known_variant: None,
-                    needs_deref: false,
+                    needs_deref,
                 });
             }
             (Pattern::Variant { inner: Some(inner_pat), ..  }, DecoratedPatternKind::Variant { inner: Some(inner_dec), .. }) => {
@@ -1203,6 +1287,10 @@ impl SwcDecorator {
                         } else if enum_name == "Option" {
                             // Option::Some wraps the inner type from Option<T> or &Option<T>
                             // Need to extract T from the expected_type and preserve & prefix
+                            //
+                            // IMPORTANT: When the inner type is Box<T>, the rewriter will add .as_ref()
+                            // to the scrutinee, which changes Option<Box<T>> to Option<&Box<T>>.
+                            // So the bound variable will be &Box<T>, not Box<T>.
                             if let Some(ref outer_type) = expected_type {
                                 eprintln!("[STEP 3] Option::Some - outer_type: '{}'", outer_type);
                                 // Check if outer_type is a reference
@@ -1214,7 +1302,16 @@ impl SwcDecorator {
                                     ("", outer_type.as_str())
                                 };
                                 let extracted = Self::extract_generic_param(base_type).unwrap_or_else(|| variant_name.to_string());
-                                let full_type = format!("{}{}", ref_prefix, extracted);
+
+                                // If the extracted type is Box<T>, the rewriter will add .as_ref()
+                                // so the actual bound type will be &Box<T>
+                                let full_type = if extracted.starts_with("Box<") && ref_prefix.is_empty() {
+                                    let with_ref = format!("&{}", extracted);
+                                    eprintln!("[STEP 3] Inner is Box<T>, anticipating .as_ref(): {} -> {}", extracted, with_ref);
+                                    with_ref
+                                } else {
+                                    format!("{}{}", ref_prefix, extracted)
+                                };
                                 eprintln!("[STEP 3] Extracted: '{}' (with ref_prefix: '{}')", full_type, ref_prefix);
                                 full_type
                             } else {
@@ -1243,8 +1340,20 @@ impl SwcDecorator {
                     self.narrowed_enum_vars.insert(binding_name.clone(), (parent_enum, variant));
                 }
             }
+            (Pattern::Ref { pattern: inner_pat, .. }, dec) => {
+                // Ref patterns: unwrap and pass the type through
+                // The decorated pattern may also be wrapped, but we want the actual inner
+                let inner_dec = match dec {
+                    DecoratedPatternKind::Ref { pattern: inner, .. } => inner.as_ref(),
+                    // If the decorated isn't Ref, still unwrap the source pattern
+                    _ => decorated,
+                };
+                eprintln!("[MATCH BINDING] Ref pattern - passing through type {:?} to inner", expected_type);
+                self.add_pattern_bindings_to_env_with_type(inner_pat, inner_dec, expected_type);
+            }
             _ => {
                 // Other patterns don't create bindings we need to track
+                eprintln!("[MATCH BINDING] Unhandled pattern case: {:?}", pattern);
             }
         }
     }
@@ -1390,7 +1499,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: Some(mem.span),
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
             // For all other expression types, just use normal decoration
@@ -1520,7 +1630,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: type_ctx.kind.clone(),
                         span: Some(ident_expr.span),
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -1607,10 +1718,20 @@ impl SwcDecorator {
                         span: Some(mem.span),
                         read_conversion: String::new(),
                     }
-                } else if let Some(mapping) = get_typed_field_mapping(object_type, &mem.property) {
+                } else {
+                    // Strip reference and Box<> wrappers for field mapping lookup
+                    // e.g., "&Box<TsTypeAnn>" -> "TsTypeAnn", "Box<Expr>" -> "Expr"
+                    let stripped_ref = object_type.strip_prefix("&mut ").or_else(|| object_type.strip_prefix("&")).unwrap_or(&object_type);
+                    let base_object_type = if stripped_ref.starts_with("Box<") && stripped_ref.ends_with(">") {
+                        &stripped_ref[4..stripped_ref.len()-1]
+                    } else {
+                        stripped_ref
+                    };
+
+                    if let Some(mapping) = get_typed_field_mapping(base_object_type, &mem.property) {
                     // We have precise mapping!
                     eprintln!("[DEBUG] Field mapping found: {}.{} → {}.{} (needs_deref: {})",
-                        object_type, mem.property, object_type, mapping.swc_field, mapping.needs_deref);
+                        base_object_type, mem.property, base_object_type, mapping.swc_field, mapping.needs_deref);
                     SwcFieldMetadata {
                         swc_field_name: mapping.swc_field.to_string(),
                         accessor: {
@@ -1681,15 +1802,38 @@ impl SwcDecorator {
                         ""
                     };
 
+                    // Try to look up field type using XPath first (most accurate)
+                    // Then fall back to struct field lookup
+                    let field_type = if !is_likely_ast_type {
+                        // First try XPath-based lookup using the member expression's path
+                        self.lookup_type_by_path(&mem.path)
+                            .or_else(|| {
+                                // Fall back to struct field lookup
+                                self.semantic_type_env.as_ref()
+                                    .and_then(|env| env.get_struct_fields(object_type))
+                                    .and_then(|fields| fields.get(&mem.property))
+                                    .map(|type_info| {
+                                        let type_name = type_info.display_name();
+                                        eprintln!("[DEBUG] Found struct field type: {}.{} = {}",
+                                            object_type, mem.property, type_name);
+                                        type_name
+                                    })
+                            })
+                            .unwrap_or_else(|| "UserDefined".to_string())
+                    } else {
+                        "UserDefined".to_string()
+                    };
+
                     SwcFieldMetadata {
                         swc_field_name: swc_field.to_string(),
                         accessor: FieldAccessor::Direct,
-                        field_type: "UserDefined".to_string(),
+                        field_type,
                         source_field: Some(mem.property.clone()),
                         span: Some(mem.span),
                         read_conversion: read_conversion.to_string(),
                     }
-                };
+                    }  // Close inner if-else (field mapping found vs fallback)
+                };  // Close outer else (is_self_builder check)
 
                 // Infer the type of this member expression
                 // If there's a read_conversion that changes the type, use the converted type
@@ -1733,7 +1877,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown, // TODO: Infer properly
                         span: Some(mem.span),
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -1765,6 +1910,14 @@ impl SwcDecorator {
                     }
                 };
 
+                // For reference operator (&), preserve is_boxed from operand
+                // so that &bin.left where bin.left is Box<Expr> becomes &*bin.left
+                let is_boxed = if matches!(unary.op, UnaryOp::Ref | UnaryOp::RefMut) {
+                    decorated_operand.metadata.is_boxed
+                } else {
+                    false
+                };
+
                 DecoratedExpr {
                     kind: DecoratedExprKind::Unary {
                         op: unary.op,
@@ -1774,13 +1927,14 @@ impl SwcDecorator {
                             span: Some(unary.span),
                         },
                     },
-                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None,
                         swc_type: result_type,
-                        is_boxed: false,
+                        is_boxed,
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: Some(unary.span),
-                    },
+
+                    needs_to_string: false,},
                 }
             }
 
@@ -1793,7 +1947,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Primitive,
                         span: None,
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -1806,6 +1961,40 @@ impl SwcDecorator {
                 let left_needs_deref = self.needs_sym_deref(&left, &right, bin.op);
                 let right_needs_deref = self.needs_sym_deref(&right, &left, bin.op);
 
+                // For null-coalescing (??), check if right side is also an Option
+                // This determines whether to use .or() or .unwrap_or()
+                let right_is_option = if matches!(bin.op, BinaryOp::NullCoalesce) {
+                    right.metadata.is_optional ||
+                    right.metadata.swc_type.starts_with("Option<") ||
+                    // Check for another ?? on the right (chained)
+                    matches!(&right.kind, DecoratedExprKind::Binary { op: BinaryOp::NullCoalesce, .. })
+                } else {
+                    false
+                };
+
+                // Determine result type for null-coalescing
+                let (result_type, result_is_optional) = if matches!(bin.op, BinaryOp::NullCoalesce) {
+                    // If right is also an Option, result is Option<T>
+                    // Otherwise, result is the unwrapped type T
+                    if right_is_option {
+                        (left.metadata.swc_type.clone(), true)
+                    } else {
+                        // Extract inner type from Option<T>
+                        let inner_type = if left.metadata.swc_type.starts_with("Option<") {
+                            left.metadata.swc_type
+                                .strip_prefix("Option<")
+                                .and_then(|s| s.strip_suffix(">"))
+                                .unwrap_or(&left.metadata.swc_type)
+                                .to_string()
+                        } else {
+                            right.metadata.swc_type.clone()
+                        };
+                        (inner_type, false)
+                    }
+                } else {
+                    ("bool".to_string(), false)
+                };
+
                 DecoratedExpr {
                     kind: DecoratedExprKind::Binary {
                         left,
@@ -1814,16 +2003,18 @@ impl SwcDecorator {
                         binary_metadata: SwcBinaryMetadata {
                             left_needs_deref,
                             right_needs_deref,
+                            right_is_option,
                             span: Some(bin.span),
                         },
                     },
-                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
-                        swc_type: "bool".to_string(),
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None,
+                        swc_type: result_type,
                         is_boxed: false,
-                        is_optional: false,
+                        is_optional: result_is_optional,
                         type_kind: SwcTypeKind::Primitive,
                         span: Some(bin.span),
-                    },
+
+                    needs_to_string: false,},
                 }
             }
 
@@ -1896,7 +2087,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: Some(call.span),
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -1921,7 +2113,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: None,
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -1966,7 +2159,8 @@ impl SwcDecorator {
                             is_optional: false,
                             type_kind: SwcTypeKind::Unknown,
                             span: Some(index.span),
-                        },
+                        
+                        needs_to_string: false,},
                     };
 
                     // Look up the field mapping to get proper metadata
@@ -2012,7 +2206,8 @@ impl SwcDecorator {
                             is_optional: false,
                             type_kind: SwcTypeKind::Unknown,
                             span: Some(index.span),
-                        },
+                        
+                        needs_to_string: false,},
                     }
                 } else {
                     // Normal index access, no unwrapping needed
@@ -2027,7 +2222,8 @@ impl SwcDecorator {
                             is_optional: false,
                             type_kind: SwcTypeKind::Unknown,
                             span: Some(index.span),
-                        },
+                        
+                        needs_to_string: false,},
                     }
                 }
             }
@@ -2036,10 +2232,28 @@ impl SwcDecorator {
                 // Map ReluxScript type to SWC type
                 let swc_type = self.reluxscript_to_swc_type(&struct_init.name);
 
-                // Recursively decorate field expressions
-                let decorated_fields = struct_init.fields.iter()
+                // Get struct field types from semantic type env
+                let struct_fields = self.semantic_type_env.as_ref()
+                    .and_then(|env| env.get_struct_fields(&struct_init.name))
+                    .cloned();
+
+                // Recursively decorate field expressions, checking for String fields
+                let decorated_fields: Vec<(String, DecoratedExpr)> = struct_init.fields.iter()
                     .map(|(field_name, field_expr)| {
-                        (field_name.clone(), self.decorate_expr(field_expr))
+                        let mut decorated = self.decorate_expr(field_expr);
+
+                        // Check if field is String type and value is string literal
+                        if let Some(ref fields) = struct_fields {
+                            if let Some(field_type) = fields.get(field_name) {
+                                let field_type_str = Self::type_info_to_swc_type(field_type);
+                                let is_string_literal = matches!(&decorated.kind, DecoratedExprKind::Literal(crate::parser::Literal::String(_)));
+                                if field_type_str == "String" && is_string_literal {
+                                    decorated.metadata.needs_to_string = true;
+                                }
+                            }
+                        }
+
+                        (field_name.clone(), decorated)
                     })
                     .collect();
 
@@ -2049,13 +2263,14 @@ impl SwcDecorator {
                         fields: decorated_fields,
                         span: struct_init.span,
                     }),
-                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None,
                         swc_type,
                         is_boxed: false,
                         is_optional: false,
                         type_kind: SwcTypeKind::Struct,
                         span: Some(struct_init.span),
-                    },
+
+                    needs_to_string: false,},
                 }
             }
 
@@ -2070,7 +2285,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: Some(vec_init.span),
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -2079,19 +2295,27 @@ impl SwcDecorator {
                 let then_branch = self.decorate_block(&if_expr.then_branch);
                 let else_branch = if_expr.else_branch.as_ref().map(|b| self.decorate_block(b));
 
+                // Decorate the pattern if present (for if-let expressions)
+                let pattern = if_expr.pattern.as_ref().map(|p| {
+                    let condition_type = condition.metadata.swc_type.clone();
+                    self.decorate_pattern_with_context(p, &condition_type)
+                });
+
                 DecoratedExpr {
                     kind: DecoratedExprKind::If(Box::new(DecoratedIfExpr {
                         condition,
+                        pattern,
                         then_branch,
                         else_branch,
                     })),
-                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None,
                         swc_type: "UserDefined".to_string(),
                         is_boxed: false,
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: None,
-                    },
+
+                    needs_to_string: false,},
                 }
             }
 
@@ -2125,20 +2349,28 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: None,
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
             Expr::Closure(closure) => {
+                // Recursively decorate the closure body
+                let decorated_body = Box::new(self.decorate_expr(&closure.body));
                 DecoratedExpr {
-                    kind: DecoratedExprKind::Closure(closure.clone()),
-                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
+                    kind: DecoratedExprKind::Closure(DecoratedClosureExpr {
+                        params: closure.params.clone(),
+                        body: decorated_body,
+                        span: closure.span,
+                    }),
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None,
                         swc_type: "Closure".to_string(),
                         is_boxed: false,
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: Some(closure.span),
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -2167,7 +2399,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: Some(ref_expr.span),
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -2186,22 +2419,38 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind,
                         span: Some(deref_expr.span),
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
             Expr::Assign(assign) => {
                 let left = Box::new(self.decorate_expr(&assign.target));
-                let right = Box::new(self.decorate_expr(&assign.value));
+                let mut right = Box::new(self.decorate_expr(&assign.value));
+
+                // Check if we need .to_string() conversion:
+                // If left is String type and right is a string literal (&str)
+                let left_type = &left.metadata.swc_type;
+                let is_string_literal = matches!(&right.kind, DecoratedExprKind::Literal(crate::parser::Literal::String(_)));
+
+                eprintln!("[ASSIGN DEBUG] left_type={}, is_string_literal={}", left_type, is_string_literal);
+
+                // TypeInfo::Str converts to "String" via type_info_to_swc_type
+                if left_type == "String" && is_string_literal {
+                    eprintln!("[ASSIGN DEBUG] Setting needs_to_string=true");
+                    right.metadata.needs_to_string = true;
+                }
 
                 DecoratedExpr {
                     kind: DecoratedExprKind::Assign { left, right },
-                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
+                    metadata: SwcExprMetadata {
+                        needs_enum_unwrap: None,
                         swc_type: "()".to_string(),
                         is_boxed: false,
                         is_optional: false,
                         type_kind: SwcTypeKind::Primitive,
                         span: Some(assign.span),
+                        needs_to_string: false,
                     },
                 }
             }
@@ -2222,7 +2471,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Primitive,
                         span: Some(compound.span),
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -2242,7 +2492,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: Some(range.span),
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -2257,7 +2508,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: None,
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -2272,7 +2524,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: None,
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -2307,7 +2560,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Primitive,
                         span: Some(matches.span),
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -2322,7 +2576,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: None,
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -2335,7 +2590,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: None,
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -2348,7 +2604,8 @@ impl SwcDecorator {
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: None,
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
 
@@ -2379,7 +2636,8 @@ impl SwcDecorator {
                         type_kind: crate::type_system::SwcTypeKind::Unknown,
                         needs_enum_unwrap: None,
                         span: None,
-                    },
+                    
+                    needs_to_string: false,},
                 )
             }
         }
@@ -2389,6 +2647,11 @@ impl SwcDecorator {
     /// Example: "Expr::Array(array_lit)" → "Expr::Array"
     /// Example: "Pat::Ident(ident)" → "Pat::Ident"
     fn strip_pattern_binding(&self, pattern: &str) -> String {
+        // Don't strip struct patterns that contain field matching (e.g., `{ kind: ... }`)
+        // These patterns need the full content for proper type discrimination
+        if pattern.contains("{ ") {
+            return pattern.to_string();
+        }
         if let Some(paren_pos) = pattern.find('(') {
             pattern[..paren_pos].to_string()
         } else {
@@ -2432,6 +2695,7 @@ impl SwcDecorator {
             "Statement" => "Stmt",
             "Declaration" => "Decl",
             "Identifier" => "Ident",
+            "Literal" => "Lit",
             "MemberExpression" => "Member",
             "CallExpression" => "Call",
             "BinaryExpression" => "Bin",
@@ -2517,9 +2781,10 @@ impl SwcDecorator {
 
         match ty {
             Type::Named(name) => {
-                // Try to map the type name
+                // Try to map the type name to an SWC AST node type
                 if let Some(mapping) = get_node_mapping(name) {
-                    Type::Named(mapping.swc.to_string())
+                    // Use AstNode for SWC AST types - these should be emitted as-is
+                    Type::AstNode(mapping.swc.to_string())
                 } else {
                     ty.clone()
                 }
@@ -2534,6 +2799,13 @@ impl SwcDecorator {
                 Type::Container {
                     name: name.clone(),
                     type_args: type_args.iter().map(|t| self.map_type_to_swc(t)).collect(),
+                }
+            }
+            Type::FnTrait { params, return_type } => {
+                // Map parameter and return types in function trait bounds
+                Type::FnTrait {
+                    params: params.iter().map(|t| self.map_type_to_swc(t)).collect(),
+                    return_type: Box::new(self.map_type_to_swc(return_type)),
                 }
             }
             _ => ty.clone(),
@@ -2672,7 +2944,8 @@ impl SwcDecorator {
                 is_optional: true,
                 type_kind: SwcTypeKind::Unknown,
                 span: Some(access.span),
-            },
+            
+            needs_to_string: false,},
         }
     }
 
@@ -2804,7 +3077,8 @@ impl SwcDecorator {
                 is_optional,
                 type_kind: SwcTypeKind::Primitive,
                 span: Some(regex_call.span),
-            },
+            
+            needs_to_string: false,},
         }
     }
 }
@@ -2817,13 +3091,32 @@ impl SwcDecorator {
 pub struct DecoratedProgram {
     pub uses: Vec<crate::parser::UseStmt>,
     pub decl: DecoratedTopLevelDecl,
+    /// Whether custom properties are used (set by rewriter when CustomPropAccess is transformed)
+    pub uses_custom_props: bool,
 }
 
 #[derive(Debug, Clone)]
 pub enum DecoratedTopLevelDecl {
     Plugin(DecoratedPlugin),
     Writer(DecoratedWriter),
+    Module(DecoratedModule),
     Undecorated(TopLevelDecl),
+}
+
+/// A standalone module (like a C# DLL) - just functions, structs, enums
+#[derive(Debug, Clone)]
+pub struct DecoratedModule {
+    pub items: Vec<DecoratedModuleItem>,
+}
+
+#[derive(Debug, Clone)]
+pub enum DecoratedModuleItem {
+    Function(DecoratedFnDecl),
+    Struct(StructDecl),
+    Enum(EnumDecl),
+    Impl(DecoratedImplBlock),
+    Static(DecoratedStaticDecl),
+    PubUse(UseStmt),
 }
 
 #[derive(Debug, Clone)]
@@ -2866,8 +3159,10 @@ pub struct DecoratedStaticDecl {
 #[derive(Debug, Clone)]
 pub struct DecoratedFnDecl {
     pub name: String,
+    pub type_params: Vec<GenericParam>,
     pub params: Vec<Param>,
     pub return_type: Option<Type>,
+    pub where_clause: Vec<WherePredicate>,
     pub body: DecoratedBlock,
 }
 

@@ -1,0 +1,71 @@
+/**
+ * Test: Property Patterns (C# 8.0+)
+ *
+ * C# developers write:
+ *   if (node is MemberExpression { Object: Identifier { Name: "console" } }) { ... }
+ *
+ * Instead of nested if-let chains.
+ */
+plugin PropertyPatterns {
+
+    struct State {
+        result: Str,
+    }
+
+    fn init() -> State {
+        State { result: "" }
+    }
+
+    pub fn visit_expression_statement(node: &ExpressionStatement) {
+        let expr = &node.expression;
+
+        // Property pattern with single property
+        if expr is Expression::Identifier { name: "console" } {
+            self.state.result = "found console";
+        }
+
+        // Property pattern with binding
+        if expr is Expression::Identifier { name } {
+            self.state.result = name;
+        }
+
+        // Nested property pattern
+        if expr is Expression::MemberExpression { object: Expression::Identifier { name: "console" } } {
+            self.state.result = "console.something";
+        }
+
+        // Multiple properties
+        if expr is Expression::CallExpression { callee, arguments } {
+            self.state.result = "call with args";
+        }
+
+        // Mixed literal and binding
+        if expr is Expression::BinaryExpression { operator: "+", left, right } {
+            self.state.result = "addition";
+        }
+
+        // Deep nesting
+        if expr is Expression::CallExpression {
+            callee: Expression::MemberExpression {
+                object: Expression::Identifier { name: "console" },
+                property: "log"
+            }
+        } {
+            self.state.result = "console.log call";
+        }
+
+        // With array/collection patterns
+        if expr is Expression::ArrayExpression { elements: [first, second, ..rest] } {
+            self.state.result = "array with at least 2 elements";
+        }
+
+        // Combining with guards (when clause)
+        if expr is Expression::Identifier { name } when name.starts_with("use") {
+            self.state.result = "hook identifier";
+        }
+    }
+
+    fn finish() -> Str {
+        self.state.result
+    }
+}

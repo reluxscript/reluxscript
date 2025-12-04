@@ -334,6 +334,12 @@ impl OwnershipChecker {
         match expr {
             // Member access needs clone (unless it's a method call or Copy type)
             Expr::Member(member) => {
+                // Optional member access (?.) returns Option<T> which is owned
+                // No clone needed since we're mapping/transforming the Option
+                if member.optional {
+                    return;
+                }
+
                 // Allow access to common Copy type fields (primitives)
                 // These don't need .clone() since they're Copy
                 let copy_fields = ["value", "len", "length", "size", "count", "index"];

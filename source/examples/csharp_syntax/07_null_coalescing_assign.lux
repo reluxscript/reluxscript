@@ -1,0 +1,63 @@
+/**
+ * Test: Null-Coalescing Assignment (??=)
+ *
+ * C# developers write:
+ *   name ??= "default";
+ *
+ * Instead of:
+ *   if name.is_none() { name = Some("default"); }
+ */
+plugin NullCoalescingAssign {
+
+    struct State {
+        result: Str,
+        cached: Option<Str>,
+    }
+
+    fn init() -> State {
+        State {
+            result: "",
+            cached: None,
+        }
+    }
+
+    pub fn visit_identifier(node: &Identifier) {
+        // Basic null coalescing assignment
+        self.state.cached ??= "default";
+
+        // With computed value
+        self.state.cached ??= compute_value();
+
+        // Local variable
+        let mut name: Option<Str> = None;
+        name ??= "anonymous";
+
+        // Chained assignment
+        let mut a: Option<Str> = None;
+        let mut b: Option<Str> = None;
+        a ??= "first";
+        b ??= a ?? "second";
+
+        // In a loop pattern
+        let mut cache: Option<Str> = None;
+        for item in items {
+            cache ??= expensive_compute(item);
+        }
+
+        // With struct field
+        let mut config = Config { name: None };
+        config.name ??= "default_config";
+    }
+
+    fn compute_value() -> Str {
+        "computed"
+    }
+
+    fn expensive_compute(item: &Item) -> Str {
+        item.name.clone()
+    }
+
+    fn finish() -> Str {
+        self.state.result
+    }
+}

@@ -2831,6 +2831,7 @@ impl BabelGenerator {
             BinaryOp::GtEq => ">=",
             BinaryOp::And => "&&",
             BinaryOp::Or => "||",
+            BinaryOp::NullCoalesce => "??",
         }
     }
 
@@ -3108,6 +3109,7 @@ impl BabelGenerator {
                             let field_expr = Expr::Ident(IdentExpr {
                                 name: field_scrutinee.clone(),
                                 span: crate::lexer::Span::new(0, 0, 0, 0),
+                                path: String::new(),  // Generated node
                             });
                             self.gen_matches_pattern(&field_expr, field_pattern);
                         }
@@ -3165,10 +3167,16 @@ impl BabelGenerator {
             }
             Pattern::Variant { name, inner } => {
                 // Variant pattern: check type and optionally inner pattern
+                // Strip enum prefix (Pattern::, Expression::, etc.) before looking up mapping
+                let variant_name = if name.contains("::") {
+                    name.split("::").last().unwrap_or(name)
+                } else {
+                    name.as_str()
+                };
                 // Use mapping to get the correct Babel type checker
-                let checker = get_node_mapping(name)
+                let checker = get_node_mapping(variant_name)
                     .map(|m| m.babel_checker.to_string())
-                    .unwrap_or_else(|| format!("is{}", name));
+                    .unwrap_or_else(|| format!("is{}", variant_name));
                 self.emit(&format!("t.{}(", checker));
                 self.gen_expr(scrutinee);
                 self.emit(")");
@@ -3178,9 +3186,15 @@ impl BabelGenerator {
             }
             Pattern::Struct { name, .. } => {
                 // Struct pattern: check type
-                let checker = get_node_mapping(name)
+                // Strip enum prefix (Pattern::, Expression::, etc.) before looking up mapping
+                let struct_name = if name.contains("::") {
+                    name.split("::").last().unwrap_or(name)
+                } else {
+                    name.as_str()
+                };
+                let checker = get_node_mapping(struct_name)
                     .map(|m| m.babel_checker.to_string())
-                    .unwrap_or_else(|| format!("is{}", name));
+                    .unwrap_or_else(|| format!("is{}", struct_name));
                 self.emit(&format!("t.{}(", checker));
                 self.gen_expr(scrutinee);
                 self.emit(")");

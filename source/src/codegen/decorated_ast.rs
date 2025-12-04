@@ -89,7 +89,7 @@ pub enum DecoratedExprKind {
     VecInit(Vec<DecoratedExpr>),
     If(Box<DecoratedIfExpr>),
     Match(Box<DecoratedMatchExpr>),
-    Closure(crate::parser::ClosureExpr), // TODO: Decorate if needed
+    Closure(DecoratedClosureExpr),
     Ref {
         mutable: bool,
         expr: Box<DecoratedExpr>,
@@ -170,6 +170,29 @@ pub struct DecoratedBlock {
     pub stmts: Vec<DecoratedStmt>,
 }
 
+/// Decorated closure expression
+#[derive(Debug, Clone)]
+pub struct DecoratedClosureExpr {
+    pub params: Vec<crate::parser::ClosureParam>,
+    pub body: Box<DecoratedExpr>,
+    pub span: crate::lexer::Span,
+}
+
+/// Decorated nested function declaration (for helper functions inside blocks)
+/// This is different from the top-level DecoratedFnDecl in swc_decorator.rs which
+/// is used for visitor methods.
+#[derive(Debug, Clone)]
+pub struct DecoratedNestedFnDecl {
+    pub is_pub: bool,
+    pub name: String,
+    pub type_params: Vec<crate::parser::GenericParam>,
+    pub params: Vec<crate::parser::Param>,
+    pub return_type: Option<crate::parser::Type>,
+    pub where_clause: Vec<crate::parser::WherePredicate>,
+    pub body: DecoratedBlock,
+    pub span: crate::lexer::Span,
+}
+
 /// Decorated statement
 #[derive(Debug, Clone)]
 pub enum DecoratedStmt {
@@ -185,7 +208,7 @@ pub enum DecoratedStmt {
     Break,
     Continue,
     Traverse(Box<DecoratedTraverseStmt>),
-    Function(crate::parser::FnDecl), // Nested functions - TODO: Decorate if needed
+    Function(DecoratedNestedFnDecl),
     Verbatim(crate::parser::VerbatimStmt), // Platform-specific code - no decoration needed
     CustomPropAssignment(Box<DecoratedCustomPropAssignment>),
     Unsafe(DecoratedUnsafeBlock),
@@ -248,6 +271,7 @@ pub struct DecoratedWhileStmt {
 #[derive(Debug, Clone)]
 pub struct DecoratedIfExpr {
     pub condition: DecoratedExpr,
+    pub pattern: Option<DecoratedPattern>,
     pub then_branch: DecoratedBlock,
     pub else_branch: Option<DecoratedBlock>,
 }

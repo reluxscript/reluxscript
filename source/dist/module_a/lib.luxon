@@ -1,0 +1,29 @@
+{
+  "name": "module_a",
+  "structs": {
+    "Point": {
+      "fields": {
+        "x": "Number",
+        "y": "Number"
+      },
+      "derives": [
+        "Default"
+      ]
+    }
+  },
+  "functions": {
+    "distance_squared": {
+      "params": [
+        {
+          "name": "p",
+          "type": "&Point"
+        }
+      ],
+      "returns": "Number"
+    },
+    "origin": {
+      "params": [],
+      "returns": "Point"
+    }
+  }
+}

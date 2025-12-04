@@ -1,0 +1,28 @@
+/**
+ * Test plugin that imports from test_module (compiled)
+ */
+
+plugin TestImport {
+    // Import from the compiled module directory (has lib.luxon)
+    pub use "./dist/test_module" { Counter, increment, is_positive };
+
+    struct State {
+        counter: Counter,
+        total: i32,
+    }
+
+    fn init() -> State {
+        State {
+            counter: Counter { value: 0 },
+            total: 0,
+        }
+    }
+
+    fn visit_ident(node: &mut Ident) {
+        increment(&mut self.state.counter);
+
+        if is_positive(self.state.counter.value) {
+            self.state.total = self.state.total + 1;
+        }
+    }
+}

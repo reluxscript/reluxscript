@@ -18,7 +18,7 @@ use crate::lexer::Span;
 use super::decorated_ast::*;
 use super::swc_metadata::*;
 use crate::type_system::SwcTypeKind;
-use super::swc_decorator::{DecoratedProgram, DecoratedTopLevelDecl, DecoratedPlugin, DecoratedWriter, DecoratedPluginItem, DecoratedFnDecl, DecoratedImplBlock};
+use super::swc_decorator::{DecoratedProgram, DecoratedTopLevelDecl, DecoratedPlugin, DecoratedWriter, DecoratedModule, DecoratedModuleItem, DecoratedPluginItem, DecoratedFnDecl, DecoratedImplBlock};
 
 /// SwcRewriter transforms DecoratedAST → DecoratedAST
 /// All semantic transformations happen here, not in codegen
@@ -31,6 +31,9 @@ pub struct SwcRewriter {
 
     /// Helper function names (non-visitor functions) in current plugin/writer
     helper_functions: Vec<String>,
+
+    /// Whether custom properties are used (set when CustomPropAccess is transformed)
+    uses_custom_props: bool,
 }
 
 impl SwcRewriter {
@@ -40,6 +43,7 @@ impl SwcRewriter {
             temp_var_counter: 0,
             is_writer: false,
             helper_functions: Vec::new(),
+            uses_custom_props: false,
         }
     }
 
@@ -48,15 +52,124 @@ impl SwcRewriter {
         Self {
             temp_var_counter: 0,
             is_writer: true,
+            uses_custom_props: false,
             helper_functions: Vec::new(),
+        }
+    }
+
+    /// Convert pattern bindings to wildcards for matches! macro
+    /// In matches! context, we don't use bindings - we only check if pattern matches
+    fn pattern_to_wildcard(pattern: DecoratedPattern) -> DecoratedPattern {
+        let new_kind = match pattern.kind {
+            // Identifier bindings become wildcards
+            DecoratedPatternKind::Ident(_) => DecoratedPatternKind::Wildcard,
+
+            // Variant patterns: convert inner binding to wildcard
+            DecoratedPatternKind::Variant { name, inner } => {
+                let new_inner = inner.map(|inner_pat| {
+                    Box::new(Self::pattern_to_wildcard(*inner_pat))
+                });
+                DecoratedPatternKind::Variant { name, inner: new_inner }
+            }
+
+            // Struct patterns: convert field bindings to wildcards
+            DecoratedPatternKind::Struct { name, fields } => {
+                let new_fields = fields.into_iter()
+                    .map(|(field_name, field_pat)| {
+                        (field_name, Self::pattern_to_wildcard(field_pat))
+                    })
+                    .collect();
+                DecoratedPatternKind::Struct { name, fields: new_fields }
+            }
+
+            // Tuple patterns: convert elements to wildcards
+            DecoratedPatternKind::Tuple(elements) => {
+                let new_elements = elements.into_iter()
+                    .map(Self::pattern_to_wildcard)
+                    .collect();
+                DecoratedPatternKind::Tuple(new_elements)
+            }
+
+            // Array patterns: convert elements to wildcards
+            DecoratedPatternKind::Array(elements) => {
+                let new_elements = elements.into_iter()
+                    .map(Self::pattern_to_wildcard)
+                    .collect();
+                DecoratedPatternKind::Array(new_elements)
+            }
+
+            // Object patterns: convert properties to wildcards
+            DecoratedPatternKind::Object(props) => {
+                // For object patterns in matches!, we keep structure but wildcard bindings
+                DecoratedPatternKind::Object(props)
+            }
+
+            // Or patterns: convert each alternative
+            DecoratedPatternKind::Or(alternatives) => {
+                let new_alternatives = alternatives.into_iter()
+                    .map(Self::pattern_to_wildcard)
+                    .collect();
+                DecoratedPatternKind::Or(new_alternatives)
+            }
+
+            // Rest patterns: convert inner to wildcard
+            DecoratedPatternKind::Rest(inner) => {
+                DecoratedPatternKind::Rest(Box::new(Self::pattern_to_wildcard(*inner)))
+            }
+
+            // Ref patterns: convert inner to wildcard
+            DecoratedPatternKind::Ref { is_mut, pattern: inner } => {
+                DecoratedPatternKind::Ref {
+                    is_mut,
+                    pattern: Box::new(Self::pattern_to_wildcard(*inner))
+                }
+            }
+
+            // Literals and wildcards pass through unchanged
+            DecoratedPatternKind::Literal(_) => pattern.kind,
+            DecoratedPatternKind::Wildcard => pattern.kind,
+        };
+
+        // Update swc_pattern in metadata for tuple variants (e.g., "Lit::Null" -> "Lit::Null(_)")
+        let mut new_metadata = pattern.metadata;
+
+        // Check if this is a known SWC tuple variant that needs (_)
+        // These are variants like Lit::Null, Lit::Bool, etc. that wrap a struct
+        let swc_pat = &new_metadata.swc_pattern;
+        let needs_tuple_wildcard =
+            swc_pat.ends_with("Lit::Null") ||
+            swc_pat.ends_with("Lit::Bool") ||
+            swc_pat.ends_with("Lit::Str") ||
+            swc_pat.ends_with("Lit::Num") ||
+            swc_pat.ends_with("Lit::BigInt") ||
+            swc_pat.ends_with("Lit::Regex") ||
+            swc_pat.ends_with("Lit::JSXText");
+
+        if needs_tuple_wildcard {
+            // Add (_) to tuple variants
+            new_metadata.swc_pattern = format!("{}(_)", new_metadata.swc_pattern);
+        } else if matches!(new_kind, DecoratedPatternKind::Variant { ref inner, .. } if inner.is_some()) {
+            // For other variant patterns with inner, ensure swc_pattern ends with (_)
+            if !new_metadata.swc_pattern.ends_with("(_)") &&
+               !new_metadata.swc_pattern.ends_with("{ .. }") &&
+               !new_metadata.swc_pattern.contains('(') {
+                new_metadata.swc_pattern = format!("{}(_)", new_metadata.swc_pattern);
+            }
+        }
+
+        DecoratedPattern {
+            kind: new_kind,
+            metadata: new_metadata,
         }
     }
 
     /// Main entry point: rewrite entire program
     pub fn rewrite_program(&mut self, program: DecoratedProgram) -> DecoratedProgram {
+        let decl = self.rewrite_top_level_decl(program.decl);
         DecoratedProgram {
             uses: program.uses,
-            decl: self.rewrite_top_level_decl(program.decl),
+            decl,
+            uses_custom_props: self.uses_custom_props,
         }
     }
 
@@ -73,6 +186,9 @@ impl SwcRewriter {
             DecoratedTopLevelDecl::Writer(writer) => {
                 self.is_writer = true;
                 DecoratedTopLevelDecl::Writer(self.rewrite_writer(writer))
+            }
+            DecoratedTopLevelDecl::Module(module) => {
+                DecoratedTopLevelDecl::Module(self.rewrite_module(module))
             }
             DecoratedTopLevelDecl::Undecorated(decl) => {
                 // Pass through undecorated nodes unchanged
@@ -124,6 +240,48 @@ impl SwcRewriter {
         }
     }
 
+    fn rewrite_module(&mut self, module: DecoratedModule) -> DecoratedModule {
+        // First pass: collect helper function names
+        self.helper_functions.clear();
+        for item in &module.items {
+            if let DecoratedModuleItem::Function(func) = item {
+                self.helper_functions.push(func.name.clone());
+            }
+        }
+
+        // Second pass: rewrite with helper function knowledge
+        DecoratedModule {
+            items: module.items
+                .into_iter()
+                .map(|item| self.rewrite_module_item(item))
+                .collect(),
+        }
+    }
+
+    fn rewrite_module_item(&mut self, item: DecoratedModuleItem) -> DecoratedModuleItem {
+        match item {
+            DecoratedModuleItem::Function(func) => {
+                DecoratedModuleItem::Function(self.rewrite_fn_decl(func))
+            }
+            DecoratedModuleItem::Struct(struct_decl) => {
+                DecoratedModuleItem::Struct(struct_decl)
+            }
+            DecoratedModuleItem::Enum(enum_decl) => {
+                DecoratedModuleItem::Enum(enum_decl)
+            }
+            DecoratedModuleItem::Impl(impl_block) => {
+                DecoratedModuleItem::Impl(self.rewrite_impl_block(impl_block))
+            }
+            DecoratedModuleItem::Static(static_decl) => {
+                DecoratedModuleItem::Static(static_decl)
+            }
+            DecoratedModuleItem::PubUse(use_stmt) => {
+                // Use statements don't need rewriting
+                DecoratedModuleItem::PubUse(use_stmt)
+            }
+        }
+    }
+
     fn rewrite_plugin_item(&mut self, item: DecoratedPluginItem) -> DecoratedPluginItem {
         match item {
             DecoratedPluginItem::Function(func) => {
@@ -160,8 +318,10 @@ impl SwcRewriter {
     fn rewrite_fn_decl(&mut self, func: DecoratedFnDecl) -> DecoratedFnDecl {
         DecoratedFnDecl {
             name: func.name,
+            type_params: func.type_params,
             params: func.params,
             return_type: func.return_type,
+            where_clause: func.where_clause,
             body: self.rewrite_block(func.body),
         }
     }
@@ -343,8 +503,12 @@ impl SwcRewriter {
             }
 
             DecoratedStmt::Function(func_decl) => {
-                // Function declarations don't need rewriting at this level
-                DecoratedStmt::Function(func_decl)
+                // Recursively rewrite the function body
+                let rewritten_body = self.rewrite_block(func_decl.body);
+                DecoratedStmt::Function(DecoratedNestedFnDecl {
+                    body: rewritten_body,
+                    ..func_decl
+                })
             }
 
             DecoratedStmt::Verbatim(verbatim) => {
@@ -415,7 +579,8 @@ impl SwcRewriter {
                             is_optional: false,
                             type_kind: crate::type_system::SwcTypeKind::Unknown,
                             span: scrutinee_span,
-                        },
+                        
+                        needs_to_string: false,},
                     };
 
                     if_stmt.pattern = Some(shadowing_pattern);
@@ -606,6 +771,18 @@ impl SwcRewriter {
 
         if is_ident_with_box && is_variant_pattern {
             // Wrap scrutinee with .as_ref() call
+            // Update the type: Option<Box<T>> -> Option<&Box<T>>
+            // This is important because the bound variable from Some(x) will be &Box<T>, not Box<T>
+            let new_swc_type = if scrutinee.metadata.swc_type.starts_with("Option<") {
+                // Transform Option<Box<T>> to Option<&Box<T>>
+                let inner = &scrutinee.metadata.swc_type[7..scrutinee.metadata.swc_type.len()-1];
+                format!("Option<&{}>", inner)
+            } else {
+                // Just add & prefix
+                format!("&{}", scrutinee.metadata.swc_type)
+            };
+            eprintln!("[REWRITER] add_asref_for_box_match: {} -> {}", scrutinee.metadata.swc_type, new_swc_type);
+
             DecoratedExpr {
                 kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
                     callee: DecoratedExpr {
@@ -617,13 +794,14 @@ impl SwcRewriter {
                             is_path: false,
                             field_metadata: SwcFieldMetadata::direct("as_ref".to_string(), "fn".to_string()),
                         },
-                        metadata: SwcExprMetadata { needs_enum_unwrap: None, 
+                        metadata: SwcExprMetadata { needs_enum_unwrap: None,
                             swc_type: "fn".to_string(),
                             is_boxed: false,
                             is_optional: false,
                             type_kind: SwcTypeKind::Unknown,
                             span: None,
-                        },
+
+                        needs_to_string: false,},
                     },
                     args: vec![],
                     type_args: vec![],
@@ -631,7 +809,12 @@ impl SwcRewriter {
                     is_macro: false,
                     span: Span::new(0, 0, 0, 0),
                 })),
-                metadata: scrutinee.metadata,
+                metadata: SwcExprMetadata {
+                    swc_type: new_swc_type,
+                    is_boxed: false,  // The result of .as_ref() is not boxed, it's a reference
+                    is_optional: true, // Still Option<...>
+                    ..scrutinee.metadata
+                },
             }
         } else {
             // No transformation needed
@@ -691,7 +874,8 @@ impl SwcRewriter {
                                     is_optional: false,
                                     type_kind: crate::type_system::SwcTypeKind::WrapperEnum,
                                     span: None,
-                                },
+                                
+                                needs_to_string: false,},
                             }),
                             property: "as_ref".to_string(),
                             optional: false,
@@ -705,7 +889,8 @@ impl SwcRewriter {
                             is_optional: false,
                             type_kind: crate::type_system::SwcTypeKind::Unknown,
                             span: None,
-                        },
+                        
+                        needs_to_string: false,},
                     },
                     args: vec![],
                     type_args: vec![],
@@ -719,7 +904,8 @@ impl SwcRewriter {
                     is_optional: false,
                     type_kind: crate::type_system::SwcTypeKind::Unknown,
                     span: None,
-                },
+                
+                needs_to_string: false,},
             };
 
             let inner_pattern = DecoratedPattern {
@@ -770,7 +956,8 @@ impl SwcRewriter {
                         is_optional: false,
                         type_kind: crate::type_system::SwcTypeKind::Unknown,
                         span: None,
-                    },
+                    
+                    needs_to_string: false,},
                 }
             };
 
@@ -898,6 +1085,7 @@ impl SwcRewriter {
         // NOTE: Auto-unwrap is applied selectively in Let statements, not here
         let expr = self.apply_iterator_methods(expr);
         let expr = self.apply_string_literal_conversion(expr);
+        let expr = self.apply_radix_to_string(expr);  // Transform .to_string(radix) to format!
         // TODO Phase 4: Apply nested member unwrapping
         // let expr = self.apply_member_unwrapping(expr);
 
@@ -965,20 +1153,47 @@ impl SwcRewriter {
                 }
             }
 
-            // Member expressions
+            // Member expressions - transform optional chains to .and_then()/.map()
             DecoratedExprKind::Member { object, property, optional, computed, is_path, field_metadata } => {
-                DecoratedExprKind::Member {
-                    object: Box::new(self.rewrite_expr(*object)),
-                    property,
-                    optional,
-                    computed,
-                    is_path,
-                    field_metadata,
+                let rewritten_object = Box::new(self.rewrite_expr(*object));
+
+                if optional {
+                    // Transform obj?.field into obj.as_ref().map(|__opt| __opt.field)
+                    self.transform_optional_member(rewritten_object, property, field_metadata)
+                } else {
+                    DecoratedExprKind::Member {
+                        object: rewritten_object,
+                        property,
+                        optional: false,
+                        computed,
+                        is_path,
+                        field_metadata,
+                    }
                 }
             }
 
             // Call expressions
             DecoratedExprKind::Call(call) => {
+                // Check if callee is an optional member (obj?.method())
+                // If so, transform to obj.and_then(|x| x.method())
+                if let DecoratedExprKind::Member { object, property, optional: true, .. } = call.callee.kind {
+                    // Transform obj?.method(args) into obj.and_then(|__opt| __opt.method(args))
+                    let rewritten_object = Box::new(self.rewrite_expr(*object));
+                    let rewritten_args: Vec<_> = call.args
+                        .into_iter()
+                        .map(|arg| self.rewrite_expr(arg))
+                        .collect();
+                    return DecoratedExpr {
+                        kind: self.transform_optional_method_call(
+                            rewritten_object,
+                            property,
+                            rewritten_args,
+                            call.type_args,
+                        ),
+                        metadata: expr.metadata,
+                    };
+                }
+
                 DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
                     callee: self.rewrite_expr(call.callee),
                     args: call.args
@@ -1037,6 +1252,7 @@ impl SwcRewriter {
             DecoratedExprKind::If(if_expr) => {
                 DecoratedExprKind::If(Box::new(DecoratedIfExpr {
                     condition: self.rewrite_expr(if_expr.condition),
+                    pattern: if_expr.pattern,  // Pass through the pattern
                     then_branch: self.rewrite_block(if_expr.then_branch),
                     else_branch: if_expr.else_branch.map(|b| self.rewrite_block(b)),
                 }))
@@ -1106,11 +1322,17 @@ impl SwcRewriter {
                 )
             }
 
-            // Matches macro - will be expanded in transformation phase
+            // Matches macro - convert bindings to wildcards since we only check if pattern matches
             DecoratedExprKind::Matches { expr: inner, pattern } => {
+                eprintln!("[REWRITER MATCHES] Input pattern swc_pattern: '{}'", pattern.metadata.swc_pattern);
+                let rewritten_pattern = self.rewrite_pattern(pattern);
+                eprintln!("[REWRITER MATCHES] After rewrite swc_pattern: '{}'", rewritten_pattern.metadata.swc_pattern);
+                // Convert pattern bindings to wildcards for matches! (we don't use the bindings)
+                let wildcard_pattern = Self::pattern_to_wildcard(rewritten_pattern);
+                eprintln!("[REWRITER MATCHES] After wildcard swc_pattern: '{}'", wildcard_pattern.metadata.swc_pattern);
                 DecoratedExprKind::Matches {
                     expr: Box::new(self.rewrite_expr(*inner)),
-                    pattern: self.rewrite_pattern(pattern),
+                    pattern: wildcard_pattern,
                 }
             }
 
@@ -1136,12 +1358,28 @@ impl SwcRewriter {
                 return self.rewrite_custom_prop_access(*access);
             }
 
-            DecoratedExprKind::Literal(_) |
+            DecoratedExprKind::Literal(ref lit) => {
+                // Check if this literal needs .to_string() conversion
+                if expr.metadata.needs_to_string {
+                    // Wrap with .to_string() call
+                    return self.wrap_with_to_string(expr);
+                }
+                expr.kind
+            }
+
             DecoratedExprKind::Ident { .. } |
             DecoratedExprKind::Break |
-            DecoratedExprKind::Continue |
-            DecoratedExprKind::Closure(_) => {
+            DecoratedExprKind::Continue => {
                 expr.kind
+            }
+
+            // Closures - recurse into the body
+            DecoratedExprKind::Closure(closure) => {
+                DecoratedExprKind::Closure(crate::codegen::decorated_ast::DecoratedClosureExpr {
+                    params: closure.params,
+                    body: Box::new(self.rewrite_expr(*closure.body)),
+                    span: closure.span,
+                })
             }
         };
 
@@ -1198,6 +1436,246 @@ impl SwcRewriter {
         }
 
         pattern
+    }
+
+    // ========================================================================
+    // TRANSFORMATION: Optional Chain (?.) to .and_then()/.map()
+    // ========================================================================
+
+    /// Transform `obj?.field` into `obj.as_ref().map(|__opt| __opt.field)`
+    /// This avoids using the `?` operator which only works in Option/Result-returning functions.
+    fn transform_optional_member(
+        &mut self,
+        object: Box<DecoratedExpr>,
+        property: String,
+        field_metadata: SwcFieldMetadata,
+    ) -> DecoratedExprKind {
+        // Generate unique closure parameter name
+        let param_name = format!("__opt_{}", self.temp_var_counter);
+        self.temp_var_counter += 1;
+
+        // Check if the object itself is already an optional chain result (returns Option)
+        // If so, use .and_then() instead of .map() to flatten
+        let is_object_optional = object.metadata.is_optional
+            || object.metadata.swc_type.starts_with("Option<")
+            || matches!(&object.kind, DecoratedExprKind::Call(call)
+                if matches!(&call.callee.kind, DecoratedExprKind::Member { property, .. }
+                    if property == "and_then" || property == "map"));
+
+        // Build: __opt.field (with read_conversion if any)
+        let inner_access = DecoratedExpr {
+            kind: DecoratedExprKind::Member {
+                object: Box::new(DecoratedExpr {
+                    kind: DecoratedExprKind::Ident {
+                        name: param_name.clone(),
+                        ident_metadata: SwcIdentifierMetadata {
+                            use_sym: false,
+                            deref_pattern: None,
+                            span: None,
+                        },
+                    },
+                    metadata: SwcExprMetadata {
+                        needs_enum_unwrap: None,
+                        swc_type: "unknown".to_string(),
+                        is_boxed: false,
+                        is_optional: false,
+                        type_kind: SwcTypeKind::Unknown,
+                        span: None,
+                        needs_to_string: false,
+                    },
+                }),
+                property: property.clone(),
+                optional: false,  // Already handled by the combinator
+                computed: false,
+                is_path: false,
+                field_metadata: field_metadata.clone(),
+            },
+            metadata: SwcExprMetadata {
+                needs_enum_unwrap: None,
+                swc_type: field_metadata.field_type.clone(),
+                is_boxed: false,
+                is_optional: false,
+                type_kind: SwcTypeKind::Unknown,
+                span: None,
+                needs_to_string: false,
+            },
+        };
+
+        // Build closure: |__opt| __opt.field
+        let closure = DecoratedExpr {
+            kind: DecoratedExprKind::Closure(crate::codegen::decorated_ast::DecoratedClosureExpr {
+                params: vec![crate::parser::ClosureParam::Ident(param_name)],
+                body: Box::new(inner_access),
+                span: Span::new(0, 0, 0, 0),
+            }),
+            metadata: SwcExprMetadata {
+                needs_enum_unwrap: None,
+                swc_type: "closure".to_string(),
+                is_boxed: false,
+                is_optional: false,
+                type_kind: SwcTypeKind::Unknown,
+                span: None,
+                needs_to_string: false,
+            },
+        };
+
+        // Determine method name: use .and_then() if result might be Option, else .map()
+        // For now, use .map() for field access (result is T), .and_then() if we need to flatten
+        let method_name = if is_object_optional {
+            // Already dealing with Option chain, need to flatten with and_then
+            // But actually for field access we just need map
+            "map"
+        } else {
+            "map"
+        };
+
+        // Build: obj.map(|__opt| __opt.field)
+        // No extra as_ref() needed - the object already has proper accessor metadata
+        // that will emit .as_ref() if needed (e.g., for Option<Box<T>> fields)
+        DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+            callee: DecoratedExpr {
+                kind: DecoratedExprKind::Member {
+                    object,
+                    property: method_name.to_string(),
+                    optional: false,
+                    computed: false,
+                    is_path: false,
+                    field_metadata: SwcFieldMetadata::direct(method_name.to_string(), "".to_string()),
+                },
+                metadata: SwcExprMetadata {
+                    needs_enum_unwrap: None,
+                    swc_type: "unknown".to_string(),
+                    is_boxed: false,
+                    is_optional: false,
+                    type_kind: SwcTypeKind::Unknown,
+                    span: None,
+                    needs_to_string: false,
+                },
+            },
+            args: vec![closure],
+            type_args: vec![],
+            optional: false,
+            is_macro: false,
+            span: Span::new(0, 0, 0, 0),
+        }))
+    }
+
+    /// Transform `obj?.method(args)` into `obj.and_then(|__opt| __opt.method(args))`
+    /// Uses and_then because method calls may return Option (we need to flatten)
+    fn transform_optional_method_call(
+        &mut self,
+        object: Box<DecoratedExpr>,
+        method_name: String,
+        args: Vec<DecoratedExpr>,
+        type_args: Vec<crate::parser::TsType>,
+    ) -> DecoratedExprKind {
+        // Generate unique closure parameter name
+        let param_name = format!("__opt_{}", self.temp_var_counter);
+        self.temp_var_counter += 1;
+
+        // Build: __opt.method(args)
+        let inner_call = DecoratedExpr {
+            kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                callee: DecoratedExpr {
+                    kind: DecoratedExprKind::Member {
+                        object: Box::new(DecoratedExpr {
+                            kind: DecoratedExprKind::Ident {
+                                name: param_name.clone(),
+                                ident_metadata: SwcIdentifierMetadata {
+                                    use_sym: false,
+                                    deref_pattern: None,
+                                    span: None,
+                                },
+                            },
+                            metadata: SwcExprMetadata {
+                                needs_enum_unwrap: None,
+                                swc_type: "unknown".to_string(),
+                                is_boxed: false,
+                                is_optional: false,
+                                type_kind: SwcTypeKind::Unknown,
+                                span: None,
+                                needs_to_string: false,
+                            },
+                        }),
+                        property: method_name.clone(),
+                        optional: false,
+                        computed: false,
+                        is_path: false,
+                        field_metadata: SwcFieldMetadata::direct(method_name.clone(), "".to_string()),
+                    },
+                    metadata: SwcExprMetadata {
+                        needs_enum_unwrap: None,
+                        swc_type: "unknown".to_string(),
+                        is_boxed: false,
+                        is_optional: false,
+                        type_kind: SwcTypeKind::Unknown,
+                        span: None,
+                        needs_to_string: false,
+                    },
+                },
+                args,
+                type_args,
+                optional: false,
+                is_macro: false,
+                span: Span::new(0, 0, 0, 0),
+            })),
+            metadata: SwcExprMetadata {
+                needs_enum_unwrap: None,
+                swc_type: "unknown".to_string(),
+                is_boxed: false,
+                is_optional: true,  // Result might be Option
+                type_kind: SwcTypeKind::Unknown,
+                span: None,
+                needs_to_string: false,
+            },
+        };
+
+        // Build closure: |__opt| __opt.method(args)
+        let closure = DecoratedExpr {
+            kind: DecoratedExprKind::Closure(crate::codegen::decorated_ast::DecoratedClosureExpr {
+                params: vec![crate::parser::ClosureParam::Ident(param_name)],
+                body: Box::new(inner_call),
+                span: Span::new(0, 0, 0, 0),
+            }),
+            metadata: SwcExprMetadata {
+                needs_enum_unwrap: None,
+                swc_type: "closure".to_string(),
+                is_boxed: false,
+                is_optional: false,
+                type_kind: SwcTypeKind::Unknown,
+                span: None,
+                needs_to_string: false,
+            },
+        };
+
+        // Build: obj.and_then(|__opt| __opt.method(args))
+        // Use and_then because method might return Option
+        DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+            callee: DecoratedExpr {
+                kind: DecoratedExprKind::Member {
+                    object,
+                    property: "and_then".to_string(),
+                    optional: false,
+                    computed: false,
+                    is_path: false,
+                    field_metadata: SwcFieldMetadata::direct("and_then".to_string(), "".to_string()),
+                },
+                metadata: SwcExprMetadata {
+                    needs_enum_unwrap: None,
+                    swc_type: "unknown".to_string(),
+                    is_boxed: false,
+                    is_optional: false,
+                    type_kind: SwcTypeKind::Unknown,
+                    span: None,
+                    needs_to_string: false,
+                },
+            },
+            args: vec![closure],
+            type_args: vec![],
+            optional: false,
+            is_macro: false,
+            span: Span::new(0, 0, 0, 0),
+        }))
     }
 
     // ========================================================================
@@ -1645,7 +2123,8 @@ impl SwcRewriter {
                 is_optional: false,
                 type_kind: crate::type_system::SwcTypeKind::Unknown,
                 span: None,
-            },
+            
+            needs_to_string: false,},
         };
 
         // Arm 1: MemberProp::Ident(id) => id.sym.to_string()
@@ -1673,7 +2152,7 @@ impl SwcRewriter {
                                                 name: "id".to_string(),
                                                 ident_metadata: SwcIdentifierMetadata::name(),
                                             },
-                                            metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None },
+                                            metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None , needs_to_string: false},
                                         }),
                                         property: "sym".to_string(),
                                         optional: false,
@@ -1681,7 +2160,7 @@ impl SwcRewriter {
                                         is_path: false,
                                         field_metadata: SwcFieldMetadata::direct("sym".to_string(), "JsWord".to_string()),
                                     },
-                                    metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None },
+                                    metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None , needs_to_string: false},
                                 }),
                                 property: "to_string".to_string(),
                                 optional: false,
@@ -1689,7 +2168,7 @@ impl SwcRewriter {
                                 is_path: false,
                                 field_metadata: SwcFieldMetadata::direct("to_string".to_string(), "fn".to_string()),
                             },
-                            metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None },
+                            metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None , needs_to_string: false},
                         },
                         args: vec![],
                         type_args: vec![],
@@ -1697,7 +2176,7 @@ impl SwcRewriter {
                         is_macro: false,
                         span: crate::lexer::Span::new(0, 0, 0, 0),
                     })),
-                    metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None },
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None , needs_to_string: false},
                 })],
             },
         };
@@ -1722,7 +2201,7 @@ impl SwcRewriter {
                             kind: DecoratedExprKind::Member {
                                 object: Box::new(DecoratedExpr {
                                     kind: DecoratedExprKind::Literal(crate::parser::Literal::String("[computed]".to_string())),
-                                    metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None },
+                                    metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None , needs_to_string: false},
                                 }),
                                 property: "to_string".to_string(),
                                 optional: false,
@@ -1730,7 +2209,7 @@ impl SwcRewriter {
                                 is_path: false,
                                 field_metadata: SwcFieldMetadata::direct("to_string".to_string(), "fn".to_string()),
                             },
-                            metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None },
+                            metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None , needs_to_string: false},
                         },
                         args: vec![],
                         type_args: vec![],
@@ -1738,7 +2217,7 @@ impl SwcRewriter {
                         is_macro: false,
                         span: crate::lexer::Span::new(0, 0, 0, 0),
                     })),
-                    metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None },
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None , needs_to_string: false},
                 })],
             },
         };
@@ -1764,12 +2243,12 @@ impl SwcRewriter {
                                 name: "format".to_string(),
                                 ident_metadata: SwcIdentifierMetadata::name(),
                             },
-                            metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None },
+                            metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None , needs_to_string: false},
                         },
                         args: vec![
                             DecoratedExpr {
                                 kind: DecoratedExprKind::Literal(crate::parser::Literal::String("\"#{}\"".to_string())),
-                                metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None },
+                                metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None , needs_to_string: false},
                             },
                             DecoratedExpr {
                                 kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
@@ -1782,7 +2261,7 @@ impl SwcRewriter {
                                                             name: "name".to_string(),
                                                             ident_metadata: SwcIdentifierMetadata::name(),
                                                         },
-                                                        metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None },
+                                                        metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None , needs_to_string: false},
                                                     }),
                                                     property: "name".to_string(),
                                                     optional: false,
@@ -1790,7 +2269,7 @@ impl SwcRewriter {
                                                     is_path: false,
                                                     field_metadata: SwcFieldMetadata::direct("name".to_string(), "JsWord".to_string()),
                                                 },
-                                                metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None },
+                                                metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None , needs_to_string: false},
                                             }),
                                             property: "to_string".to_string(),
                                             optional: false,
@@ -1798,7 +2277,7 @@ impl SwcRewriter {
                                             is_path: false,
                                             field_metadata: SwcFieldMetadata::direct("to_string".to_string(), "fn".to_string()),
                                         },
-                                        metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None },
+                                        metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None , needs_to_string: false},
                                     },
                                     args: vec![],
                                     type_args: vec![],
@@ -1806,7 +2285,7 @@ impl SwcRewriter {
                                     is_macro: false,
                                     span: crate::lexer::Span::new(0, 0, 0, 0),
                                 })),
-                                metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None },
+                                metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None , needs_to_string: false},
                             },
                         ],
                         type_args: vec![],
@@ -1814,7 +2293,7 @@ impl SwcRewriter {
                         is_macro: true,  // format! is a macro
                         span: crate::lexer::Span::new(0, 0, 0, 0),
                     })),
-                    metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None },
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None,  swc_type: "Unknown".to_string(), is_boxed: false, is_optional: false, type_kind: crate::type_system::SwcTypeKind::Unknown, span: None , needs_to_string: false},
                 })],
             },
         };
@@ -1831,7 +2310,8 @@ impl SwcRewriter {
                 is_optional: false,
                 type_kind: crate::type_system::SwcTypeKind::Primitive,
                 span: None,
-            },
+            
+            needs_to_string: false,},
         }
     }
 
@@ -2025,7 +2505,8 @@ impl SwcRewriter {
                                         is_optional: false,
                                         type_kind: SwcTypeKind::Unknown,
                                         span: None,
-                                    },
+                                    
+                                    needs_to_string: false,},
                                 },
                                 args: vec![],
                                 type_args: vec![],
@@ -2039,7 +2520,8 @@ impl SwcRewriter {
                                 is_optional: false,
                                 type_kind: SwcTypeKind::Unknown,
                                 span: None,
-                            },
+                            
+                            needs_to_string: false,},
                         };
                         new_fields.push(("sym".to_string(), into_call));
                     } else {
@@ -2066,7 +2548,8 @@ impl SwcRewriter {
                                 is_optional: false,
                                 type_kind: SwcTypeKind::Unknown,
                                 span: None,
-                            },
+                            
+                            needs_to_string: false,},
                         }
                     ));
                 }
@@ -2083,7 +2566,8 @@ impl SwcRewriter {
                                 is_optional: false,
                                 type_kind: SwcTypeKind::Unknown,
                                 span: None,
-                            },
+                            
+                            needs_to_string: false,},
                         }
                     ));
                 }
@@ -2108,7 +2592,8 @@ impl SwcRewriter {
                                 is_optional: false,
                                 type_kind: SwcTypeKind::Unknown,
                                 span: None,
-                            },
+                            
+                            needs_to_string: false,},
                         }
                     ));
                 }
@@ -2142,7 +2627,8 @@ impl SwcRewriter {
                                 is_optional: false,
                                 type_kind: SwcTypeKind::Primitive,
                                 span: Some(struct_init.span),
-                            },
+                            
+                            needs_to_string: false,},
                         },
                         args: vec![],
                         type_args: vec![],
@@ -2221,7 +2707,8 @@ impl SwcRewriter {
                         is_optional: false,
                         type_kind: expr.metadata.type_kind.clone(),
                         span: None,
-                    },
+                    
+                    needs_to_string: false,},
                 };
 
                 // Create match arm
@@ -2248,7 +2735,8 @@ impl SwcRewriter {
                                 is_optional: false,
                                 type_kind: crate::type_system::SwcTypeKind::Unknown,
                                 span: None,
-                            },
+                            
+                            needs_to_string: false,},
                         },
                         args: vec![],
                         type_args: vec![],
@@ -2263,7 +2751,8 @@ impl SwcRewriter {
                         is_optional: false,
                         type_kind: crate::type_system::SwcTypeKind::Unknown,
                         span: None,
-                    },
+                    
+                    needs_to_string: false,},
                 };
 
                 let wildcard_arm = DecoratedMatchArm {
@@ -2290,7 +2779,8 @@ impl SwcRewriter {
                                     is_optional: false,
                                     type_kind: object.metadata.type_kind.clone(),
                                     span: object.metadata.span,
-                                },
+                                
+                                needs_to_string: false,},
                             };
 
                             // Rebuild the member expression with the unwrapped object
@@ -2371,7 +2861,8 @@ impl SwcRewriter {
                                 is_optional: false,
                                 type_kind: object.metadata.type_kind.clone(),
                                 span: None,
-                            },
+                            
+                            needs_to_string: false,},
                         };
 
                         // Create match arm
@@ -2398,7 +2889,8 @@ impl SwcRewriter {
                                         is_optional: false,
                                         type_kind: crate::type_system::SwcTypeKind::Unknown,
                                         span: None,
-                                    },
+                                    
+                                    needs_to_string: false,},
                                 },
                                 args: vec![],
                                 type_args: vec![],
@@ -2413,7 +2905,8 @@ impl SwcRewriter {
                                 is_optional: false,
                                 type_kind: crate::type_system::SwcTypeKind::Unknown,
                                 span: None,
-                            },
+                            
+                            needs_to_string: false,},
                         };
 
                         let wildcard_arm = DecoratedMatchArm {
@@ -2440,7 +2933,8 @@ impl SwcRewriter {
                                 is_optional: false,
                                 type_kind: object.metadata.type_kind.clone(),
                                 span: object.metadata.span,
-                            },
+                            
+                            needs_to_string: false,},
                         };
 
                         // Return the member expression with the unwrapped object
@@ -2476,6 +2970,9 @@ impl SwcRewriter {
                 eprintln!("[REWRITER MATCHES START] scrutinee metadata: swc_type='{}', is_boxed={}, needs_enum_unwrap={:?}",
                           scrutinee.metadata.swc_type, scrutinee.metadata.is_boxed, scrutinee.metadata.needs_enum_unwrap);
 
+                // Convert pattern bindings to wildcards for matches! (we don't use the bindings)
+                let pattern = Self::pattern_to_wildcard(pattern);
+
                 // Create the match arms
                 let match_arm = DecoratedMatchArm {
                     pattern,
@@ -2489,7 +2986,8 @@ impl SwcRewriter {
                                 is_optional: false,
                                 type_kind: crate::type_system::SwcTypeKind::Primitive,
                                 span: None,
-                            },
+                            
+                            needs_to_string: false,},
                         })],
                     },
                 };
@@ -2509,7 +3007,8 @@ impl SwcRewriter {
                                 is_optional: false,
                                 type_kind: crate::type_system::SwcTypeKind::Primitive,
                                 span: None,
-                            },
+                            
+                            needs_to_string: false,},
                         })],
                     },
                 };
@@ -2559,7 +3058,8 @@ impl SwcRewriter {
                                     is_optional: false,
                                     type_kind: crate::type_system::SwcTypeKind::Unknown,
                                     span: scrutinee_span,
-                                },
+                                
+                                needs_to_string: false,},
                             },
                             args: vec![],
                             type_args: vec![],
@@ -2574,7 +3074,8 @@ impl SwcRewriter {
                             is_optional: false,
                             type_kind: crate::type_system::SwcTypeKind::Unknown,
                             span: scrutinee_span,
-                        },
+                        
+                        needs_to_string: false,},
                     };
 
                     // Now wrap in &* to get &T from &T
@@ -2594,7 +3095,8 @@ impl SwcRewriter {
                             is_optional: false,
                             type_kind: crate::type_system::SwcTypeKind::Unknown,
                             span: scrutinee_span,
-                        },
+                        
+                        needs_to_string: false,},
                     };
 
                     deref_expr
@@ -2613,7 +3115,8 @@ impl SwcRewriter {
                         is_optional: false,
                         type_kind: crate::type_system::SwcTypeKind::Unknown,
                         span: scrutinee_span,
-                    },
+                    
+                    needs_to_string: false,},
                 };
 
                 DecoratedExpr {
@@ -2627,7 +3130,8 @@ impl SwcRewriter {
                         is_optional: false,
                         type_kind: crate::type_system::SwcTypeKind::Primitive,
                         span: expr.metadata.span,
-                    },
+                    
+                    needs_to_string: false,},
                 }
             }
             _ => expr,
@@ -2670,7 +3174,8 @@ impl SwcRewriter {
                                     is_optional: false,
                                     type_kind: crate::type_system::SwcTypeKind::Unknown,
                                     span: object.metadata.span,
-                                },
+                                
+                                needs_to_string: false,},
                             };
 
                             let iter_call_expr = DecoratedExpr {
@@ -2688,7 +3193,8 @@ impl SwcRewriter {
                                     is_optional: false,
                                     type_kind: crate::type_system::SwcTypeKind::Unknown,
                                     span: object.metadata.span,
-                                },
+                                
+                                needs_to_string: false,},
                             };
 
                             // Now create the final method call with iter() as the object
@@ -2748,6 +3254,7 @@ impl SwcRewriter {
                 DecoratedExpr {
                     kind: DecoratedExprKind::If(Box::new(DecoratedIfExpr {
                         condition: if_expr.condition.clone(),
+                        pattern: if_expr.pattern.clone(),
                         then_branch: self.convert_block_tail_string_literal(if_expr.then_branch.clone()),
                         else_branch: if_expr.else_branch.as_ref().map(|b| self.convert_block_tail_string_literal(b.clone())),
                     })),
@@ -2801,7 +3308,8 @@ impl SwcRewriter {
                         is_optional: false,
                         type_kind: crate::type_system::SwcTypeKind::Unknown,
                         span: Some(span),
-                    },
+                    
+                    needs_to_string: false,},
                 },
                 args: vec![],
                 type_args: vec![],
@@ -2815,7 +3323,8 @@ impl SwcRewriter {
                 is_optional: false,
                 type_kind: crate::type_system::SwcTypeKind::Unknown,
                 span: Some(span),
-            },
+            
+            needs_to_string: false,},
         }
     }
 
@@ -2838,12 +3347,16 @@ impl SwcRewriter {
             is_optional: false,
             type_kind: crate::type_system::SwcTypeKind::Unknown,
             span: None,
-        }
+        
+        needs_to_string: false,}
     }
 
     /// Rewrite custom property assignment to state.set_custom_prop() call
     fn rewrite_custom_prop_assignment(&mut self, assign: DecoratedCustomPropAssignment) -> DecoratedStmt {
         use crate::codegen::decorated_ast::{DecoratedCallExpr, DecoratedExprKind};
+
+        // Mark that custom properties are used
+        self.uses_custom_props = true;
 
         // Check if this is a deletion (assignment to None)
         if assign.metadata.is_deletion {
@@ -2880,6 +3393,9 @@ impl SwcRewriter {
     /// Rewrite custom property access to state.get_custom_prop() call
     fn rewrite_custom_prop_access(&mut self, access: DecoratedCustomPropAccess) -> DecoratedExpr {
         use crate::codegen::decorated_ast::{DecoratedCallExpr, DecoratedExprKind};
+
+        // Mark that custom properties are used
+        self.uses_custom_props = true;
 
         // Build: self.state.get_custom_prop(node, "__prop")
         let get_call = DecoratedExpr {
@@ -3412,7 +3928,8 @@ impl SwcRewriter {
                             type_kind: SwcTypeKind::Struct,
                             span: expr.metadata.span,
                             needs_enum_unwrap: None,
-                        },
+                        
+                        needs_to_string: false,},
                     };
                 }
             }
@@ -3568,7 +4085,8 @@ impl SwcRewriter {
             is_optional: false,
             type_kind: SwcTypeKind::Unknown,
             span: None,
-        };
+        
+        needs_to_string: false,};
 
         // Create: var_name.as_ref().unwrap()
         let unwrap_expr = DecoratedExpr {
@@ -3694,5 +4212,80 @@ impl SwcRewriter {
             code,
             span: Span::new(0, 0, 0, 0),
         })
+    }
+
+    /// Transform `.to_string(radix)` calls to `format!("{:x}", value)` etc.
+    /// In Rust, `to_string()` takes no arguments. For radix conversion, we need format!.
+    fn apply_radix_to_string(&mut self, expr: DecoratedExpr) -> DecoratedExpr {
+        use crate::parser::Literal;
+
+        // Check if this is a call expression
+        if let DecoratedExprKind::Call(ref call) = expr.kind {
+            // Check if callee is a member access with property "to_string"
+            if let DecoratedExprKind::Member { ref object, ref property, .. } = call.callee.kind {
+                if property == "to_string" && call.args.len() == 1 {
+                    // Check if the argument is a numeric literal (the radix)
+                    // Literal can be Int or Float
+                    let radix_opt = match &call.args[0].kind {
+                        DecoratedExprKind::Literal(Literal::Int(n)) => Some(*n as i32),
+                        DecoratedExprKind::Literal(Literal::Float(n)) => Some(*n as i32),
+                        _ => None,
+                    };
+
+                    if let Some(radix_int) = radix_opt {
+                        // Determine the format specifier based on radix
+                        let format_spec = match radix_int {
+                            2 => "{:b}",   // binary
+                            8 => "{:o}",   // octal
+                            16 => "{:x}",  // hex lowercase
+                            _ => {
+                                // For other radixes, we can't use format! directly
+                                // Return as-is and let it error (unsupported)
+                                return expr;
+                            }
+                        };
+
+                        // Create format!("{:x}", object) macro call
+                        let default_metadata = SwcExprMetadata {
+                            needs_enum_unwrap: None,
+                            swc_type: "String".to_string(),
+                            is_boxed: false,
+                            is_optional: false,
+                            type_kind: crate::type_system::SwcTypeKind::Unknown,
+                            span: None,
+                            needs_to_string: false,
+                        };
+
+                        return DecoratedExpr {
+                            kind: DecoratedExprKind::Call(Box::new(DecoratedCallExpr {
+                                callee: DecoratedExpr {
+                                    kind: DecoratedExprKind::Ident {
+                                        name: "format".to_string(),
+                                        ident_metadata: SwcIdentifierMetadata::name(),
+                                    },
+                                    metadata: default_metadata.clone(),
+                                },
+                                args: vec![
+                                    // First arg: format string
+                                    DecoratedExpr {
+                                        kind: DecoratedExprKind::Literal(Literal::String(format_spec.to_string())),
+                                        metadata: default_metadata.clone(),
+                                    },
+                                    // Second arg: the value to format
+                                    (**object).clone(),
+                                ],
+                                type_args: vec![],
+                                optional: false,
+                                is_macro: true,
+                                span: call.span,
+                            })),
+                            metadata: expr.metadata,
+                        };
+                    }
+                }
+            }
+        }
+
+        expr
     }
 }

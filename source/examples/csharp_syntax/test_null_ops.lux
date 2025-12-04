@@ -1,0 +1,30 @@
+/**
+ * Test: Null operators (?. and ??)
+ */
+plugin TestNullOps {
+
+    struct State {
+        result: Str,
+    }
+
+    fn init() -> State {
+        State { result: "" }
+    }
+
+    pub fn visit_variable_declarator(node: &VariableDeclarator) {
+        // Test ?? (null-coalescing) with Options - chained
+        let opt1: Option<Str> = Some("a".to_string());
+        let opt2: Option<Str> = Some("b".to_string());
+        let result = opt1 ?? opt2 ?? "c".to_string();
+
+        // Simple ?? with value fallback
+        let opt3: Option<Str> = None;
+        let value = opt3 ?? "default".to_string();
+
+        self.state.result = result;
+    }
+
+    fn finish() -> Str {
+        self.state.result
+    }
+}

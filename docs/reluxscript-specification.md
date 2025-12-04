@@ -1,7 +1,7 @@
 # ReluxScript Language Specification
 
-**Version:** 0.9.0
-**Status:** Draft (Program Hooks & Verbatim Blocks Added)
+**Version:** 0.10.0
+**Status:** Draft (Compiled Modules & Project Builds Added)
 **Target Platforms:** Babel (JavaScript) & SWC (Rust/WASM)
 
 ---
@@ -1249,9 +1249,267 @@ pub fn extract_props(node: &FunctionDeclaration) -> Vec<PropInfo> {
 
 ---
 
-## 19. Visitor Methods
+## 6. Compiled Modules & Project Builds
 
-### 6.1 Visitor Function Signature
+ReluxScript supports compiling modules into standalone "DLLs" (compiled module packages) that can be imported by other modules or plugins. This enables code reuse across projects and supports large-scale codebases with complex dependency graphs.
+
+### 6.1 The `.luxon` Manifest Format
+
+When a module is compiled with `build-module`, it produces:
+- A `.rs` file containing the compiled Rust code
+- A `.luxon` manifest file describing the module's exports
+
+```json
+{
+  "name": "my_module",
+  "version": "1.0.0",
+  "structs": {
+    "Point": {
+      "fields": [
+        { "name": "x", "type": "i32", "is_pub": true },
+        { "name": "y", "type": "i32", "is_pub": true }
+      ],
+      "derives": ["Clone", "Debug", "Default"]
+    }
+  },
+  "enums": {},
+  "functions": ["distance_squared", "origin"]
+}
+```
+
+### 6.2 Building Standalone Modules
+
+Compile a `.lux` file into a reusable module:
+
+```bash
+relux build-module my_module.lux --output dist/my_module
+```
+
+This produces:
+```
+dist/my_module/
+  lib.rs        # Compiled Rust code
+  lib.luxon     # Module manifest
+```
+
+**Source (`my_module.lux`):**
+```reluxscript
+pub struct Point {
+    pub x: i32,
+    pub y: i32,
+}
+
+pub fn distance_squared(p: &Point) -> i32 {
+    (p.x * p.x) + (p.y * p.y)
+}
+
+pub fn origin() -> Point {
+    Point { x: 0, y: 0 }
+}
+```
+
+### 6.3 Importing Compiled Modules
+
+Use `pub use` to import from compiled modules:
+
+```reluxscript
+// Import from compiled module (note: path to output directory, not .lux file)
+pub use "./dist/my_module" { Point, distance_squared, origin };
+
+pub struct Rectangle {
+    pub top_left: Point,
+    pub bottom_right: Point,
+}
+
+pub fn area(r: &Rectangle) -> i32 {
+    let width = (r.bottom_right.x - r.top_left.x);
+    let height = (r.bottom_right.y - r.top_left.y);
+    (width * height)
+}
+```
+
+**Compiles to (SWC):**
+```rust
+#[path = "my_module.rs"]
+mod my_module;
+pub use my_module::{Point, distance_squared, origin};
+
+#[derive(Clone, Debug, Default)]
+pub struct Rectangle {
+    pub top_left: Point,
+    pub bottom_right: Point,
+}
+
+pub fn area(r: &Rectangle) -> i32 {
+    let width = (r.bottom_right.x - r.top_left.x);
+    let height = (r.bottom_right.y - r.top_left.y);
+    (width * height)
+}
+```
+
+### 6.4 Chained Module Dependencies
+
+Modules can import from other compiled modules, forming dependency chains:
+
+```
+module_a.lux → compile → dist/module_a/
+                              ↓
+module_b.lux → compile → dist/module_b/ (imports from module_a)
+                              ↓
+plugin_c.lux → compile → dist/plugin_c/ (imports from module_b)
+```
+
+When `module_b` imports from `module_a` and re-exports symbols with `pub use`, those symbols become available to anything that imports `module_b`. The compiler automatically:
+1. Detects transitive dependencies via `mod xxx;` declarations
+2. Loads transitive modules and copies their `.rs` files
+3. Adds `#[path = "xxx.rs"]` attributes for Rust module resolution
+4. Updates the `.luxon` manifest with re-exported symbols
+
+### 6.5 Declarative Project Builds (`lux.manifest.json`)
+
+For projects with multiple modules and complex dependencies, use a JSON manifest to declare the build graph:
+
+**`lux.manifest.json`:**
+```json
+{
+  "modules": [
+    {
+      "name": "module_a",
+      "path": "module_a.lux",
+      "output": "dist/module_a"
+    },
+    {
+      "name": "module_b",
+      "path": "module_b.lux",
+      "output": "dist/module_b",
+      "deps": ["module_a"]
+    },
+    {
+      "name": "module_c",
+      "path": "module_c.lux",
+      "output": "dist/module_c",
+      "deps": ["module_a", "module_b"]
+    }
+  ],
+  "plugin": {
+    "path": "my_plugin.lux",
+    "output": "dist/my_plugin",
+    "deps": ["module_c"]
+  }
+}
+```
+
+**Build with:**
+```bash
+relux build-project lux.manifest.json
+```
+
+**Output:**
+```
+Building project from "lux.manifest.json"
+Build order: module_a → module_b → module_c
+
+[module_a] Building module...
+[module_a] ✓ Built successfully
+
+[module_b] Building module...
+[module_b] ✓ Built successfully
+
+[module_c] Building module...
+[module_c] ✓ Built successfully
+
+[plugin] Building plugin...
+[plugin] ✓ Built successfully
+
+✓ Project build complete!
+```
+
+### 6.6 Manifest Schema
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `modules` | `ModuleEntry[]` | Array of library modules to build |
+| `plugin` | `TargetEntry?` | Optional plugin to build (mutually exclusive with `writer`) |
+| `writer` | `TargetEntry?` | Optional writer to build (mutually exclusive with `plugin`) |
+
+**ModuleEntry:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | `string` | Module identifier (used in `deps` references) |
+| `path` | `string` | Path to `.lux` source file |
+| `output` | `string` | Output directory for compiled module |
+| `deps` | `string[]?` | Names of modules this depends on |
+
+**TargetEntry:**
+| Field | Type | Description |
+|-------|------|-------------|
+| `path` | `string` | Path to `.lux` source file |
+| `output` | `string` | Output directory |
+| `deps` | `string[]?` | Names of modules this depends on |
+
+### 6.7 Topological Sort & Cycle Detection
+
+The build system uses Kahn's algorithm to determine the correct build order:
+1. Modules with no dependencies are built first
+2. Each module is built only after all its dependencies
+3. Circular dependencies are detected and reported as errors
+
+```
+error: Circular dependency detected involving: module_a, module_b
+```
+
+### 6.8 Example: Large-Scale Project Structure
+
+```
+my-project/
+  lux.manifest.json
+  src/
+    core/
+      types.lux           # Core type definitions
+      utils.lux           # Utility functions
+    extractors/
+      props.lux           # Prop extraction (depends on core/types)
+      hooks.lux           # Hook extraction (depends on core/types)
+      components.lux      # Component extraction (depends on props, hooks)
+    plugin.lux            # Main plugin (depends on extractors/components)
+  dist/
+    core_types/
+    core_utils/
+    extractors_props/
+    extractors_hooks/
+    extractors_components/
+    plugin/
+```
+
+**`lux.manifest.json`:**
+```json
+{
+  "modules": [
+    { "name": "core_types", "path": "src/core/types.lux", "output": "dist/core_types" },
+    { "name": "core_utils", "path": "src/core/utils.lux", "output": "dist/core_utils", "deps": ["core_types"] },
+    { "name": "extractors_props", "path": "src/extractors/props.lux", "output": "dist/extractors_props", "deps": ["core_types"] },
+    { "name": "extractors_hooks", "path": "src/extractors/hooks.lux", "output": "dist/extractors_hooks", "deps": ["core_types"] },
+    { "name": "extractors_components", "path": "src/extractors/components.lux", "output": "dist/extractors_components", "deps": ["extractors_props", "extractors_hooks"] }
+  ],
+  "plugin": {
+    "path": "src/plugin.lux",
+    "output": "dist/plugin",
+    "deps": ["extractors_components", "core_utils"]
+  }
+}
+```
+
+This structure enables:
+- **Parallel development**: Teams can work on different modules independently
+- **Incremental builds**: Only rebuild changed modules and their dependents
+- **Code reuse**: Share modules across multiple plugins/writers
+- **Clear boundaries**: Explicit dependency declarations prevent spaghetti code
+
+---
+
+## 7. Visitor Methods
+
+### 7.1 Visitor Function Signature
 
 ```reluxscript
 plugin MyPlugin {
@@ -1266,7 +1524,7 @@ plugin MyPlugin {
 - `visit_call_expression` → visits `CallExpression` nodes
 - Snake_case function name maps to PascalCase node type
 
-### 6.2 Context Object
+### 7.2 Context Object
 
 The `Context` provides limited scope analysis available in both engines:
 
@@ -1276,7 +1534,7 @@ ctx.filename           // Source filename
 ctx.generate_uid(hint) // Generate unique identifier
 ```
 
-### 6.3 Node Replacement (Statement Lowering)
+### 7.3 Node Replacement (Statement Lowering)
 
 Direct assignment to the visitor argument triggers replacement:
 
@@ -1309,7 +1567,7 @@ path.replaceWith(t.callExpression(
 };
 ```
 
-### 6.4 Node Removal
+### 7.4 Node Removal
 
 In Babel, this is `path.remove()`. In SWC, this requires replacing with a NoOp or filtering. ReluxScript standardizes this:
 
@@ -1337,7 +1595,7 @@ if should_remove(node) {
 }
 ```
 
-### 6.5 List/Sibling Manipulation
+### 7.5 List/Sibling Manipulation
 
 Inserting siblings is difficult in SWC's VisitMut. ReluxScript solves this by exposing a `flat_map_in_place` helper:
 
@@ -1391,7 +1649,7 @@ let new_stmts: Vec<Stmt> = node.stmts.iter().flat_map(|stmt| {
 node.stmts = new_stmts;
 ```
 
-### 6.6 Property Mutation (Forbidden)
+### 7.6 Property Mutation (Forbidden)
 
 Direct property mutation is NOT allowed:
 
@@ -1402,7 +1660,7 @@ node.name = "newName";
 
 **Rationale:** Babel's scope tracker may not be notified. Always replace the whole node or use clone-and-rebuild pattern.
 
-### 6.7 Traversal Control
+### 7.7 Traversal Control
 
 ```reluxscript
 fn visit_call_expression(node: &mut CallExpression, ctx: &Context) {
@@ -1414,11 +1672,11 @@ fn visit_call_expression(node: &mut CallExpression, ctx: &Context) {
 }
 ```
 
-### 6.8 Scoped Traversal (`traverse`)
+### 7.8 Scoped Traversal (`traverse`)
 
 ReluxScript allows interrupting the current visitor to perform a scoped traversal on a specific node using a different set of rules. This bridges the impedance mismatch between Babel's `path.traverse` (graph walk) and SWC's `visit_mut_with` (recursive function call).
 
-#### 5.8.1 Inline Traversal
+#### 7.8.1 Inline Traversal
 
 Use `traverse(node) { ... }` to define a one-off visitor for a subtree:
 
@@ -2097,11 +2355,279 @@ See [REGEX_SUPPORT.md](REGEX_SUPPORT.md) for complete implementation details.
 
 ---
 
-## 21. Custom AST Properties
+## 21. C#-Like Syntax Extensions
+
+ReluxScript includes several syntactic features familiar to C# developers, making the language more approachable for teams transitioning from C#/Orleans to JavaScript/TypeScript tooling.
+
+### 21.1 Property Shorthand
+
+When initializing structs, if the variable name matches the field name, you can use shorthand syntax:
+
+```reluxscript
+let name = "Button".to_string();
+let count = 42;
+let enabled = true;
+
+// Shorthand: field name inferred from variable name
+let stats = Stats {
+    name,
+    count,
+    enabled,
+};
+
+// Equivalent to:
+let stats = Stats {
+    name: name,
+    count: count,
+    enabled: enabled,
+};
+```
+
+**Compilation:**
+
+```javascript
+// Babel: ES6 shorthand property syntax
+const stats = { name, count, enabled };
+```
+
+```rust
+// SWC: Rust struct init shorthand
+let stats = Stats { name, count, enabled };
+```
+
+### 21.2 Arrow Functions (C# Lambda Syntax)
+
+ReluxScript supports C#-style arrow function syntax (`=>`) as an alternative to Rust closures (`|x|`):
+
+```reluxscript
+// Single parameter (no parentheses needed)
+let doubled = numbers.iter().map(x => x * 2);
+
+// Multiple parameters (parentheses required, becomes tuple destructure)
+let pairs = vec![(1, 2), (3, 4)];
+let sums = pairs.iter().map((a, b) => a + b);
+
+// With block body
+let processed = items.iter().map(item => {
+    let result = process(item);
+    result.trim()
+});
+```
+
+**Compilation:**
+
+```javascript
+// Babel: Native arrow functions
+const doubled = numbers.map(x => x * 2);
+const sums = pairs.map(([a, b]) => a + b);
+```
+
+```rust
+// SWC: Rust closures with tuple destructuring for multi-param
+let doubled = numbers.iter().map(|x| x * 2);
+let sums = pairs.iter().map(|(a, b)| a + b);
+```
+
+**Note:** Multi-parameter arrow functions `(a, b) => ...` compile to tuple destructuring `|(a, b)|` in Rust, which is semantically correct for iterator methods like `.map()` on tuple collections.
+
+### 21.3 Is Pattern Matching
+
+C#-style `is` pattern matching for type checking with optional binding:
+
+```reluxscript
+fn visit_expression(expr: &Expression) {
+    // Type check with binding
+    if expr is Expression::Identifier id {
+        println!("Found identifier: {}", id.name);
+    }
+
+    // Type check without binding
+    if expr is Expression::CallExpression {
+        println!("Found a call");
+    }
+
+    // Chained is-patterns in else-if
+    if expr is Expression::Identifier id {
+        handle_identifier(id);
+    } else if expr is Expression::Literal lit {
+        handle_literal(lit);
+    } else if expr is Expression::CallExpression call {
+        handle_call(call);
+    }
+
+    // Nested patterns
+    if expr is Expression::BinaryExpression bin {
+        if &bin.left is Expression::Identifier left_id {
+            println!("Left side is: {}", left_id.name);
+        }
+    }
+}
+```
+
+**Compilation:**
+
+```javascript
+// Babel: Type checking with Babel types
+if (t.isIdentifier(expr)) {
+    const id = expr;
+    console.log("Found identifier: " + id.name);
+}
+
+if (t.isCallExpression(expr)) {
+    console.log("Found a call");
+}
+```
+
+```rust
+// SWC: Match expressions with pattern binding
+match expr {
+    Expr::Ident(id) => {
+        println!("Found identifier: {}", id.sym);
+    }
+    _ => {}
+}
+
+match expr {
+    Expr::Call(_) => {
+        println!("Found a call");
+    }
+    _ => {}
+}
+```
+
+### 21.4 String Interpolation
+
+C#-style string interpolation using `$"..."` syntax:
+
+```reluxscript
+let name = "World";
+let count = 42;
+
+// Simple interpolation
+let greeting = $"Hello, {name}!";
+
+// Expression interpolation
+let message = $"Count is {count * 2}";
+
+// Multi-variable
+let full = $"Name: {name}, Count: {count}";
+```
+
+**Compilation:**
+
+```javascript
+// Babel: Template literals
+const greeting = `Hello, ${name}!`;
+const message = `Count is ${count * 2}`;
+```
+
+```rust
+// SWC: format! macro
+let greeting = format!("Hello, {}!", name);
+let message = format!("Count is {}", count * 2);
+```
+
+### 21.5 Null-Coalescing Operator (`??`)
+
+Provide default values for `Option` types using C#-style null-coalescing:
+
+```reluxscript
+// Simple fallback to value
+let name = optional_name ?? "anonymous".to_string();
+
+// Chained Options (left-to-right evaluation)
+let result = first_option ?? second_option ?? "fallback".to_string();
+
+// With Option fields
+let value = config.setting ?? default_value;
+```
+
+**Compilation:**
+
+```javascript
+// Babel: Native ?? operator
+const name = optionalName ?? "anonymous";
+const result = firstOption ?? secondOption ?? "fallback";
+```
+
+```rust
+// SWC: Option combinators
+// Single fallback uses .unwrap_or()
+let name = optional_name.unwrap_or("anonymous".to_string());
+
+// Chained Options use .or() for Option-to-Option, .unwrap_or() for final value
+let result = first_option.or(second_option).unwrap_or("fallback".to_string());
+```
+
+**Type Semantics:**
+- `Option<T> ?? Option<T>` → Uses `.or()` (returns `Option<T>`)
+- `Option<T> ?? T` → Uses `.unwrap_or()` (returns `T`)
+- Chains are evaluated left-to-right: `a ?? b ?? c` → `a.or(b).unwrap_or(c)`
+
+### 21.6 Null-Conditional Operator (`?.`)
+
+Safe navigation through potentially null/None values:
+
+```reluxscript
+// Field access on Option
+let span = node.init?.span;
+
+// Method call on Option
+let name = node.init?.as_identifier()?.name;
+
+// Combined with null-coalescing
+let name_or_default = node.init?.get_name() ?? "unknown".to_string();
+```
+
+**Compilation:**
+
+```javascript
+// Babel: Optional chaining
+const span = node.init?.span;
+const name = node.init?.asIdentifier()?.name;
+const nameOrDefault = node.init?.getName() ?? "unknown";
+```
+
+```rust
+// SWC: Option combinators (transformed in rewriter, not emitter)
+// Field access uses .map()
+let span = node.init.as_ref().map(|__opt| __opt.span);
+
+// Method calls use .and_then() (may return Option, needs flattening)
+let name = node.init.as_ref()
+    .and_then(|__opt| __opt.as_identifier())
+    .map(|__opt| __opt.name);
+
+// Combined with ??
+let name_or_default = node.init.as_ref()
+    .and_then(|__opt| __opt.get_name())
+    .unwrap_or("unknown".to_string());
+```
+
+**Transformation Rules:**
+- `obj?.field` → `obj.map(|x| x.field)` (field access)
+- `obj?.method()` → `obj.and_then(|x| x.method())` (method call, may return Option)
+- These transformations happen in the **rewriter** phase, keeping the emitter simple
+
+### 21.7 Summary Table
+
+| C# Syntax | ReluxScript | Babel Output | SWC Output |
+|-----------|-------------|--------------|------------|
+| `new { name, count }` | `Struct { name, count }` | `{ name, count }` | `Struct { name, count }` |
+| `x => x * 2` | `x => x * 2` | `x => x * 2` | `\|x\| x * 2` |
+| `(a, b) => a + b` | `(a, b) => a + b` | `([a, b]) => a + b` | `\|(a, b)\| a + b` |
+| `if (x is Type t)` | `if x is Type t` | `if (isType(x)) { t = x; }` | `match x { Type(t) => ... }` |
+| `$"Hello {name}"` | `$"Hello {name}"` | `` `Hello ${name}` `` | `format!("Hello {}", name)` |
+| `a ?? b` | `a ?? b` | `a ?? b` | `a.unwrap_or(b)` |
+| `a?.b` | `a?.b` | `a?.b` | `a.map(\|x\| x.b)` |
+
+---
+
+## 22. Custom AST Properties
 
 ReluxScript allows attaching custom metadata to AST nodes using the `__` prefix convention. Properties are stored separately and work identically across both Babel and SWC targets.
 
-### 21.1 Property Assignment
+### 22.1 Property Assignment
 
 Custom properties start with double underscore `__`:
 
@@ -2120,7 +2646,7 @@ plugin MetadataTracker {
 }
 ```
 
-### 21.2 Property Access
+### 22.2 Property Access
 
 Read properties using if-let patterns:
 
@@ -2137,7 +2663,7 @@ fn check_component(node: &JSXElement) {
 }
 ```
 
-### 21.3 Supported Types
+### 22.3 Supported Types
 
 Custom properties support these value types:
 - `String` (Str)
@@ -2147,14 +2673,14 @@ Custom properties support these value types:
 
 Type is inferred from first assignment and remains consistent.
 
-### 21.4 Property Deletion
+### 22.4 Property Deletion
 
 ```reluxscript
 // Delete by assigning None
 node.__processed = None;
 ```
 
-### 21.5 Compilation
+### 22.5 Compilation
 
 **SWC Target:**
 ```rust
@@ -2227,7 +2753,7 @@ if (name !== undefined) {
 }
 ```
 
-### 21.6 Use Cases
+### 22.6 Use Cases
 
 **Track transformation state:**
 ```reluxscript

@@ -186,9 +186,10 @@ plugin KitchenSink {
         let count_usize = self.state.count as usize;
         let back_to_i32 = count_usize as i32;
 
-        // Accessing extra_data on AST nodes (#22)
+        // Accessing custom properties on AST nodes (#22)
+        // Uses ReluxScript's __prop syntax which compiles to self.state.get_custom_prop()
         if let Expression::CallExpression(ref call) = node.expression {
-            if let Some(ref path) = call.extra_data.get("__minimactPath") {
+            if let Some(ref path) = call.__minimactPath {
                 self.state.output = path.clone();
             }
         }

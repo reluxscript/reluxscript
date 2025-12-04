@@ -9,6 +9,10 @@ pub struct TypeChecker {
     errors: Vec<SemanticError>,
     /// Current function's return type (for return statement checking)
     current_return_type: Option<TypeInfo>,
+    /// Current impl block's target struct name (for resolving `Self`)
+    current_impl_target: Option<String>,
+    /// Current plugin's self type (for implicit `self` in visitor methods)
+    current_plugin_self: Option<TypeInfo>,
 }
 
 impl TypeChecker {
@@ -17,6 +21,8 @@ impl TypeChecker {
             env: env.clone(),
             errors: Vec::new(),
             current_return_type: None,
+            current_impl_target: None,
+            current_plugin_self: None,
         }
     }
 
@@ -28,6 +34,9 @@ impl TypeChecker {
             TopLevelDecl::Interface(_) => {} // Interfaces are type declarations, not code
             TopLevelDecl::Module(module) => self.check_module(module),
         }
+
+        // Debug: dump all XPath→Type mappings
+        self.env.dump_paths();
 
         if self.errors.is_empty() {
             Ok(())
@@ -42,19 +51,73 @@ impl TypeChecker {
     }
 
     fn check_plugin(&mut self, plugin: &PluginDecl) {
-        // Don't push/pop scope - we want to retain all types for codegen
+        // Build the synthetic plugin struct type
+        // The generated code will have `pub struct PluginName { pub state: State }`
+        let mut plugin_fields = std::collections::HashMap::new();
+
+        // Find the State struct in the plugin body
         for item in &plugin.body {
-            if let PluginItem::Function(f) = item {
-                self.check_function(f);
+            if let PluginItem::Struct(s) = item {
+                if s.name == "State" {
+                    // Found State struct - add it as a field to the plugin struct
+                    let state_fields: std::collections::HashMap<String, TypeInfo> = s.fields.iter()
+                        .map(|field| (field.name.clone(), ast_type_to_type_info(&field.ty)))
+                        .collect();
+                    plugin_fields.insert("state".to_string(), TypeInfo::Struct {
+                        name: "State".to_string(),
+                        fields: state_fields,
+                    });
+                    break;
+                }
             }
         }
+
+        // Create the plugin struct type and register `self`
+        let plugin_struct = TypeInfo::Struct {
+            name: plugin.name.clone(),
+            fields: plugin_fields,
+        };
+
+        // Register the plugin struct so it can be looked up
+        self.env.define_struct(plugin.name.clone(), match &plugin_struct {
+            TypeInfo::Struct { fields, .. } => fields.clone(),
+            _ => std::collections::HashMap::new(),
+        });
+
+        // Set impl target so `Self` resolves to plugin struct
+        self.current_impl_target = Some(plugin.name.clone());
+
+        // Define `self` with the plugin struct type (wrapped in Ref since visitor methods take &mut self)
+        let self_type = TypeInfo::Ref {
+            mutable: true,
+            inner: Box::new(plugin_struct),
+        };
+        self.env.define("self".to_string(), self_type.clone());
+
+        // Don't push/pop scope - we want to retain all types for codegen
+        for item in &plugin.body {
+            match item {
+                PluginItem::Function(f) => self.check_function(f),
+                PluginItem::Impl(impl_block) => {
+                    self.check_impl_block(impl_block);
+                    // Restore `self` to plugin type after impl block
+                    // (impl methods may have redefined `self` as their target type)
+                    self.env.define("self".to_string(), self_type.clone());
+                }
+                _ => {}
+            }
+        }
+
+        self.current_impl_target = None;
     }
 
     fn check_writer(&mut self, writer: &WriterDecl) {
         // Don't push/pop scope - we want to retain all types for codegen
         for item in &writer.body {
-            if let PluginItem::Function(f) = item {
-                self.check_function(f);
+            match item {
+                PluginItem::Function(f) => self.check_function(f),
+                PluginItem::Impl(impl_block) => self.check_impl_block(impl_block),
+                _ => {}
             }
         }
     }
@@ -62,10 +125,27 @@ impl TypeChecker {
     fn check_module(&mut self, module: &ModuleDecl) {
         // Don't push/pop scope - we want to retain all types for codegen
         for item in &module.items {
-            if let PluginItem::Function(f) = item {
-                self.check_function(f);
+            match item {
+                PluginItem::Function(f) => self.check_function(f),
+                PluginItem::Impl(impl_block) => self.check_impl_block(impl_block),
+                _ => {}
             }
         }
+    }
+
+    fn check_impl_block(&mut self, impl_block: &crate::parser::ImplBlock) {
+        eprintln!("[TYPE CHECKER] Processing impl block for: {}", impl_block.target);
+
+        // Set the current impl target so `Self` can be resolved
+        self.current_impl_target = Some(impl_block.target.clone());
+
+        // Check each method in the impl block
+        for method in &impl_block.items {
+            self.check_function(method);
+        }
+
+        // Clear the impl target
+        self.current_impl_target = None;
     }
 
     fn check_function(&mut self, f: &FnDecl) {
@@ -80,10 +160,16 @@ impl TypeChecker {
         // to retain all variable types (including parameters and narrowed types)
         // so they're available to the decorator during codegen.
 
-        // Define parameters
+        // Define parameters using their XPath
         for param in &f.params {
             let ty = ast_type_to_type_info(&param.ty);
-            self.env.define(param.name.clone(), ty);
+            // Resolve `Self` to the actual impl struct type
+            let resolved_ty = self.resolve_self_type(ty);
+            eprintln!("[TYPE CHECKER] Defining param '{}' at path '{}' with type: {:?}", param.name, param.path, resolved_ty);
+            // Define at XPath (new canonical way)
+            self.env.define_at_path(&param.path, resolved_ty.clone());
+            // Also define by name (legacy - for backwards compatibility)
+            self.env.define(param.name.clone(), resolved_ty);
         }
 
         // Check body
@@ -91,6 +177,39 @@ impl TypeChecker {
 
         // Don't pop scope - keep all types for decorator
         self.current_return_type = None;
+    }
+
+    /// Resolve `Self` type to the actual impl struct type
+    fn resolve_self_type(&self, ty: TypeInfo) -> TypeInfo {
+        match ty {
+            TypeInfo::AstNode(ref name) if name == "Self" => {
+                // Replace `Self` with the current impl target struct
+                if let Some(ref target) = self.current_impl_target {
+                    if let Some(fields) = self.env.get_struct_fields(target) {
+                        TypeInfo::Struct {
+                            name: target.clone(),
+                            fields: fields.clone(),
+                        }
+                    } else {
+                        // Struct not defined - use empty fields
+                        TypeInfo::Struct {
+                            name: target.clone(),
+                            fields: std::collections::HashMap::new(),
+                        }
+                    }
+                } else {
+                    ty // No impl target, return as-is
+                }
+            }
+            TypeInfo::Ref { mutable, inner } => {
+                // Recursively resolve Self in reference types
+                TypeInfo::Ref {
+                    mutable,
+                    inner: Box::new(self.resolve_self_type(*inner)),
+                }
+            }
+            _ => ty,
+        }
     }
 
     fn check_block(&mut self, block: &Block) {
@@ -134,6 +253,7 @@ impl TypeChecker {
                         then_branch: if_stmt.then_branch.clone(),
                         else_branch: if_stmt.else_branch.clone(),
                         span: if_stmt.span,
+                        path: if_stmt.path.clone(),
                     });
                     return self.infer_expr(&Expr::If(if_expr));
                 }
@@ -637,6 +757,12 @@ impl TypeChecker {
                     .cloned()
                     .unwrap_or(TypeInfo::Unknown);
                 eprintln!("[TYPE INFER] Ident '{}' has type: {:?}", ident.name, ty);
+
+                // Store the resolved type at the XPath for later lookup by decorator
+                if !ident.path.is_empty() {
+                    self.env.define_at_path(&ident.path, ty.clone());
+                }
+
                 ty
             }
 
@@ -667,6 +793,17 @@ impl TypeChecker {
                             TypeInfo::Str
                         } else {
                             TypeInfo::I32
+                        }
+                    }
+
+                    // Null-coalescing: returns the inner type of the Option or the right type
+                    BinaryOp::NullCoalesce => {
+                        // If left is Option<T>, result is T (or right_type if right is also the inner type)
+                        if let TypeInfo::Option(inner) = left_type {
+                            *inner
+                        } else {
+                            // Just use right type as fallback
+                            right_type
                         }
                     }
                 }
@@ -728,7 +865,15 @@ impl TypeChecker {
                 }
 
                 let obj_type = self.infer_expr(&member.object);
-                self.get_field_type(&obj_type, &member.property)
+                let field_type = self.get_field_type(&obj_type, &member.property);
+
+                // Store the resolved type at the XPath for later lookup by decorator
+                if !member.path.is_empty() {
+                    eprintln!("[TYPE INFER] Storing member type at path '{}': {}", member.path, field_type.display_name());
+                    self.env.define_at_path(&member.path, field_type.clone());
+                }
+
+                field_type
             }
 
             Expr::Index(index) => {

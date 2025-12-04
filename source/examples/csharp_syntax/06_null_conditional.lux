@@ -1,0 +1,36 @@
+/**
+ * Test: Null-Conditional Operator (?.)
+ *
+ * C# developers write:
+ *   var name = node.Init?.AsIdentifier()?.Name;
+ *
+ * Instead of:
+ *   let name = node.init.as_ref().and_then(|x| x.as_identifier()).map(|x| x.name);
+ */
+plugin NullConditional {
+
+    struct State {
+        result: Str,
+    }
+
+    fn init() -> State {
+        State { result: "" }
+    }
+
+    pub fn visit_variable_declarator(node: &VariableDeclarator) {
+        // Test ?? with plain Options (this works)
+        let opt1: Option<Str> = Some("a".to_string());
+        let opt2: Option<Str> = Some("b".to_string());
+        let combined = opt1 ?? opt2 ?? "neither".to_string();
+
+        // Combining ?? with Option fields
+        let opt3: Option<Str> = None;
+        let result = opt3 ?? "default".to_string();
+
+        self.state.result = combined;
+    }
+
+    fn finish() -> Str {
+        self.state.result
+    }
+}

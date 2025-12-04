@@ -677,6 +677,35 @@ pub fn get_typed_field_mapping(parent_swc_type: &str, field: &str) -> Option<Typ
             write_conversion: "",
         }),
 
+        // BinExpr fields
+        ("BinExpr", "left") => Some(TypedFieldMapping {
+            reluxscript_field: "left",
+            swc_field: "left",
+            needs_deref: true, // Box<Expr>
+            result_type_rs: "Expr",
+            result_type_swc: "Box<Expr>",
+            read_conversion: "",
+            write_conversion: "",
+        }),
+        ("BinExpr", "right") => Some(TypedFieldMapping {
+            reluxscript_field: "right",
+            swc_field: "right",
+            needs_deref: true, // Box<Expr>
+            result_type_rs: "Expr",
+            result_type_swc: "Box<Expr>",
+            read_conversion: "",
+            write_conversion: "",
+        }),
+        ("BinExpr", "op") | ("BinExpr", "operator") => Some(TypedFieldMapping {
+            reluxscript_field: "op",
+            swc_field: "op",
+            needs_deref: false,
+            result_type_rs: "BinaryOp",
+            result_type_swc: "BinaryOp",
+            read_conversion: "",
+            write_conversion: "",
+        }),
+
         // Param fields
         ("Param", "pattern") => Some(TypedFieldMapping {
             reluxscript_field: "pattern",
@@ -800,6 +829,26 @@ pub fn get_typed_field_mapping(parent_swc_type: &str, field: &str) -> Option<Typ
             read_conversion: "",
             write_conversion: "",
         }),
+        ("FnDecl", "return_type") => Some(TypedFieldMapping {
+            reluxscript_field: "return_type",
+            swc_field: "function.return_type",
+            needs_deref: false,
+            result_type_rs: "Option<TsTypeAnnotation>",
+            result_type_swc: "Option<Box<TsTypeAnn>>",
+            read_conversion: "",
+            write_conversion: "",
+        }),
+
+        // TsTypeAnn (TypeAnnotation) fields
+        ("TsTypeAnn", "type_annotation") => Some(TypedFieldMapping {
+            reluxscript_field: "type_annotation",
+            swc_field: "type_ann",
+            needs_deref: true,  // Box<TsType>
+            result_type_rs: "TsType",
+            result_type_swc: "Box<TsType>",
+            read_conversion: "",
+            write_conversion: "",
+        }),
 
         // ArrayPat fields
         ("ArrayPat", "elements") => Some(TypedFieldMapping {
@@ -819,6 +868,17 @@ pub fn get_typed_field_mapping(parent_swc_type: &str, field: &str) -> Option<Typ
             needs_deref: false,
             result_type_rs: "Vec<Option<ExprOrSpread>>",
             result_type_swc: "Vec<Option<ExprOrSpread>>",
+            read_conversion: "",
+            write_conversion: "",
+        }),
+
+        // VarDecl fields
+        ("VariableDeclaration", "declarations") | ("VarDecl", "declarations") => Some(TypedFieldMapping {
+            reluxscript_field: "declarations",
+            swc_field: "decls",
+            needs_deref: false,
+            result_type_rs: "Vec<VarDeclarator>",
+            result_type_swc: "Vec<VarDeclarator>",
             read_conversion: "",
             write_conversion: "",
         }),

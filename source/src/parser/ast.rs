@@ -9,6 +9,8 @@ pub struct Program {
     pub uses: Vec<UseStmt>,
     pub decl: TopLevelDecl,
     pub span: Span,
+    /// XPath for this node (root is empty string)
+    pub path: String,
 }
 
 /// Use statement: `use fs;` or `use "./helpers.lux";` or `use "./helpers.lux" { foo, bar };`
@@ -43,6 +45,8 @@ pub enum TopLevelDecl {
 pub struct ModuleDecl {
     pub items: Vec<PluginItem>,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Plugin declaration: `plugin Name { ... }`
@@ -51,6 +55,8 @@ pub struct PluginDecl {
     pub name: String,
     pub body: Vec<PluginItem>,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Writer declaration: `writer Name { ... }`
@@ -59,6 +65,8 @@ pub struct WriterDecl {
     pub name: String,
     pub body: Vec<PluginItem>,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Items that can appear inside a plugin/writer
@@ -88,16 +96,20 @@ pub struct StaticDecl {
 /// Struct declaration
 #[derive(Debug, Clone)]
 pub struct StructDecl {
+    pub is_pub: bool,
     pub name: String,
     pub fields: Vec<StructField>,
     pub derives: Vec<String>,  // Traits to derive (e.g., "Clone", "Debug")
     pub lifetimes: Vec<String>,  // Lifetime parameters (e.g., vec!["'a", "'b"])
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Struct field
 #[derive(Debug, Clone)]
 pub struct StructField {
+    pub is_pub: bool,
     pub name: String,
     pub ty: Type,
     pub span: Span,
@@ -106,10 +118,13 @@ pub struct StructField {
 /// Enum declaration
 #[derive(Debug, Clone)]
 pub struct EnumDecl {
+    pub is_pub: bool,
     pub name: String,
     pub variants: Vec<EnumVariant>,
     pub derives: Vec<String>,  // Traits to derive (e.g., "Clone", "Debug")
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Enum variant fields
@@ -142,6 +157,8 @@ pub struct FnDecl {
     pub where_clause: Vec<WherePredicate>,  // where F: Fn(...)
     pub body: Block,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Generic type parameter (for Rust-style generics)
@@ -165,6 +182,8 @@ pub struct Param {
     pub name: String,
     pub ty: Type,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Impl block
@@ -173,6 +192,8 @@ pub struct ImplBlock {
     pub target: String,
     pub items: Vec<FnDecl>,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Type representation
@@ -210,6 +231,9 @@ pub enum Type {
         mutable: bool,
         inner: Box<Type>,
     },
+    /// SWC AST node type - emitted as-is without primitive conversion
+    /// E.g., AstNode("Str") emits "Str", not "String"
+    AstNode(String),
 }
 
 impl Type {
@@ -260,6 +284,13 @@ impl Type {
             Type::RawPointer { inner, .. } => {
                 // Raw pointers become the inner type in TypeScript
                 inner.to_ts_type()
+            }
+            Type::AstNode(name) => {
+                // AST node types become type references
+                TsType::TypeReference {
+                    name: name.clone(),
+                    type_args: vec![],
+                }
             }
         }
     }
@@ -410,6 +441,8 @@ pub struct TemplateElement {
 pub struct Block {
     pub stmts: Vec<Stmt>,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Statement
@@ -448,6 +481,8 @@ pub struct LetStmt {
     pub ty: Option<Type>,
     pub init: Option<Expr>,  // Optional: allows `let x: Type;` without initialization
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Const statement: `const NAME = expr;`
@@ -476,6 +511,8 @@ pub struct IfStmt {
     pub else_if_branches: Vec<(Expr, Block)>,
     pub else_branch: Option<Block>,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Match statement
@@ -484,6 +521,8 @@ pub struct MatchStmt {
     pub scrutinee: Expr,
     pub arms: Vec<MatchArm>,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Match arm
@@ -492,6 +531,8 @@ pub struct MatchArm {
     pub pattern: Pattern,
     pub body: Expr,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Pattern for matching
@@ -544,6 +585,8 @@ pub struct ForStmt {
     pub iter: Expr,
     pub body: Block,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// While loop
@@ -552,6 +595,8 @@ pub struct WhileStmt {
     pub condition: Expr,
     pub body: Block,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Loop (infinite)
@@ -559,6 +604,8 @@ pub struct WhileStmt {
 pub struct LoopStmt {
     pub body: Block,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Return statement
@@ -733,6 +780,8 @@ pub struct PathExpr {
     /// The segments of the path (e.g., ["std", "ptr", "null"])
     pub segments: Vec<String>,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Literal values
@@ -751,6 +800,8 @@ pub enum Literal {
 pub struct IdentExpr {
     pub name: String,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Binary expression
@@ -760,6 +811,8 @@ pub struct BinaryExpr {
     pub left: Box<Expr>,
     pub right: Box<Expr>,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Binary operators
@@ -778,6 +831,8 @@ pub enum BinaryOp {
     GtEq,
     And,
     Or,
+    /// Null-coalescing: a ?? b -> a.unwrap_or(b)
+    NullCoalesce,
 }
 
 /// Unary expression
@@ -786,6 +841,8 @@ pub struct UnaryExpr {
     pub op: UnaryOp,
     pub operand: Box<Expr>,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Unary operators
@@ -808,6 +865,8 @@ pub struct CallExpr {
     /// True if this is a macro call (e.g., format!(...), vec![...])
     pub is_macro: bool,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Member access expression
@@ -820,6 +879,8 @@ pub struct MemberExpr {
     /// True if this is a path expression (::) rather than member access (.)
     pub is_path: bool,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Index expression
@@ -828,6 +889,8 @@ pub struct IndexExpr {
     pub object: Box<Expr>,
     pub index: Box<Expr>,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Struct initialization
@@ -836,6 +899,8 @@ pub struct StructInitExpr {
     pub name: String,
     pub fields: Vec<(String, Expr)>,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Vec initialization
@@ -843,6 +908,8 @@ pub struct StructInitExpr {
 pub struct VecInitExpr {
     pub elements: Vec<Expr>,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// If expression
@@ -854,6 +921,8 @@ pub struct IfExpr {
     pub then_branch: Block,
     pub else_branch: Option<Block>,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Match expression
@@ -862,6 +931,8 @@ pub struct MatchExpr {
     pub scrutinee: Expr,
     pub arms: Vec<MatchArm>,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Matches macro expression: matches!(expr, pattern)
@@ -916,6 +987,8 @@ pub struct ClosureExpr {
     pub params: Vec<ClosureParam>,
     pub body: Box<Expr>,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Closure parameter - can be a simple identifier or a pattern
@@ -935,6 +1008,8 @@ pub struct RefExpr {
     pub mutable: bool,
     pub expr: Box<Expr>,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Dereference expression
@@ -942,6 +1017,8 @@ pub struct RefExpr {
 pub struct DerefExpr {
     pub expr: Box<Expr>,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Assignment expression
@@ -950,6 +1027,8 @@ pub struct AssignExpr {
     pub target: Box<Expr>,
     pub value: Box<Expr>,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Compound assignment expression
@@ -959,6 +1038,8 @@ pub struct CompoundAssignExpr {
     pub target: Box<Expr>,
     pub value: Box<Expr>,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }
 
 /// Compound assignment operators
@@ -977,4 +1058,6 @@ pub struct RangeExpr {
     pub end: Option<Box<Expr>>,
     pub inclusive: bool,
     pub span: Span,
+    /// XPath for this node
+    pub path: String,
 }

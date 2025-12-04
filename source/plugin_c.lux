@@ -1,0 +1,34 @@
+/**
+ * Plugin C - Uses Module B (which depends on Module A)
+ */
+
+plugin GeometryChecker {
+    pub use "./dist/module_b" { Rectangle, area, is_at_origin, Point };
+
+    struct State {
+        rect_count: i32,
+        total_area: i32,
+    }
+
+    fn init() -> State {
+        State {
+            rect_count: 0,
+            total_area: 0,
+        }
+    }
+
+    fn visit_ident(node: &mut Ident) {
+        // Create a test rectangle
+        let r = Rectangle {
+            top_left: Point { x: 0, y: 0 },
+            bottom_right: Point { x: 10, y: 10 },
+        };
+
+        self.state.rect_count = self.state.rect_count + 1;
+        self.state.total_area = self.state.total_area + area(&r);
+
+        if is_at_origin(&r) {
+            self.state.rect_count = self.state.rect_count + 1;
+        }
+    }
+}

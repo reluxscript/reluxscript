@@ -1,0 +1,51 @@
+/**
+ * Test: Arrow Function Syntax (=>)
+ *
+ * C# developers write:
+ *   list.Select(x => x.Name)
+ *
+ * Instead of Rust-style:
+ *   list.iter().map(|x| x.name)
+ */
+plugin ArrowFunctions {
+
+    struct State {
+        result: Str,
+    }
+
+    fn init() -> State {
+        State { result: "" }
+    }
+
+    pub fn visit_array_expression(node: &ArrayExpression) {
+        let items = vec!["a", "b", "c"];
+
+        // Single parameter arrow function
+        let mapped = items.iter().map(x => x.to_uppercase());
+
+        // Multiple parameters (parentheses required)
+        let pairs = vec![(1, 2), (3, 4)];
+        let sums = pairs.iter().map((a, b) => a + b);
+
+        // Arrow with block body
+        let processed = items.iter().map(x => {
+            let upper = x.to_uppercase();
+            format!("[{}]", upper)
+        });
+
+        // Nested arrows
+        let matrix = vec![vec![1, 2], vec![3, 4]];
+        let flattened = matrix.iter().flat_map(row => row.iter().map(x => x * 2));
+
+        // Filter with arrow
+        let filtered = items.iter().filter(x => x.len() > 1);
+
+        // Any/All with arrow
+        let has_long = items.iter().any(x => x.len() > 2);
+        let all_short = items.iter().all(x => x.len() < 10);
+    }
+
+    fn finish() -> Str {
+        self.state.result
+    }
+}

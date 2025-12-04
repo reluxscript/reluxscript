@@ -36,6 +36,10 @@ pub struct UnwrapHoister {
     type_env: TypeEnvironment,
     /// Counter for generating unique temp variable names
     temp_counter: usize,
+    /// Counter for generating unique XPath IDs for synthetic nodes
+    path_id: u16,
+    /// Current path context
+    current_path: String,
 }
 
 /// Describes a single step in a property access chain that needs unwrapping
@@ -75,6 +79,25 @@ impl UnwrapHoister {
         Self {
             type_env: TypeEnvironment::new(),
             temp_counter: 0,
+            path_id: 0xF000,  // Start at F000 to avoid collision with parser paths
+            current_path: String::new(),
+        }
+    }
+
+    /// Generate a unique hex ID for synthetic nodes
+    fn next_path_id(&mut self) -> String {
+        let id = format!("{:04X}", self.path_id);
+        self.path_id = self.path_id.wrapping_add(1);
+        id
+    }
+
+    /// Create a path for a synthetic node
+    fn make_path(&mut self, name: &str) -> String {
+        let id = self.next_path_id();
+        if self.current_path.is_empty() {
+            format!("{}[{}]", name, id)
+        } else {
+            format!("{}.{}[{}]", self.current_path, name, id)
         }
     }
 
@@ -257,8 +280,9 @@ impl UnwrapHoister {
 
                         // Replace the argument with the temp variable
                         *arg = Expr::Ident(IdentExpr {
-                            name: temp_name,
+                            name: temp_name.clone(),
                             span: temp_span,
+                            path: self.make_path(&temp_name),
                         });
                     } else {
                         // Recursively check nested expressions
@@ -471,6 +495,7 @@ impl UnwrapHoister {
                 computed: false,
                 is_path: false,
                 span,
+                path: self.make_path(step),
             });
         }
 
@@ -488,6 +513,7 @@ impl UnwrapHoister {
                 computed: false,
                 is_path: false,
                 span,
+                path: self.make_path(&unwrap.field_name),
             });
 
             // Add explicit type annotation so codegen knows this is a MemberProp
@@ -497,6 +523,7 @@ impl UnwrapHoister {
                 ty: Some(Type::Named(unwrap.swc_enum_type.clone())),
                 init: Some(temp_access),
                 span,
+                path: self.make_path(&temp_name),
             });
 
             // Track the temp variable's type in our environment
@@ -515,21 +542,25 @@ impl UnwrapHoister {
                 callee: Box::new(Expr::Ident(IdentExpr {
                     name: "matches!".to_string(),
                     span,
+                    path: self.make_path("matches"),
                 })),
                 args: vec![
                     Expr::Ident(IdentExpr {
                         name: temp_name.clone(),
                         span,
+                        path: self.make_path(&temp_name),
                     }),
                     Expr::Ident(IdentExpr {
                         name: self.swc_variant_to_reluxscript(&unwrap.swc_struct),
                         span,
+                        path: self.make_path(&unwrap.swc_struct),
                     }),
                 ],
                 type_args: Vec::new(),
                 optional: false,
                 is_macro: true,
                 span,
+                path: self.make_path("call"),
             });
 
             // Step 3: Create declaration for target variable (must be mutable for assignment)
@@ -542,8 +573,10 @@ impl UnwrapHoister {
                 init: Some(Expr::Ident(IdentExpr {
                     name: "Default::default()".to_string(),
                     span,
+                    path: self.make_path("default"),
                 })),
                 span,
+                path: self.make_path(&target_var),
             });
 
             // Step 4: Create the inner assignment with final field access
@@ -552,12 +585,14 @@ impl UnwrapHoister {
                 object: Box::new(Expr::Ident(IdentExpr {
                     name: temp_name.clone(),
                     span,
+                    path: self.make_path(&temp_name),
                 })),
                 property: analysis.final_field.clone(),
                 optional: false,
                 computed: false,
                 is_path: false,
                 span,
+                path: self.make_path(&analysis.final_field),
             });
 
             // Add .clone() call
@@ -569,12 +604,14 @@ impl UnwrapHoister {
                     computed: false,
                     is_path: false,
                     span,
+                    path: self.make_path("clone"),
                 })),
                 args: vec![],
                 type_args: Vec::new(),
                 optional: false,
                 is_macro: false,
                 span,
+                path: self.make_path("call"),
             });
 
             let inner_assign = Stmt::Expr(ExprStmt {
@@ -582,9 +619,11 @@ impl UnwrapHoister {
                     target: Box::new(Expr::Ident(IdentExpr {
                         name: target_var.clone(),
                         span,
+                        path: self.make_path(&target_var),
                     })),
                     value: Box::new(cloned_access),
                     span,
+                    path: self.make_path("assign"),
                 }),
                 span,
             });
@@ -596,6 +635,7 @@ impl UnwrapHoister {
                 then_branch: Block {
                     stmts: vec![inner_assign],
                     span,
+                    path: self.make_path("then"),
                 },
                 else_if_branches: vec![],
                 else_branch: Some(Block {
@@ -606,6 +646,7 @@ impl UnwrapHoister {
                                 callee: Box::new(Expr::Ident(IdentExpr {
                                     name: "panic!".to_string(),
                                     span,
+                                    path: self.make_path("panic"),
                                 })),
                                 args: vec![
                                     Expr::Literal(Literal::String(format!(
@@ -618,13 +659,16 @@ impl UnwrapHoister {
                                 optional: false,
                                 is_macro: true,
                                 span,
+                                path: self.make_path("call"),
                             }),
                             span,
                         }),
                     ],
                     span,
+                    path: self.make_path("else"),
                 }),
                 span,
+                path: self.make_path("if"),
             });
 
             // Track the type of the target variable
@@ -636,9 +680,10 @@ impl UnwrapHoister {
         }
 
         // No unwrap needed - return original as single statement
+        let final_field = analysis.final_field.clone();
         vec![Stmt::Let(LetStmt {
             mutable,
-            pattern: Pattern::Ident(target_var),
+            pattern: Pattern::Ident(target_var.clone()),
             ty: None,
             init: Some(Expr::Member(MemberExpr {
                 object: Box::new(analysis.base_expr),
@@ -647,8 +692,10 @@ impl UnwrapHoister {
                 computed: false,
                 is_path: false,
                 span,
+                path: self.make_path(&final_field),
             })),
             span,
+            path: self.make_path(&target_var),
         })]
     }
 

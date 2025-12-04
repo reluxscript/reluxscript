@@ -84,11 +84,16 @@ impl<'a> Lexer<'a> {
                 ',' => TokenKind::Comma,
                 ';' => TokenKind::Semicolon,
                 '?' => {
-                    if self.peek_char() == Some('.') {
-                        self.advance();
-                        TokenKind::QuestionDot
-                    } else {
-                        TokenKind::Question
+                    match self.peek_char() {
+                        Some('.') => {
+                            self.advance();
+                            TokenKind::QuestionDot
+                        }
+                        Some('?') => {
+                            self.advance();
+                            TokenKind::QuestionQuestion
+                        }
+                        _ => TokenKind::Question
                     }
                 }
                 '#' => TokenKind::Hash,
@@ -251,6 +256,12 @@ impl<'a> Lexer<'a> {
                 // Numbers
                 c if c.is_ascii_digit() => self.read_number(c),
 
+                // Interpolated string literals: $"..."
+                '$' if self.peek_char() == Some('"') => {
+                    self.advance(); // consume the "
+                    self.read_interpolated_string()
+                }
+
                 // Raw string literals: r"..."
                 'r' if self.peek_char() == Some('"') => {
                     self.advance(); // consume the "
@@ -367,6 +378,89 @@ impl<'a> Lexer<'a> {
             }
         }
         TokenKind::StringLit(string)
+    }
+
+    fn read_interpolated_string(&mut self) -> TokenKind {
+        use crate::lexer::token::InterpolatedPart;
+        // Interpolated strings: $"Hello {name}, you have {count} items"
+        // Parses into alternating literal and expression parts
+        let mut parts: Vec<InterpolatedPart> = Vec::new();
+        let mut current_literal = String::new();
+
+        loop {
+            match self.advance() {
+                None => return TokenKind::Error("Unterminated interpolated string".to_string()),
+                Some((_, '"')) => {
+                    // End of string - push final literal part (may be empty)
+                    parts.push(InterpolatedPart::Literal(current_literal));
+                    break;
+                }
+                Some((_, '\\')) => {
+                    // Escape sequence
+                    match self.advance() {
+                        Some((_, 'n')) => current_literal.push('\n'),
+                        Some((_, 't')) => current_literal.push('\t'),
+                        Some((_, 'r')) => current_literal.push('\r'),
+                        Some((_, '\\')) => current_literal.push('\\'),
+                        Some((_, '"')) => current_literal.push('"'),
+                        Some((_, '{')) => current_literal.push('{'),
+                        Some((_, '}')) => current_literal.push('}'),
+                        Some((_, c)) => {
+                            // Unknown escape, keep as-is
+                            current_literal.push('\\');
+                            current_literal.push(c);
+                        }
+                        None => return TokenKind::Error("Unterminated escape in interpolated string".to_string()),
+                    }
+                }
+                Some((_, '{')) => {
+                    // Check for escaped brace {{
+                    if self.peek_char() == Some('{') {
+                        self.advance();
+                        current_literal.push('{');
+                        continue;
+                    }
+                    // Start of expression - push current literal and start collecting expression
+                    parts.push(InterpolatedPart::Literal(current_literal));
+                    current_literal = String::new();
+
+                    // Collect expression until matching }
+                    let mut expr = String::new();
+                    let mut brace_depth = 1;
+                    loop {
+                        match self.advance() {
+                            None => return TokenKind::Error("Unterminated expression in interpolated string".to_string()),
+                            Some((_, '{')) => {
+                                brace_depth += 1;
+                                expr.push('{');
+                            }
+                            Some((_, '}')) => {
+                                brace_depth -= 1;
+                                if brace_depth == 0 {
+                                    break;
+                                }
+                                expr.push('}');
+                            }
+                            Some((_, c)) => expr.push(c),
+                        }
+                    }
+                    parts.push(InterpolatedPart::Expr(expr));
+                }
+                Some((_, '}')) => {
+                    // Check for escaped brace }}
+                    if self.peek_char() == Some('}') {
+                        self.advance();
+                        current_literal.push('}');
+                        continue;
+                    }
+                    // Unmatched } is an error
+                    return TokenKind::Error("Unmatched '}' in interpolated string".to_string());
+                }
+                Some((_, c)) => current_literal.push(c),
+            }
+        }
+
+        TokenKind::InterpolatedString(parts)
     }
 
     fn read_char_as_string(&mut self) -> TokenKind {
@@ -550,33 +644,6 @@ impl<'a> Lexer<'a> {
             return TokenKind::Matches;
         }
 
-        // Check for Self:: prefix - strip it and return just the following identifier
-        if ident == "Self" && self.peek_char() == Some(':') {
-            // Look ahead to check for ::
-            let chars: Vec<char> = self.source[self.current_pos..].chars().collect();
-            if chars.len() >= 2 && chars[0] == ':' && chars[1] == ':' {
-                // Skip the ::
-                self.advance(); // first :
-                self.advance(); // second :
-                // Read the identifier after Self::
-                if let Some(c) = self.peek_char() {
-                    if c.is_alphabetic() || c == '_' {
-                        let mut new_ident = String::new();
-                        while let Some(ch) = self.peek_char() {
-                            if ch.is_alphanumeric() || ch == '_' {
-                                new_ident.push(ch);
-                                self.advance();
-                            } else {
-                                break;
-                            }
-                        }
-                        // Return the identifier after Self::, not Self
-                        return TokenKind::Ident(new_ident);
-                    }
-                }
-            }
-        }
-
         // Check for keywords
         match ident.as_str() {
             "fn" => TokenKind::Fn,
@@ -605,6 +672,7 @@ impl<'a> Lexer<'a> {
             "use" => TokenKind::Use,
             "pub" => TokenKind::Pub,
             "as" => TokenKind::As,
+            "is" => TokenKind::Is,
             "self" => TokenKind::Self_,
             "Self" => TokenKind::SelfType,
             "match" => TokenKind::Match,

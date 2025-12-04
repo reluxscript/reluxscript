@@ -1,0 +1,84 @@
+/**
+ * Test: LINQ-style Method Names
+ *
+ * C# developers write:
+ *   list.Select(x => x.Name).Where(x => x.Length > 0).ToList()
+ *
+ * Instead of:
+ *   list.iter().map(|x| x.name).filter(|x| x.len() > 0).collect()
+ */
+plugin LinqMethods {
+
+    struct State {
+        result: Str,
+    }
+
+    fn init() -> State {
+        State { result: "" }
+    }
+
+    pub fn visit_array_expression(node: &ArrayExpression) {
+        let items = vec!["apple", "banana", "cherry"];
+        let numbers = vec![1, 2, 3, 4, 5];
+
+        // Select (map)
+        let names = items.Select(x => x.to_uppercase());
+
+        // Where (filter)
+        let long_items = items.Where(x => x.len() > 5);
+
+        // Chained Select and Where
+        let processed = items
+            .Select(x => x.to_uppercase())
+            .Where(x => x.starts_with("A"))
+            .ToList();
+
+        // Any
+        let has_banana = items.Any(x => x == "banana");
+
+        // All
+        let all_lowercase = items.All(x => x == x.to_lowercase());
+
+        // First
+        let first = items.First();
+
+        // FirstOrDefault
+        let first_or = items.FirstOrDefault("none");
+
+        // Count
+        let count = items.Count();
+
+        // Take and Skip
+        let first_two = items.Take(2).ToList();
+        let rest = items.Skip(2).ToList();
+
+        // OrderBy
+        let sorted = items.OrderBy(x => x.len()).ToList();
+
+        // Distinct (after sorting or as needed)
+        let unique = items.Distinct().ToList();
+
+        // Aggregate (fold)
+        let concatenated = items.Aggregate("", (acc, x) => format!("{}{}", acc, x));
+
+        // Contains
+        let has_apple = items.Contains("apple");
+
+        // Complex chain
+        let result = numbers
+            .Where(x => x > 2)
+            .Select(x => x * 2)
+            .OrderBy(x => x)
+            .Take(3)
+            .ToList();
+
+        // ToArray (same as ToList for our purposes)
+        let array = items.ToArray();
+
+        self.state.result = processed.First();
+    }
+
+    fn finish() -> Str {
+        self.state.result
+    }
+}
