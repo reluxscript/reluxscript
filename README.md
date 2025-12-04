@@ -215,6 +215,8 @@ experimental = { plugins = [["./dist/lib.so", {}]] }
 - **String Methods**: `.starts_with()`, `.ends_with()`, `.contains()`, `.len()`, etc.
 - **Format Strings**: `format!("Hello, {}!", name)`
 - **Import/Export**: Multi-file projects with `use` declarations
+- **Compiled Modules**: Build reusable `.luxon` module packages with `build-module`
+- **Project Builds**: Declarative `lux.manifest.json` for multi-module projects with dependency resolution
 - **Verbatim Blocks**: `babel! { }` and `swc! { }` for platform-specific code
 - **Regex Support**: `Regex::matches()`, `Regex::find()`, `Regex::captures()`, etc. (see [REGEX_SUPPORT.md](docs/REGEX_SUPPORT.md))
 - **Custom AST Properties**: Attach metadata to AST nodes with `__` prefix (see [CUSTOM_AST_PROPERTIES.md](docs/CUSTOM_AST_PROPERTIES.md))
@@ -428,6 +430,12 @@ relux lex plugin.lux
 # Debug: view AST
 relux parse plugin.lux
 
+# Build a standalone module (creates .luxon manifest)
+relux build-module utils.lux --output dist/utils
+
+# Build entire project from manifest (handles dependencies)
+relux build-project lux.manifest.json
+
 # Help
 relux --help
 ```
@@ -450,6 +458,8 @@ relux --help
 - [x] **Custom AST properties** (v0.1.2) - Unified metadata tracking with `__` prefix
 - [x] **VS Code extension** - Syntax highlighting and language support
 - [x] **Language server protocol (LSP)** - Code completion, diagnostics, and more
+- [x] **Compiled modules** (v0.1.4) - Build reusable `.luxon` packages with `build-module`
+- [x] **Project builds** (v0.1.4) - Declarative `lux.manifest.json` with topological dependency resolution
 
 ### 🚧 In Progress
 
