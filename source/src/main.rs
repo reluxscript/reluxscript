@@ -87,6 +87,15 @@ enum Commands {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Build a project from a manifest file (builds modules in dependency order, then plugin/writer)
+    #[cfg(feature = "codegen")]
+    BuildProject {
+        /// Path to lux.manifest.json
+        manifest: PathBuf,
+        /// Target platform
+        #[arg(short, long, default_value = "swc")]
+        target: String,
+    },
 }
 
 fn main() {
@@ -675,5 +684,219 @@ serde_json = "1.0.145"
                 }
             }
         }
+        #[cfg(feature = "codegen")]
+        Commands::BuildProject { manifest, target } => {
+            use reluxscript::manifest::LuxManifest;
+
+            // Load and validate manifest
+            let manifest_path = manifest.clone();
+            let manifest_dir = manifest_path.parent().unwrap_or_else(|| std::path::Path::new("."));
+
+            let lux_manifest = match LuxManifest::load(&manifest_path) {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("Error loading manifest: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            if let Err(e) = lux_manifest.validate() {
+                eprintln!("Manifest validation error: {}", e);
+                std::process::exit(1);
+            }
+
+            // Get sorted modules
+            let sorted_modules = match lux_manifest.sorted_modules() {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("Dependency error: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            println!("Building project from {:?}", manifest_path);
+            println!("Build order: {}", sorted_modules.iter().map(|m| m.name.as_str()).collect::<Vec<_>>().join(" → "));
+
+            // Build each module in order
+            for module in &sorted_modules {
+                let module_path = manifest_dir.join(&module.path);
+                let output_path = manifest_dir.join(&module.output);
+
+                println!("\n[{}] Building module...", module.name);
+
+                if let Err(e) = build_module_internal(&module_path, &output_path, &target) {
+                    eprintln!("Error building module '{}': {}", module.name, e);
+                    std::process::exit(1);
+                }
+
+                println!("[{}] ✓ Built successfully", module.name);
+            }
+
+            // Build plugin or writer if specified
+            if let Some(ref plugin) = lux_manifest.plugin {
+                let plugin_path = manifest_dir.join(&plugin.path);
+                let output_path = manifest_dir.join(&plugin.output);
+
+                println!("\n[plugin] Building plugin...");
+
+                if let Err(e) = build_plugin_internal(&plugin_path, &output_path, &target) {
+                    eprintln!("Error building plugin: {}", e);
+                    std::process::exit(1);
+                }
+
+                println!("[plugin] ✓ Built successfully");
+            }
+
+            if let Some(ref writer) = lux_manifest.writer {
+                let writer_path = manifest_dir.join(&writer.path);
+                let output_path = manifest_dir.join(&writer.output);
+
+                println!("\n[writer] Building writer...");
+
+                if let Err(e) = build_plugin_internal(&writer_path, &output_path, &target) {
+                    eprintln!("Error building writer: {}", e);
+                    std::process::exit(1);
+                }
+
+                println!("[writer] ✓ Built successfully");
+            }
+
+            println!("\n✓ Project build complete!");
+        }
     }
+}
+
+/// Internal function to build a module (extracted from BuildModule command)
+#[cfg(feature = "codegen")]
+fn build_module_internal(file: &std::path::Path, output: &std::path::Path, target: &str) -> Result<(), String> {
+    use reluxscript::{Lexer, Parser, lower, analyze_with_base_dir};
+    use reluxscript::codegen::SwcEmitter;
+    use reluxscript::{SwcDecorator, SwcRewriter};
+
+    let source = fs::read_to_string(file)
+        .map_err(|e| format!("Failed to read file: {}", e))?;
+
+    let mut lexer = Lexer::new(&source);
+    let tokens = lexer.tokenize();
+    let mut parser = Parser::new_with_source(tokens, source.clone());
+
+    let mut program = parser.parse()
+        .map_err(|e| format!("Parse error at {}:{}: {}", e.span.line, e.span.column, e.message))?;
+
+    lower(&mut program);
+
+    let base_dir = file.parent().unwrap_or_else(|| std::path::Path::new(".")).to_path_buf();
+    let result = analyze_with_base_dir(&program, base_dir.clone());
+
+    if !result.errors.is_empty() {
+        let errors: Vec<_> = result.errors.iter()
+            .map(|e| format!("{}:{}: {}", e.span.line, e.span.column, e.message))
+            .collect();
+        return Err(format!("Semantic errors:\n{}", errors.join("\n")));
+    }
+
+    if target != "swc" {
+        return Err("build-module currently only supports --target swc".to_string());
+    }
+
+    let mut decorator = SwcDecorator::with_semantic_types(result.type_env);
+    let decorated = decorator.decorate_program(&program);
+
+    let mut rewriter = SwcRewriter::new();
+    let rewritten = rewriter.rewrite_program(decorated);
+
+    let mut emitter = SwcEmitter::with_base_dir(base_dir.clone());
+    let swc_code = emitter.emit_program(&rewritten);
+
+    fs::create_dir_all(output)
+        .map_err(|e| format!("Failed to create output directory: {}", e))?;
+
+    let swc_path = output.join("lib.rs");
+    fs::write(&swc_path, &swc_code)
+        .map_err(|e| format!("Failed to write output: {}", e))?;
+
+    // Write imported module files
+    for (module_name, module_code, _imports, _is_transitive) in emitter.get_imported_modules() {
+        let module_path = output.join(format!("{}.rs", module_name));
+        fs::write(&module_path, module_code)
+            .map_err(|e| format!("Failed to write module '{}': {}", module_name, e))?;
+    }
+
+    // Generate .luxon manifest
+    let module_name = file.file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("module")
+        .to_string();
+    let manifest = reluxscript::luxon::extract_manifest_with_base_dir(&program, module_name, &base_dir);
+    let luxon_path = output.join("lib.luxon");
+    if let Err(e) = manifest.save(&luxon_path) {
+        eprintln!("Warning: Failed to write .luxon manifest: {}", e);
+    }
+
+    Ok(())
+}
+
+/// Internal function to build a plugin/writer (extracted from Build command)
+#[cfg(feature = "codegen")]
+fn build_plugin_internal(file: &std::path::Path, output: &std::path::Path, target: &str) -> Result<(), String> {
+    use reluxscript::{Lexer, Parser, lower, analyze_with_base_dir};
+    use reluxscript::codegen::{BabelGenerator, SwcEmitter, generate_with_types_and_base_dir};
+    use reluxscript::{SwcDecorator, SwcRewriter, Target};
+
+    let source = fs::read_to_string(file)
+        .map_err(|e| format!("Failed to read file: {}", e))?;
+
+    let mut lexer = Lexer::new(&source);
+    let tokens = lexer.tokenize();
+    let mut parser = Parser::new_with_source(tokens, source.clone());
+
+    let mut program = parser.parse()
+        .map_err(|e| format!("Parse error at {}:{}: {}", e.span.line, e.span.column, e.message))?;
+
+    lower(&mut program);
+
+    let base_dir = file.parent().unwrap_or_else(|| std::path::Path::new(".")).to_path_buf();
+    let result = analyze_with_base_dir(&program, base_dir.clone());
+
+    if !result.errors.is_empty() {
+        let errors: Vec<_> = result.errors.iter()
+            .map(|e| format!("{}:{}: {}", e.span.line, e.span.column, e.message))
+            .collect();
+        return Err(format!("Semantic errors:\n{}", errors.join("\n")));
+    }
+
+    fs::create_dir_all(output)
+        .map_err(|e| format!("Failed to create output directory: {}", e))?;
+
+    let build_target = match target {
+        "babel" => Target::Babel,
+        "swc" => Target::Swc,
+        "both" => Target::Both,
+        _ => return Err(format!("Unknown target: {}", target)),
+    };
+
+    let generated = generate_with_types_and_base_dir(&program, result.type_env, build_target, base_dir);
+
+    // Write Babel output
+    if let Some(ref babel) = generated.babel {
+        let babel_path = output.join("index.js");
+        fs::write(&babel_path, babel)
+            .map_err(|e| format!("Failed to write Babel output: {}", e))?;
+    }
+
+    // Write SWC output
+    if let Some(ref swc) = generated.swc {
+        let swc_path = output.join("lib.rs");
+        fs::write(&swc_path, swc)
+            .map_err(|e| format!("Failed to write SWC output: {}", e))?;
+
+        // Write imported module files
+        for (module_name, module_code, _imports, _is_transitive) in &generated.swc_modules {
+            let module_path = output.join(format!("{}.rs", module_name));
+            fs::write(&module_path, module_code)
+                .map_err(|e| format!("Failed to write module '{}': {}", module_name, e))?;
+        }
+    }
+
+    Ok(())
 }

@@ -3,8 +3,8 @@
   "structs": {
     "Point": {
       "fields": {
-        "y": "Number",
-        "x": "Number"
+        "x": "Number",
+        "y": "Number"
       },
       "derives": [
         "Default"
@@ -12,10 +12,6 @@
     }
   },
   "functions": {
-    "origin": {
-      "params": [],
-      "returns": "Point"
-    },
     "distance_squared": {
       "params": [
         {
@@ -24,6 +20,10 @@
         }
       ],
       "returns": "Number"
+    },
+    "origin": {
+      "params": [],
+      "returns": "Point"
     }
   }
 }

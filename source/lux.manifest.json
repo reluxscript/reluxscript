@@ -1,0 +1,20 @@
+{
+  "modules": [
+    {
+      "name": "module_a",
+      "path": "module_a.lux",
+      "output": "dist/module_a"
+    },
+    {
+      "name": "module_b",
+      "path": "module_b.lux",
+      "output": "dist/module_b",
+      "deps": ["module_a"]
+    }
+  ],
+  "plugin": {
+    "path": "plugin_c.lux",
+    "output": "dist/plugin_c",
+    "deps": ["module_b"]
+  }
+}

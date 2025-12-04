@@ -1,6 +1,15 @@
 {
   "name": "module_b",
   "structs": {
+    "Point": {
+      "fields": {
+        "y": "Number",
+        "x": "Number"
+      },
+      "derives": [
+        "Default"
+      ]
+    },
     "Rectangle": {
       "fields": {
         "top_left": "Point",
@@ -9,27 +18,9 @@
       "derives": [
         "Default"
       ]
-    },
-    "Point": {
-      "fields": {
-        "x": "Number",
-        "y": "Number"
-      },
-      "derives": [
-        "Default"
-      ]
     }
   },
   "functions": {
-    "distance_squared": {
-      "params": [
-        {
-          "name": "p",
-          "type": "&Point"
-        }
-      ],
-      "returns": "Number"
-    },
     "area": {
       "params": [
         {
@@ -47,6 +38,15 @@
         }
       ],
       "returns": "Bool"
+    },
+    "distance_squared": {
+      "params": [
+        {
+          "name": "p",
+          "type": "&Point"
+        }
+      ],
+      "returns": "Number"
     },
     "origin": {
       "params": [],
