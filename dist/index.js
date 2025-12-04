@@ -219,7 +219,7 @@ module.exports = function({ types: t }) {
         const count_usize = this.state.count;
         const back_to_i32 = count_usize;
         if (node.expression.type === "CallExpression") {
-          const __iflet_6 = call.extra_data.get("__minimactPath");
+          const __iflet_6 = call.__minimactPath;
           if (__iflet_6 !== null && __iflet_6 !== undefined) {
             const path = __iflet_6;
             this.state.output = path;

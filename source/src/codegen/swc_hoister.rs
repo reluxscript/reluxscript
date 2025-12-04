@@ -122,6 +122,7 @@ impl SwcHoister {
         DecoratedProgram {
             uses: program.uses,
             decl: new_decl,
+            uses_custom_props: program.uses_custom_props,
         }
     }
 

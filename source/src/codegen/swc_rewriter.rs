@@ -31,6 +31,9 @@ pub struct SwcRewriter {
 
     /// Helper function names (non-visitor functions) in current plugin/writer
     helper_functions: Vec<String>,
+
+    /// Whether custom properties are used (set when CustomPropAccess is transformed)
+    uses_custom_props: bool,
 }
 
 impl SwcRewriter {
@@ -40,6 +43,7 @@ impl SwcRewriter {
             temp_var_counter: 0,
             is_writer: false,
             helper_functions: Vec::new(),
+            uses_custom_props: false,
         }
     }
 
@@ -48,6 +52,7 @@ impl SwcRewriter {
         Self {
             temp_var_counter: 0,
             is_writer: true,
+            uses_custom_props: false,
             helper_functions: Vec::new(),
         }
     }
@@ -160,9 +165,11 @@ impl SwcRewriter {
 
     /// Main entry point: rewrite entire program
     pub fn rewrite_program(&mut self, program: DecoratedProgram) -> DecoratedProgram {
+        let decl = self.rewrite_top_level_decl(program.decl);
         DecoratedProgram {
             uses: program.uses,
-            decl: self.rewrite_top_level_decl(program.decl),
+            decl,
+            uses_custom_props: self.uses_custom_props,
         }
     }
 
@@ -3303,6 +3310,9 @@ impl SwcRewriter {
     fn rewrite_custom_prop_assignment(&mut self, assign: DecoratedCustomPropAssignment) -> DecoratedStmt {
         use crate::codegen::decorated_ast::{DecoratedCallExpr, DecoratedExprKind};
 
+        // Mark that custom properties are used
+        self.uses_custom_props = true;
+
         // Check if this is a deletion (assignment to None)
         if assign.metadata.is_deletion {
             // Transform: node.__prop = None → self.state.delete_custom_prop(node, "__prop")
@@ -3338,6 +3348,9 @@ impl SwcRewriter {
     /// Rewrite custom property access to state.get_custom_prop() call
     fn rewrite_custom_prop_access(&mut self, access: DecoratedCustomPropAccess) -> DecoratedExpr {
         use crate::codegen::decorated_ast::{DecoratedCallExpr, DecoratedExprKind};
+
+        // Mark that custom properties are used
+        self.uses_custom_props = true;
 
         // Build: self.state.get_custom_prop(node, "__prop")
         let get_call = DecoratedExpr {

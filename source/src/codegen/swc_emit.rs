@@ -140,6 +140,12 @@ impl SwcEmitter {
             }
         }
 
+        // Check if custom properties are used (set by rewriter)
+        if program.uses_custom_props {
+            self.uses_custom_props = true;
+            self.uses_hashmap = true; // Custom props use HashMap
+        }
+
         // Walk AST to detect regex usage
         self.detect_regex_usage_in_decl(&program.decl);
     }
@@ -155,6 +161,14 @@ impl SwcEmitter {
                         }
                         DecoratedPluginItem::Struct(struct_decl) => {
                             self.detect_hashmap_hashset_in_struct(struct_decl);
+                        }
+                        DecoratedPluginItem::Impl(impl_block) => {
+                            for method in &impl_block.items {
+                                self.detect_regex_usage_in_block(&method.body);
+                            }
+                        }
+                        DecoratedPluginItem::PreHook(func) | DecoratedPluginItem::ExitHook(func) => {
+                            self.detect_regex_usage_in_block(&func.body);
                         }
                         _ => {}
                     }
@@ -179,6 +193,14 @@ impl SwcEmitter {
                         }
                         DecoratedPluginItem::Struct(struct_decl) => {
                             self.detect_hashmap_hashset_in_struct(struct_decl);
+                        }
+                        DecoratedPluginItem::Impl(impl_block) => {
+                            for method in &impl_block.items {
+                                self.detect_regex_usage_in_block(&method.body);
+                            }
+                        }
+                        DecoratedPluginItem::PreHook(func) | DecoratedPluginItem::ExitHook(func) => {
+                            self.detect_regex_usage_in_block(&func.body);
                         }
                         _ => {}
                     }
@@ -270,6 +292,11 @@ impl SwcEmitter {
                 DecoratedStmt::Return(Some(expr)) => {
                     self.detect_regex_usage_in_expr(expr);
                 }
+                DecoratedStmt::CustomPropAssignment(_) => {
+                    // Custom property assignment will be rewritten to self.state.set_custom_prop()
+                    self.uses_custom_props = true;
+                    self.uses_hashmap = true; // Custom props use HashMap
+                }
                 _ => {}
             }
         }
@@ -333,6 +360,12 @@ impl SwcEmitter {
                 for arm in &match_expr.arms {
                     self.detect_regex_usage_in_block(&arm.body);
                 }
+            }
+            DecoratedExprKind::CustomPropAccess(_) => {
+                // Custom property access - should have been handled by rewriter flag
+                // This is a fallback in case it's still present in the AST
+                self.uses_custom_props = true;
+                self.uses_hashmap = true;
             }
             _ => {}
         }
@@ -1784,6 +1817,15 @@ impl SwcEmitter {
                     // Emit the decorated field expression
                     self.emit_expr(field_expr);
                 }
+
+                // If this is a State struct and custom props are used, add __custom_props field
+                if expr.metadata.swc_type == "State" && self.uses_custom_props {
+                    if !struct_init.fields.is_empty() {
+                        self.output.push_str(", ");
+                    }
+                    self.output.push_str("__custom_props: std::collections::HashMap::new()");
+                }
+
                 self.output.push_str(" }");
             }
 

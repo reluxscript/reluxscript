@@ -8,6 +8,15 @@ use swc_ecma_visit::{Visit, VisitMut, VisitMutWith, VisitWith};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Debug)]
+enum CustomPropValue {
+    Bool(bool),
+    I32(i32),
+    I64(i64),
+    F64(f64),
+    Str(String),
+}
+
+#[derive(Clone, Debug)]
 enum BindingType {
     Simple(String),
     Complex {
@@ -51,6 +60,37 @@ struct State {
     output: String,
     count: i32,
     results: Vec<AnalysisResult>,
+    // Auto-generated: Custom AST property storage
+    __custom_props: std::collections::HashMap<usize, std::collections::HashMap<String, CustomPropValue>>,
+}
+
+impl State {
+    fn get_node_id<T>(&self, node: &T) -> usize {
+        // Use node memory address as ID
+        node as *const T as usize
+    }
+    
+    fn set_custom_prop<T>(&mut self, node: &T, prop: &str, value: CustomPropValue) {
+        let node_id = self.get_node_id(node);
+        self.__custom_props
+            .entry(node_id)
+            .or_insert_with(std::collections::HashMap::new)
+            .insert(prop.to_string(), value);
+    }
+    
+    fn get_custom_prop<T>(&self, node: &T, prop: &str) -> Option<&CustomPropValue> {
+        let node_id = self.get_node_id(node);
+        self.__custom_props
+            .get(&node_id)
+            .and_then(|m| m.get(prop))
+    }
+    
+    fn delete_custom_prop<T>(&mut self, node: &T, prop: &str) {
+        let node_id = self.get_node_id(node);
+        if let Some(props) = self.__custom_props.get_mut(&node_id) {
+            props.remove(prop);
+        }
+    }
 }
 
 pub struct KitchenSink {
@@ -61,7 +101,7 @@ impl VisitMut for KitchenSink {
     fn visit_mut_fn_decl(&mut self, node: &mut FnDecl) {
         match node.function.return_type {
             Option::Some(type_ann) => {
-                match type_ann.type_annotation {
+                match &*type_ann.type_ann.as_ref() {
                     TsType::TsKeywordType(TsKeywordType { kind: TsKeywordTypeKind::TsStringKeyword, .. }) => {
                         {
                             self.state.output = "string".to_string()
@@ -214,8 +254,8 @@ impl VisitMut for KitchenSink {
         match &*node.expr.as_ref() {
             Expr::Call(call) => {
                 {
-                    match call.extra_data.get("__minimactPath") {
-                        Some(path) => {
+                    match self.state.get_custom_prop(call, "__minimactPath") {
+                        Option::Some(path) => {
                             self.state.output = path.clone()
                         }
                         _ => {}
@@ -338,13 +378,14 @@ impl KitchenSink {
                 output: Default::default(),
                 count: 0,
                 results: Vec::new(),
+                __custom_props: std::collections::HashMap::new(),
             },
         }
     }
     
     fn init() -> State {
         let _hex_gap = 268435456;
-        State { output: "".to_string(), count: 0, results: vec![] }
+        State { output: "".to_string(), count: 0, results: vec![], __custom_props: std::collections::HashMap::new() }
     }
     
     fn parse_value(input: &String) -> Result<i32, String> {

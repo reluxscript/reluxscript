@@ -190,6 +190,7 @@ impl SwcDecorator {
         DecoratedProgram {
             uses: program.uses.clone(),
             decl: self.decorate_top_level_decl(&program.decl),
+            uses_custom_props: false, // Will be set by rewriter if CustomPropAccess is found
         }
     }
 
@@ -1680,11 +1681,13 @@ impl SwcDecorator {
                         read_conversion: String::new(),
                     }
                 } else {
-                    // Strip Box<> wrapper for field mapping lookup
-                    let base_object_type = if object_type.starts_with("Box<") && object_type.ends_with(">") {
-                        &object_type[4..object_type.len()-1]
+                    // Strip reference and Box<> wrappers for field mapping lookup
+                    // e.g., "&Box<TsTypeAnn>" -> "TsTypeAnn", "Box<Expr>" -> "Expr"
+                    let stripped_ref = object_type.strip_prefix("&mut ").or_else(|| object_type.strip_prefix("&")).unwrap_or(&object_type);
+                    let base_object_type = if stripped_ref.starts_with("Box<") && stripped_ref.ends_with(">") {
+                        &stripped_ref[4..stripped_ref.len()-1]
                     } else {
-                        object_type.as_str()
+                        stripped_ref
                     };
 
                     if let Some(mapping) = get_typed_field_mapping(base_object_type, &mem.property) {
@@ -3050,6 +3053,8 @@ impl SwcDecorator {
 pub struct DecoratedProgram {
     pub uses: Vec<crate::parser::UseStmt>,
     pub decl: DecoratedTopLevelDecl,
+    /// Whether custom properties are used (set by rewriter when CustomPropAccess is transformed)
+    pub uses_custom_props: bool,
 }
 
 #[derive(Debug, Clone)]
