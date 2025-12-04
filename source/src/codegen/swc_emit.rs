@@ -977,6 +977,11 @@ impl SwcEmitter {
                     self.output.push_str("let ");
                 }
                 self.emit_pattern(&let_stmt.pattern);
+                // Emit type annotation if present
+                if let Some(ref ty) = let_stmt.ty {
+                    self.output.push_str(": ");
+                    self.output.push_str(&self.type_to_string(ty));
+                }
                 if let Some(ref init) = let_stmt.init {
                     self.output.push_str(" = ");
                     self.emit_expr(init);
@@ -1779,22 +1784,59 @@ impl SwcEmitter {
             }
 
             DecoratedExprKind::If(if_expr) => {
-                self.output.push_str("if ");
-                self.emit_expr(&if_expr.condition);
-                self.output.push_str(" {\n");
-                self.indent += 1;
-                self.emit_block(&if_expr.then_branch);
-                self.indent -= 1;
-                self.emit_indent();
-                self.output.push('}');
-
-                if let Some(ref else_branch) = if_expr.else_branch {
-                    self.output.push_str(" else {\n");
+                // Check if this is an if-let expression (has a pattern)
+                if let Some(ref pattern) = if_expr.pattern {
+                    // Emit as match expression for if-let
+                    self.output.push_str("match ");
+                    self.emit_expr(&if_expr.condition);
+                    self.output.push_str(" {\n");
                     self.indent += 1;
-                    self.emit_block(else_branch);
+
+                    // Pattern arm
+                    self.emit_indent();
+                    self.emit_pattern(pattern);
+                    self.output.push_str(" => {\n");
+                    self.indent += 1;
+                    self.emit_block(&if_expr.then_branch);
+                    self.indent -= 1;
+                    self.emit_line("}");
+
+                    // Wildcard arm for else branch
+                    self.emit_indent();
+                    self.output.push_str("_ => ");
+                    if let Some(ref else_branch) = if_expr.else_branch {
+                        self.output.push_str("{\n");
+                        self.indent += 1;
+                        self.emit_block(else_branch);
+                        self.indent -= 1;
+                        self.emit_indent();
+                        self.output.push_str("}\n");
+                    } else {
+                        self.output.push_str("{}\n");
+                    }
+
                     self.indent -= 1;
                     self.emit_indent();
                     self.output.push('}');
+                } else {
+                    // Regular if expression
+                    self.output.push_str("if ");
+                    self.emit_expr(&if_expr.condition);
+                    self.output.push_str(" {\n");
+                    self.indent += 1;
+                    self.emit_block(&if_expr.then_branch);
+                    self.indent -= 1;
+                    self.emit_indent();
+                    self.output.push('}');
+
+                    if let Some(ref else_branch) = if_expr.else_branch {
+                        self.output.push_str(" else {\n");
+                        self.indent += 1;
+                        self.emit_block(else_branch);
+                        self.indent -= 1;
+                        self.emit_indent();
+                        self.output.push('}');
+                    }
                 }
             }
 

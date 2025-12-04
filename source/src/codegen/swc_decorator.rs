@@ -418,7 +418,7 @@ impl SwcDecorator {
                 DecoratedStmt::Let(DecoratedLetStmt {
                     mutable: let_stmt.mutable,
                     pattern,
-                    ty: let_stmt.ty.clone(),
+                    ty: let_stmt.ty.as_ref().map(|t| self.map_type_to_swc(t)),
                     init,
                 })
             }
@@ -2238,19 +2238,26 @@ impl SwcDecorator {
                 let then_branch = self.decorate_block(&if_expr.then_branch);
                 let else_branch = if_expr.else_branch.as_ref().map(|b| self.decorate_block(b));
 
+                // Decorate the pattern if present (for if-let expressions)
+                let pattern = if_expr.pattern.as_ref().map(|p| {
+                    let condition_type = condition.metadata.swc_type.clone();
+                    self.decorate_pattern_with_context(p, &condition_type)
+                });
+
                 DecoratedExpr {
                     kind: DecoratedExprKind::If(Box::new(DecoratedIfExpr {
                         condition,
+                        pattern,
                         then_branch,
                         else_branch,
                     })),
-                    metadata: SwcExprMetadata { needs_enum_unwrap: None, 
+                    metadata: SwcExprMetadata { needs_enum_unwrap: None,
                         swc_type: "UserDefined".to_string(),
                         is_boxed: false,
                         is_optional: false,
                         type_kind: SwcTypeKind::Unknown,
                         span: None,
-                    
+
                     needs_to_string: false,},
                 }
             }

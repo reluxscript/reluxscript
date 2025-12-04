@@ -146,7 +146,7 @@ impl VisitMut for KitchenSink {
                     match &*init {
                         Expr::Arrow(arrow) => {
                             {
-                                let param_names = arrow.params.iter().filter(|p| match &p {
+                                let param_names: Vec<String> = arrow.params.iter().filter(|p| match &p {
                                     Pat::Ident(_) => {
                                         true
                                     }
@@ -162,6 +162,7 @@ impl VisitMut for KitchenSink {
                                         }
                                         _ => {
                                             {
+                                                "unknown".to_string()
                                             }
                                         }
                                     }
@@ -241,7 +242,7 @@ impl VisitMut for KitchenSink {
                 }
             }
         }
-        let parts = name.split("_").map(|s| s.to_string()).collect();
+        let parts: Vec<String> = name.split("_").map(|s| s.to_string()).collect();
         let first_char = name.chars().next();
         match first_char {
             Some(ch) => {
@@ -292,7 +293,7 @@ impl VisitMut for KitchenSink {
             }
             _ => {}
         }
-        let mut new_results = vec![];
+        let mut new_results: Vec<String> = vec![];
         new_results.push("item1".to_string());
         new_results.push("item2".to_string());
         let has_null = node.elems.iter().any(|e| {
@@ -377,15 +378,15 @@ impl KitchenSink {
     }
     
     fn test_collections(&mut self) {
-        let mut set = HashSet::new();
+        let mut set: HashSet<String> = HashSet::new();
         set.insert("key1".to_string());
         set.insert("key2".to_string());
         if set.contains("key1") {
             self.state.output = "found".to_string()
         }
-        let mut map = HashMap::new();
+        let mut map: HashMap<String, i32> = HashMap::new();
         map.insert("count".to_string(), 42);
-        let keys = map.keys().cloned().collect();
+        let keys: Vec<String> = map.keys().cloned().collect();
     }
     
     fn transform_elements<F>(elements: &Vec<Expr>, transformer: F) -> Vec<String>

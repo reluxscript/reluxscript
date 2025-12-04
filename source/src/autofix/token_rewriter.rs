@@ -119,18 +119,18 @@ impl TokenRewriter {
             }
         }
 
-        // Check for else clause
+        // Check for else clause and capture its body tokens
         let has_else = self.position < self.tokens.len() &&
                        matches!(self.tokens[self.position].kind, TokenKind::Else);
 
+        let mut else_body_tokens = Vec::new();
         if has_else {
-            // Skip the else clause - we'll ignore it for now in the conversion
-            // since match with a catch-all _ arm doesn't need it
             self.position += 1; // Skip "else"
 
-            // Skip the else body
+            // Capture the else body tokens (including braces)
             if self.position < self.tokens.len() &&
                matches!(self.tokens[self.position].kind, TokenKind::LBrace) {
+                else_body_tokens.push(self.tokens[self.position].clone()); // Opening brace
                 self.position += 1;
                 let mut brace_depth = 1;
                 while self.position < self.tokens.len() && brace_depth > 0 {
@@ -139,13 +139,14 @@ impl TokenRewriter {
                         TokenKind::RBrace => brace_depth -= 1,
                         _ => {}
                     }
+                    else_body_tokens.push(self.tokens[self.position].clone());
                     self.position += 1;
                 }
             }
         }
 
         // Now generate the match expression
-        // match EXPR { PATTERN => BODY, _ => {} }
+        // match EXPR { PATTERN => BODY, _ => ELSE_BODY }
 
         let first_span = self.tokens[start_pos].span;
 
@@ -167,12 +168,18 @@ impl TokenRewriter {
         // BODY
         self.output.extend(body_tokens);
 
-        // , _ => {}
+        // , _ => ELSE_BODY (or {} if no else)
         self.output.push(Token::new(TokenKind::Comma, first_span));
         self.output.push(Token::new(TokenKind::Ident("_".to_string()), first_span));
         self.output.push(Token::new(TokenKind::DDArrow, first_span));
-        self.output.push(Token::new(TokenKind::LBrace, first_span));
-        self.output.push(Token::new(TokenKind::RBrace, first_span));
+        if else_body_tokens.is_empty() {
+            // No else clause - use empty block
+            self.output.push(Token::new(TokenKind::LBrace, first_span));
+            self.output.push(Token::new(TokenKind::RBrace, first_span));
+        } else {
+            // Use the captured else body
+            self.output.extend(else_body_tokens);
+        }
 
         // }
         self.output.push(Token::new(TokenKind::RBrace, first_span));

@@ -1183,6 +1183,7 @@ impl SwcRewriter {
             DecoratedExprKind::If(if_expr) => {
                 DecoratedExprKind::If(Box::new(DecoratedIfExpr {
                     condition: self.rewrite_expr(if_expr.condition),
+                    pattern: if_expr.pattern,  // Pass through the pattern
                     then_branch: self.rewrite_block(if_expr.then_branch),
                     else_branch: if_expr.else_branch.map(|b| self.rewrite_block(b)),
                 }))
@@ -3184,6 +3185,7 @@ impl SwcRewriter {
                 DecoratedExpr {
                     kind: DecoratedExprKind::If(Box::new(DecoratedIfExpr {
                         condition: if_expr.condition.clone(),
+                        pattern: if_expr.pattern.clone(),
                         then_branch: self.convert_block_tail_string_literal(if_expr.then_branch.clone()),
                         else_branch: if_expr.else_branch.as_ref().map(|b| self.convert_block_tail_string_literal(b.clone())),
                     })),

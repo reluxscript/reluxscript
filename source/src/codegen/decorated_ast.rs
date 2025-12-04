@@ -271,6 +271,7 @@ pub struct DecoratedWhileStmt {
 #[derive(Debug, Clone)]
 pub struct DecoratedIfExpr {
     pub condition: DecoratedExpr,
+    pub pattern: Option<DecoratedPattern>,
     pub then_branch: DecoratedBlock,
     pub else_branch: Option<DecoratedBlock>,
 }
