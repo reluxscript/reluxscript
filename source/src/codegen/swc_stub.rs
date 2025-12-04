@@ -37,6 +37,9 @@ impl SwcGenerator {
             DecoratedTopLevelDecl::Writer(_writer) => {
                 self.emit_line("// Writer detected");
             }
+            DecoratedTopLevelDecl::Module(_module) => {
+                self.emit_line("// Module detected");
+            }
             DecoratedTopLevelDecl::Undecorated(_) => {
                 self.emit_line("// Undecorated node");
             }

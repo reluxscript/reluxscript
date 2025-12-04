@@ -18,7 +18,7 @@ use crate::lexer::Span;
 use super::decorated_ast::*;
 use super::swc_metadata::*;
 use crate::type_system::SwcTypeKind;
-use super::swc_decorator::{DecoratedProgram, DecoratedTopLevelDecl, DecoratedPlugin, DecoratedWriter, DecoratedPluginItem, DecoratedFnDecl, DecoratedImplBlock};
+use super::swc_decorator::{DecoratedProgram, DecoratedTopLevelDecl, DecoratedPlugin, DecoratedWriter, DecoratedModule, DecoratedModuleItem, DecoratedPluginItem, DecoratedFnDecl, DecoratedImplBlock};
 
 /// SwcRewriter transforms DecoratedAST → DecoratedAST
 /// All semantic transformations happen here, not in codegen
@@ -187,6 +187,9 @@ impl SwcRewriter {
                 self.is_writer = true;
                 DecoratedTopLevelDecl::Writer(self.rewrite_writer(writer))
             }
+            DecoratedTopLevelDecl::Module(module) => {
+                DecoratedTopLevelDecl::Module(self.rewrite_module(module))
+            }
             DecoratedTopLevelDecl::Undecorated(decl) => {
                 // Pass through undecorated nodes unchanged
                 DecoratedTopLevelDecl::Undecorated(decl)
@@ -234,6 +237,44 @@ impl SwcRewriter {
                 .collect(),
             hoisted_structs: writer.hoisted_structs,
             state_struct: writer.state_struct,
+        }
+    }
+
+    fn rewrite_module(&mut self, module: DecoratedModule) -> DecoratedModule {
+        // First pass: collect helper function names
+        self.helper_functions.clear();
+        for item in &module.items {
+            if let DecoratedModuleItem::Function(func) = item {
+                self.helper_functions.push(func.name.clone());
+            }
+        }
+
+        // Second pass: rewrite with helper function knowledge
+        DecoratedModule {
+            items: module.items
+                .into_iter()
+                .map(|item| self.rewrite_module_item(item))
+                .collect(),
+        }
+    }
+
+    fn rewrite_module_item(&mut self, item: DecoratedModuleItem) -> DecoratedModuleItem {
+        match item {
+            DecoratedModuleItem::Function(func) => {
+                DecoratedModuleItem::Function(self.rewrite_fn_decl(func))
+            }
+            DecoratedModuleItem::Struct(struct_decl) => {
+                DecoratedModuleItem::Struct(struct_decl)
+            }
+            DecoratedModuleItem::Enum(enum_decl) => {
+                DecoratedModuleItem::Enum(enum_decl)
+            }
+            DecoratedModuleItem::Impl(impl_block) => {
+                DecoratedModuleItem::Impl(self.rewrite_impl_block(impl_block))
+            }
+            DecoratedModuleItem::Static(static_decl) => {
+                DecoratedModuleItem::Static(static_decl)
+            }
         }
     }
 

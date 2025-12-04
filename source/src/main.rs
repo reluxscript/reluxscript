@@ -64,6 +64,21 @@ enum Commands {
         #[arg(long)]
         dump_rewritten_ast: bool,
     },
+    /// Build a standalone module file (like a C# DLL - just functions, structs, no plugin wrapper)
+    #[cfg(feature = "codegen")]
+    BuildModule {
+        /// Input file
+        file: PathBuf,
+        /// Target platform (swc only for now)
+        #[arg(short, long, default_value = "swc")]
+        target: String,
+        /// Output directory
+        #[arg(short, long, default_value = "dist")]
+        output: PathBuf,
+        /// Dump decorated AST (debug mode)
+        #[arg(long)]
+        dump_ast: bool,
+    },
     /// Fix common issues in ReluxScript files (rewrites in-place)
     Fix {
         /// Input file(s)
@@ -465,6 +480,90 @@ serde_json = "1.0.145"
                 }
             }
 
+            println!("Build complete!");
+        }
+        #[cfg(feature = "codegen")]
+        Commands::BuildModule { file, target, output, dump_ast } => {
+            // Build a standalone module file (like a DLL - just functions/structs, no plugin wrapper)
+            let source = match fs::read_to_string(&file) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("Error reading file: {}", e);
+                    std::process::exit(1);
+                }
+            };
+
+            // Parse
+            let mut lexer = Lexer::new(&source);
+            let tokens = lexer.tokenize();
+            let mut parser = Parser::new_with_source(tokens, source.clone());
+
+            let mut program = match parser.parse() {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("Parse error at {}:{}: {}", e.span.line, e.span.column, e.message);
+                    std::process::exit(1);
+                }
+            };
+
+            // AST lowering
+            lower(&mut program);
+
+            // Semantic analysis
+            let base_dir = file.parent().unwrap_or_else(|| std::path::Path::new(".")).to_path_buf();
+            let result = analyze_with_base_dir(&program, base_dir);
+            if !result.errors.is_empty() {
+                for error in &result.errors {
+                    eprintln!(
+                        "error[{}]: {} at {}:{}",
+                        error.code, error.message, error.span.line, error.span.column
+                    );
+                }
+                eprintln!("Build failed: {} error(s)", result.errors.len());
+                std::process::exit(1);
+            }
+
+            // For now, only SWC is supported for modules
+            if target != "swc" {
+                eprintln!("Error: build-module currently only supports --target swc");
+                std::process::exit(1);
+            }
+
+            // Generate SWC module code
+            use reluxscript::{SwcDecorator, SwcRewriter};
+            use reluxscript::codegen::SwcEmitter;
+
+            let mut decorator = SwcDecorator::with_semantic_types(result.type_env);
+            let decorated = decorator.decorate_program(&program);
+
+            if dump_ast {
+                println!("\n=== DECORATED MODULE AST ===");
+                println!("{:#?}", decorated);
+                println!("=== END DECORATED AST ===\n");
+                return;
+            }
+
+            // Rewrite
+            let mut rewriter = SwcRewriter::new();
+            let rewritten = rewriter.rewrite_program(decorated);
+
+            // Emit
+            let mut emitter = SwcEmitter::new();
+            let swc_code = emitter.emit_program(&rewritten);
+
+            // Create output directory
+            if let Err(e) = fs::create_dir_all(&output) {
+                eprintln!("Error creating output directory: {}", e);
+                std::process::exit(1);
+            }
+
+            // Write generated file
+            let swc_path = output.join("lib.rs");
+            if let Err(e) = fs::write(&swc_path, &swc_code) {
+                eprintln!("Error writing SWC output: {}", e);
+                std::process::exit(1);
+            }
+            println!("Generated SWC module: {:?}", swc_path);
             println!("Build complete!");
         }
         Commands::Fix { files, dry_run } => {

@@ -7,7 +7,7 @@
 //!
 //! The emitter is "dumb" by design - all transformations happened in earlier stages.
 
-use super::swc_decorator::{DecoratedProgram, DecoratedTopLevelDecl, DecoratedPlugin, DecoratedWriter, DecoratedPluginItem, DecoratedFnDecl, DecoratedImplBlock};
+use super::swc_decorator::{DecoratedProgram, DecoratedTopLevelDecl, DecoratedPlugin, DecoratedWriter, DecoratedModule, DecoratedPluginItem, DecoratedFnDecl, DecoratedImplBlock};
 use super::decorated_ast::*;
 use super::swc_metadata::*;
 use crate::parser::*;
@@ -214,6 +214,25 @@ impl SwcEmitter {
                         if let PluginItem::Struct(struct_decl) = item {
                             self.detect_hashmap_hashset_in_struct(struct_decl);
                         }
+                    }
+                }
+            }
+            DecoratedTopLevelDecl::Module(module) => {
+                use crate::codegen::swc_decorator::DecoratedModuleItem;
+                for item in &module.items {
+                    match item {
+                        DecoratedModuleItem::Function(func) => {
+                            self.detect_regex_usage_in_block(&func.body);
+                        }
+                        DecoratedModuleItem::Struct(struct_decl) => {
+                            self.detect_hashmap_hashset_in_struct(struct_decl);
+                        }
+                        DecoratedModuleItem::Impl(impl_block) => {
+                            for method in &impl_block.items {
+                                self.detect_regex_usage_in_block(&method.body);
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -484,6 +503,9 @@ impl SwcEmitter {
                 self.is_writer = true;
                 self.emit_writer(writer);
             }
+            DecoratedTopLevelDecl::Module(module) => {
+                self.emit_module(module);
+            }
             DecoratedTopLevelDecl::Undecorated(_) => {
                 self.emit_line("// Undecorated top-level declaration (not yet supported)");
             }
@@ -670,6 +692,33 @@ impl SwcEmitter {
 
         self.indent -= 1;
         self.emit_line("}");
+    }
+
+    /// Emit a standalone module (like a C# DLL) - just functions, structs, enums at module level
+    fn emit_module(&mut self, module: &DecoratedModule) {
+        use super::swc_decorator::DecoratedModuleItem;
+
+        for item in &module.items {
+            match item {
+                DecoratedModuleItem::Function(func) => {
+                    // Emit function with pub visibility
+                    self.emit_function_with_visibility(func, func.name.starts_with("pub ") || !func.name.starts_with("_"));
+                }
+                DecoratedModuleItem::Struct(struct_decl) => {
+                    self.emit_struct(struct_decl);
+                }
+                DecoratedModuleItem::Enum(enum_decl) => {
+                    self.emit_enum(enum_decl);
+                }
+                DecoratedModuleItem::Impl(impl_block) => {
+                    self.emit_impl_block(impl_block);
+                }
+                DecoratedModuleItem::Static(static_decl) => {
+                    self.emit_static(static_decl);
+                }
+            }
+            self.emit_line("");
+        }
     }
 
     fn emit_plugin_item(&mut self, item: &DecoratedPluginItem) {

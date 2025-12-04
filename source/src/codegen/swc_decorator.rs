@@ -204,9 +204,11 @@ impl SwcDecorator {
                 self.is_writer = true;
                 DecoratedTopLevelDecl::Writer(self.decorate_writer_decl(writer))
             }
-            TopLevelDecl::Interface(_) | TopLevelDecl::Module(_) => {
-                // For now, pass through undecorated
-                // These don't need SWC-specific decoration
+            TopLevelDecl::Module(module) => {
+                DecoratedTopLevelDecl::Module(self.decorate_module_decl(module))
+            }
+            TopLevelDecl::Interface(_) => {
+                // Interfaces don't need SWC-specific decoration
                 DecoratedTopLevelDecl::Undecorated(decl.clone())
             }
         }
@@ -262,6 +264,39 @@ impl SwcDecorator {
             hoisted_structs,
             state_struct,
         }
+    }
+
+    /// Decorate a standalone module (like a C# DLL)
+    fn decorate_module_decl(&mut self, module: &ModuleDecl) -> DecoratedModule {
+        let items = module.items.iter().filter_map(|item| {
+            match item {
+                PluginItem::Function(func) => {
+                    Some(DecoratedModuleItem::Function(self.decorate_fn_decl(func)))
+                }
+                PluginItem::Struct(s) => {
+                    Some(DecoratedModuleItem::Struct(s.clone()))
+                }
+                PluginItem::Enum(e) => {
+                    Some(DecoratedModuleItem::Enum(e.clone()))
+                }
+                PluginItem::Impl(impl_block) => {
+                    Some(DecoratedModuleItem::Impl(self.decorate_impl_block(impl_block)))
+                }
+                PluginItem::Static(static_decl) => {
+                    Some(DecoratedModuleItem::Static(DecoratedStaticDecl {
+                        name: static_decl.name.clone(),
+                        ty: static_decl.ty.clone(),
+                        init: self.decorate_expr(&static_decl.init),
+                        is_mut: static_decl.is_mut,
+                        span: static_decl.span,
+                    }))
+                }
+                // Skip hooks and use statements in standalone modules
+                PluginItem::PreHook(_) | PluginItem::ExitHook(_) | PluginItem::PubUse(_) => None,
+            }
+        }).collect();
+
+        DecoratedModule { items }
     }
 
     fn decorate_plugin_item(&mut self, item: &PluginItem) -> DecoratedPluginItem {
@@ -3061,7 +3096,23 @@ pub struct DecoratedProgram {
 pub enum DecoratedTopLevelDecl {
     Plugin(DecoratedPlugin),
     Writer(DecoratedWriter),
+    Module(DecoratedModule),
     Undecorated(TopLevelDecl),
+}
+
+/// A standalone module (like a C# DLL) - just functions, structs, enums
+#[derive(Debug, Clone)]
+pub struct DecoratedModule {
+    pub items: Vec<DecoratedModuleItem>,
+}
+
+#[derive(Debug, Clone)]
+pub enum DecoratedModuleItem {
+    Function(DecoratedFnDecl),
+    Struct(StructDecl),
+    Enum(EnumDecl),
+    Impl(DecoratedImplBlock),
+    Static(DecoratedStaticDecl),
 }
 
 #[derive(Debug, Clone)]
