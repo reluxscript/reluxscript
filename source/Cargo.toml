@@ -1,6 +1,6 @@
 [package]
 name = "reluxscript"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 description = "Write AST transformations once. Compile to Babel, SWC, and beyond."
 license = "MIT"
@@ -44,4 +44,4 @@ wasm = ["wasm-bindgen", "serde-wasm-bindgen", "console_error_panic_hook"]
 lsp = ["tower-lsp", "tokio"]
 
 [profile.release]
-lto = false
+lto = true
