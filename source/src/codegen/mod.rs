@@ -46,8 +46,8 @@ pub struct GeneratedCode {
 pub struct GeneratedCodeWithModules {
     pub babel: Option<String>,
     pub swc: Option<String>,
-    /// Imported modules: (module_name, code, imported_symbols)
-    pub swc_modules: Vec<(String, String, Vec<String>)>,
+    /// Imported modules: (module_name, code, imported_symbols, is_transitive)
+    pub swc_modules: Vec<(String, String, Vec<String>, bool)>,
 }
 
 /// Generate code for the given target(s)

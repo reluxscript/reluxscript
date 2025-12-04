@@ -59,9 +59,10 @@ pub struct SwcEmitter {
     /// Set of custom types used in custom properties (for CustomPropValue enum)
     custom_prop_types: std::collections::HashSet<String>,
 
-    /// Imported modules: (module_name, (code, imports))
+    /// Imported modules: (module_name, code, imports, is_transitive)
     /// Used for generating proper mod structure
-    imported_modules: Vec<(String, String, Vec<String>)>,
+    /// is_transitive: true if this module was loaded as a dependency of another module
+    imported_modules: Vec<(String, String, Vec<String>, bool)>,
 
     /// Base directory for resolving module paths
     base_dir: std::path::PathBuf,
@@ -722,6 +723,25 @@ impl SwcEmitter {
     fn emit_module(&mut self, module: &DecoratedModule) {
         use super::swc_decorator::DecoratedModuleItem;
 
+        // First pass: process pub use statements to load imported modules
+        for item in &module.items {
+            if let DecoratedModuleItem::PubUse(use_stmt) = item {
+                eprintln!("[EMITTER] emit_module processing PubUse: {:?}", use_stmt.path);
+                self.process_pub_use(use_stmt);
+            }
+        }
+
+        // Emit mod declarations and use statements for imported modules
+        // Use `pub use` for modules so symbols are re-exported
+        let mod_decls = self.generate_mod_declarations();
+        let use_stmts = self.generate_use_statements_with_visibility(true);
+        if !mod_decls.is_empty() {
+            self.output.push_str(&mod_decls);
+            self.output.push_str(&use_stmts);
+            self.emit_line("");
+        }
+
+        // Second pass: emit other items
         for item in &module.items {
             match item {
                 DecoratedModuleItem::Function(func) => {
@@ -739,6 +759,9 @@ impl SwcEmitter {
                 }
                 DecoratedModuleItem::Static(static_decl) => {
                     self.emit_static(static_decl);
+                }
+                DecoratedModuleItem::PubUse(_) => {
+                    // Already processed in first pass
                 }
             }
             self.emit_line("");
@@ -3408,8 +3431,9 @@ impl SwcEmitter {
 
         // Try to find the compiled module's lib.rs
         let stripped_path = use_stmt.path.trim_start_matches("./").trim_start_matches("../");
+        let module_dir = self.base_dir.join(stripped_path);
         let module_paths = [
-            self.base_dir.join(stripped_path).join("lib.rs"),  // base/module/lib.rs
+            module_dir.join("lib.rs"),  // base/module/lib.rs
             self.base_dir.join(format!("{}.rs", stripped_path)),  // base/module.rs
         ];
 
@@ -3419,10 +3443,18 @@ impl SwcEmitter {
                 if let Ok(code) = std::fs::read_to_string(module_path) {
                     // Strip the standard SWC headers from the module code since main lib.rs will have them
                     let stripped_code = self.strip_module_headers(&code);
+
+                    // Check for transitive dependencies (mod declarations in the loaded code)
+                    let module_parent = module_path.parent()
+                        .map(|p| p.to_path_buf())
+                        .unwrap_or_else(|| self.base_dir.clone());
+                    self.load_transitive_dependencies(&stripped_code, &module_parent);
+
                     self.imported_modules.push((
                         module_name.clone(),
                         stripped_code,
                         use_stmt.imports.clone(),
+                        false,  // Not a transitive dep, directly imported
                     ));
                     eprintln!("[EMITTER] Loaded module '{}' from {:?}", module_name, module_path);
                     return;
@@ -3434,7 +3466,52 @@ impl SwcEmitter {
             use_stmt.path, module_paths);
     }
 
+    /// Load transitive dependencies by scanning for `mod xxx;` declarations in module code
+    fn load_transitive_dependencies(&mut self, code: &str, module_dir: &std::path::Path) {
+        // Find all `mod xxx;` declarations (not `mod xxx { ... }` inline modules)
+        for line in code.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("mod ") && trimmed.ends_with(';') {
+                // Extract module name: "mod foo;" -> "foo"
+                let mod_name = trimmed
+                    .trim_start_matches("mod ")
+                    .trim_end_matches(';')
+                    .trim();
+
+                // Skip if we already have this module loaded
+                if self.imported_modules.iter().any(|(name, _, _, _)| name == mod_name) {
+                    eprintln!("[EMITTER] Transitive dep '{}' already loaded, skipping", mod_name);
+                    continue;
+                }
+
+                // Try to find the corresponding .rs file
+                let dep_path = module_dir.join(format!("{}.rs", mod_name));
+                eprintln!("[EMITTER] Looking for transitive dep '{}' at {:?}", mod_name, dep_path);
+
+                if dep_path.exists() {
+                    if let Ok(dep_code) = std::fs::read_to_string(&dep_path) {
+                        let stripped_dep_code = self.strip_module_headers(&dep_code);
+
+                        // Recursively load this module's transitive dependencies
+                        self.load_transitive_dependencies(&stripped_dep_code, module_dir);
+
+                        self.imported_modules.push((
+                            mod_name.to_string(),
+                            stripped_dep_code,
+                            vec![],  // No specific imports for transitive deps
+                            true,    // This IS a transitive dep
+                        ));
+                        eprintln!("[EMITTER] Loaded transitive dep '{}' from {:?}", mod_name, dep_path);
+                    }
+                } else {
+                    eprintln!("[EMITTER] Warning: Transitive dep '{}' not found at {:?}", mod_name, dep_path);
+                }
+            }
+        }
+    }
+
     /// Strip standard headers from module code (since main lib.rs will have them)
+    /// Also adds #[path="..."] attributes to mod declarations so they can find sibling files
     fn strip_module_headers(&self, code: &str) -> String {
         let mut lines: Vec<&str> = code.lines().collect();
         let mut start_idx = 0;
@@ -3453,31 +3530,63 @@ impl SwcEmitter {
             }
         }
 
-        lines[start_idx..].join("\n")
+        // Process remaining lines, adding #[path] attributes to mod declarations
+        let mut result = Vec::new();
+        for line in &lines[start_idx..] {
+            let trimmed = line.trim();
+            // Check for `mod xxx;` declarations (not inline modules with braces)
+            if trimmed.starts_with("mod ") && trimmed.ends_with(';') {
+                let mod_name = trimmed
+                    .trim_start_matches("mod ")
+                    .trim_end_matches(';')
+                    .trim();
+                // Add path attribute so Rust can find the sibling file
+                result.push(format!("#[path = \"{}.rs\"]", mod_name));
+            }
+            result.push(line.to_string());
+        }
+
+        result.join("\n")
     }
 
     /// Get the imported modules for generating separate files or inline modules
-    pub fn get_imported_modules(&self) -> &[(String, String, Vec<String>)] {
+    /// Returns (module_name, code, imports, is_transitive)
+    pub fn get_imported_modules(&self) -> &[(String, String, Vec<String>, bool)] {
         &self.imported_modules
     }
 
     /// Generate module declarations to be added at the top of lib.rs
+    /// Only includes direct imports, not transitive deps (those are sub-modules of their parents)
     pub fn generate_mod_declarations(&self) -> String {
         let mut output = String::new();
-        for (module_name, _, _) in &self.imported_modules {
-            output.push_str(&format!("mod {};\n", module_name));
+        for (module_name, _, _, is_transitive) in &self.imported_modules {
+            if !is_transitive {
+                output.push_str(&format!("mod {};\n", module_name));
+            }
         }
         output
     }
 
     /// Generate use statements for imported symbols
+    /// If `public` is true, generates `pub use` for re-exporting (modules)
+    /// If `public` is false, generates `use` for private imports (plugins)
+    /// Only includes direct imports, not transitive deps
     pub fn generate_use_statements(&self) -> String {
+        self.generate_use_statements_with_visibility(false)
+    }
+
+    pub fn generate_use_statements_with_visibility(&self, public: bool) -> String {
         let mut output = String::new();
-        for (module_name, _, imports) in &self.imported_modules {
+        let prefix = if public { "pub use" } else { "use" };
+        for (module_name, _, imports, is_transitive) in &self.imported_modules {
+            // Only generate use statements for direct imports, not transitive deps
+            if *is_transitive {
+                continue;
+            }
             if !imports.is_empty() {
-                output.push_str(&format!("use {}::{{{}}};\n", module_name, imports.join(", ")));
+                output.push_str(&format!("{} {}::{{{}}};\n", prefix, module_name, imports.join(", ")));
             } else {
-                output.push_str(&format!("use {}::*;\n", module_name));
+                output.push_str(&format!("{} {}::*;\n", prefix, module_name));
             }
         }
         output

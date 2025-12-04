@@ -177,6 +177,10 @@ pub fn type_to_luxon_string(ty: &crate::parser::Type) -> String {
 
 /// Extract a LUXON manifest from a parsed program
 pub fn extract_manifest(program: &crate::parser::Program, name: String) -> LuxonManifest {
+    extract_manifest_with_base_dir(program, name, std::path::Path::new("."))
+}
+
+pub fn extract_manifest_with_base_dir(program: &crate::parser::Program, name: String, base_dir: &Path) -> LuxonManifest {
     use crate::parser::{TopLevelDecl, PluginItem, EnumVariantFields};
 
     let mut manifest = LuxonManifest::new(name);
@@ -227,6 +231,32 @@ pub fn extract_manifest(program: &crate::parser::Program, name: String) -> Luxon
                     .map(|p| p.name.clone())
                     .collect();
                 manifest.add_function(f.name.clone(), params, returns, type_params);
+            }
+            PluginItem::PubUse(use_stmt) => {
+                // Re-export symbols from imported module
+                // Load the imported module's .luxon and copy the requested symbols
+                if use_stmt.path.starts_with("./") || use_stmt.path.starts_with("../") {
+                    let stripped_path = use_stmt.path.trim_start_matches("./").trim_start_matches("../");
+                    let luxon_path = base_dir.join(stripped_path).join("lib.luxon");
+
+                    if let Ok(imported_manifest) = LuxonManifest::load(&luxon_path) {
+                        // Re-export only the symbols listed in the use statement
+                        for symbol in &use_stmt.imports {
+                            // Check if it's a struct
+                            if let Some(struct_def) = imported_manifest.structs.get(symbol) {
+                                manifest.structs.insert(symbol.clone(), struct_def.clone());
+                            }
+                            // Check if it's an enum
+                            if let Some(enum_def) = imported_manifest.enums.get(symbol) {
+                                manifest.enums.insert(symbol.clone(), enum_def.clone());
+                            }
+                            // Check if it's a function
+                            if let Some(func_def) = imported_manifest.functions.get(symbol) {
+                                manifest.functions.insert(symbol.clone(), func_def.clone());
+                            }
+                        }
+                    }
+                }
             }
             _ => {}
         }

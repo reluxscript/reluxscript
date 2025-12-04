@@ -411,7 +411,7 @@ plugin {name} {{
                 println!("Generated SWC plugin: {:?}", swc_path);
 
                 // Write imported module files
-                for (module_name, module_code, _imports) in &generated.swc_modules {
+                for (module_name, module_code, _imports, _is_transitive) in &generated.swc_modules {
                     let module_path = output.join(format!("{}.rs", module_name));
                     if let Err(e) = fs::write(&module_path, module_code) {
                         eprintln!("Error writing module '{}': {}", module_name, e);
@@ -526,7 +526,7 @@ serde_json = "1.0.145"
 
             // Semantic analysis
             let base_dir = file.parent().unwrap_or_else(|| std::path::Path::new(".")).to_path_buf();
-            let result = analyze_with_base_dir(&program, base_dir);
+            let result = analyze_with_base_dir(&program, base_dir.clone());
             if !result.errors.is_empty() {
                 for error in &result.errors {
                     eprintln!(
@@ -562,8 +562,8 @@ serde_json = "1.0.145"
             let mut rewriter = SwcRewriter::new();
             let rewritten = rewriter.rewrite_program(decorated);
 
-            // Emit
-            let mut emitter = SwcEmitter::new();
+            // Emit with base_dir so modules can import other compiled modules
+            let mut emitter = SwcEmitter::with_base_dir(base_dir.clone());
             let swc_code = emitter.emit_program(&rewritten);
 
             // Create output directory
@@ -580,12 +580,22 @@ serde_json = "1.0.145"
             }
             println!("Generated SWC module: {:?}", swc_path);
 
-            // Generate .luxon manifest
+            // Write any imported module files (transitive dependencies)
+            for (module_name, module_code, _imports, _is_transitive) in emitter.get_imported_modules() {
+                let module_path = output.join(format!("{}.rs", module_name));
+                if let Err(e) = fs::write(&module_path, module_code) {
+                    eprintln!("Error writing module file: {}", e);
+                    std::process::exit(1);
+                }
+                println!("Generated module dependency: {:?}", module_path);
+            }
+
+            // Generate .luxon manifest (with base_dir for re-exports)
             let module_name = file.file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("module")
                 .to_string();
-            let manifest = reluxscript::luxon::extract_manifest(&program, module_name);
+            let manifest = reluxscript::luxon::extract_manifest_with_base_dir(&program, module_name, &base_dir);
             let luxon_path = output.join("lib.luxon");
             if let Err(e) = manifest.save(&luxon_path) {
                 eprintln!("Warning: Failed to write .luxon manifest: {}", e);

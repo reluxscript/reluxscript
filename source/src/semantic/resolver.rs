@@ -645,7 +645,14 @@ impl Resolver {
         // Just resolve their contents
         self.env.push_scope();
 
-        // First pass: declare structs and enums
+        // First pass: resolve pub use statements (imports from other modules)
+        for item in &module.items {
+            if let PluginItem::PubUse(use_stmt) = item {
+                self.resolve_use(use_stmt);
+            }
+        }
+
+        // Second pass: declare structs and enums
         for item in &module.items {
             match item {
                 PluginItem::Struct(s) => self.declare_struct(s),
@@ -654,14 +661,14 @@ impl Resolver {
             }
         }
 
-        // Second pass: declare functions
+        // Third pass: declare functions
         for item in &module.items {
             if let PluginItem::Function(f) = item {
                 self.declare_function(f);
             }
         }
 
-        // Third pass: resolve function bodies
+        // Fourth pass: resolve function bodies
         for item in &module.items {
             if let PluginItem::Function(f) = item {
                 self.resolve_function(f);

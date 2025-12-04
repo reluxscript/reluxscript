@@ -275,6 +275,10 @@ impl SwcRewriter {
             DecoratedModuleItem::Static(static_decl) => {
                 DecoratedModuleItem::Static(static_decl)
             }
+            DecoratedModuleItem::PubUse(use_stmt) => {
+                // Use statements don't need rewriting
+                DecoratedModuleItem::PubUse(use_stmt)
+            }
         }
     }
 

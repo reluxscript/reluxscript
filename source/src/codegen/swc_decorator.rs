@@ -291,8 +291,11 @@ impl SwcDecorator {
                         span: static_decl.span,
                     }))
                 }
-                // Skip hooks and use statements in standalone modules
-                PluginItem::PreHook(_) | PluginItem::ExitHook(_) | PluginItem::PubUse(_) => None,
+                PluginItem::PubUse(use_stmt) => {
+                    Some(DecoratedModuleItem::PubUse(use_stmt.clone()))
+                }
+                // Skip hooks in standalone modules
+                PluginItem::PreHook(_) | PluginItem::ExitHook(_) => None,
             }
         }).collect();
 
@@ -3113,6 +3116,7 @@ pub enum DecoratedModuleItem {
     Enum(EnumDecl),
     Impl(DecoratedImplBlock),
     Static(DecoratedStaticDecl),
+    PubUse(UseStmt),
 }
 
 #[derive(Debug, Clone)]
